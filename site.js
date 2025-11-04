@@ -18,6 +18,7 @@ const COLLAPSE_ALL_PARAM = 'CollapseAll';
 // Cookies для сохранения пользовательских предпочтений
 const Q2CSS_COOKIE = 'qj_q2css';
 const COLLAPSE_COOKIE = 'qj_collapse';
+const SECTIONS_COOKIE = 'qj_sections'; // порядок главных секций
 
 const SITE_BG_IMAGE = process.env.SITE_BG_IMAGE || '/images/fon1.png';
 
@@ -273,6 +274,26 @@ function getBoolCookie(req, name, def = false) {
     return /^(1|true|yes|on)$/i.test(v);
   }
   return def;
+}
+
+function getCookieValue(req, name) {
+  const raw = req.headers?.cookie || '';
+  if (!raw) return null;
+  const pairs = raw.split(';').map(s => s.trim()).filter(Boolean);
+  for (const p of pairs) {
+    const idx = p.indexOf('=');
+    if (idx === -1) continue;
+    const k = decodeURIComponent(p.slice(0, idx).trim());
+    if (k !== name) continue;
+    return decodeURIComponent(p.slice(idx + 1).trim());
+  }
+  return null;
+}
+
+function parseSectionsOrderCookie(req) {
+  const raw = getCookieValue(req, SECTIONS_COOKIE);
+  if (!raw) return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 
 
@@ -1852,6 +1873,7 @@ function renderPage({
   achievementsIndex = new Map(),
   statsBaseUrl = '',
   mapsList = [],
+  sectionOrder = [], // порядок главных секций из cookie
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -1861,7 +1883,6 @@ function renderPage({
     : `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23007bff'/%3E%3Ctext x='32' y='39' font-family='Arial' font-size='28' text-anchor='middle' fill='white'%3EQ%3C/text%3E%3C/svg%3E'>`;
 
   const logoBlock = logoUrl ? `<img src="${logoUrl}" alt="Логотип турнира" class="hero-logo me-3" />` : '';
-
   const siteLink = tournament.site
     ? `<a href="${escapeHtml(tournament.site)}" target="_blank" rel="noopener" class="small text-muted text-decoration-none">${escapeHtml(tournament.site)}</a>`
     : '';
@@ -1930,13 +1951,160 @@ function renderPage({
 
   const tournamentNewsSecHtml = renderNewsList('Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
 
-  // Новая секция «Статистика турнира» (по умолчанию свернута всегда)
+  // Новая секция «Статистика турнира» (по умолчанию свернута всегда, показывается если задан URL)
   const tournamentStatsSec = renderTournamentStatsSection(statsBaseUrl, containerClass, true);
 
   const streamsBottomSec = useQ2Css ? '' : renderStreamsOnly(tournament, containerClass);
 
-  // Базовые стили и остальные CSS (без изменений)
+  // Собираем главные секции в карту: id -> html (пустые не включаем при рендере)
+  const sectionsMap = new Map([
+    ['desc', descSection],
+    ['extras', extrasTopSec],
+    ['news-tournament', tournamentNewsSecHtml],
+    ['groups', `
+      <section class="mb-5">
+        <details id="section-groups" class="stage-collapse"${openAttr}>
+          <summary class="qj-toggle">
+            <span class="section-title">Квалификации</span>
+            <a href="#section-groups" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+            <span class="qj-badge ms-auto">${groups?.length || 0}</span>
+          </summary>
+          <div class="mt-2">
+            ${groupsCards}
+            ${groupsMapsRatingSec}
+            ${groupsNewsSec}
+            ${groupsRatingSec}
+            ${groupsDefinedRatingSec}
+          </div>
+        </details>
+      </section>
+    `],
+    ['finals', `
+      <section class="mb-5">
+        <details id="section-finals" class="stage-collapse"${openAttr}>
+          <summary class="qj-toggle">
+            <span class="section-title">Финальный раунд</span>
+            <a href="#section-finals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+            <span class="qj-badge ms-auto">${finals?.length || 0}</span>
+          </summary>
+          <div class="mt-2">
+            ${finalsCards}
+            ${finalsMapsRatingSec}
+            ${finalsNewsSec}
+            ${finalsRatingSec}
+            ${finalsDefinedRatingSec}
+          </div>
+        </details>
+      </section>
+    `],
+    ['superfinals', `
+      <section class="mb-5">
+        <details id="section-superfinals" class="stage-collapse"${openAttr}>
+          <summary class="qj-toggle">
+            <span class="section-title">Суперфинал</span>
+            <a href="#section-superfinals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+            <span class="qj-badge ms-auto">${superfinals?.length || 0}</span>
+          </summary>
+          <div class="mt-2">
+            ${superCards}
+            ${superMapsRatingSec}
+            ${superNewsSec}
+            ${superRatingSec}
+          </div>
+        </details>
+      </section>
+    `],
+    ['custom', customWholeSec],
+    ['achievements', achievementsAchSec],
+    ['perks', perksSec],
+    ['stats', tournamentStatsSec],
+    ['streams', streamsBottomSec],
+  ]);
+
+  const defaultOrder = [
+    'desc', 'extras', 'news-tournament',
+    'groups', 'finals', 'superfinals',
+    'custom', 'achievements', 'perks',
+    'stats', 'streams'
+  ];
+
+  // Итоговый порядок: сначала порядок из cookie, затем оставшиеся по умолчанию
+  const seen = new Set();
+  const order = [];
+  for (const id of sectionOrder || []) {
+    if (!sectionsMap.has(id)) continue;
+    const html = sectionsMap.get(id);
+    if (!html) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    order.push(id);
+  }
+  for (const id of defaultOrder) {
+    if (seen.has(id)) continue;
+    const html = sectionsMap.get(id);
+    if (!html) continue;
+    seen.add(id);
+    order.push(id);
+  }
+
+  // Оборачиваем секции в draggable-контейнеры
+  const sectionWrappers = order.map(id => {
+    const inner = sectionsMap.get(id);
+    if (!inner) return '';
+    return `
+      <div class="qj-section js-draggable-section" data-section-id="${escapeHtml(id)}" draggable="true">
+        ${inner}
+      </div>
+    `;
+  }).join('');
+
+  // Базовые стили (включая мини‑иконки ачивок/перков и DnD)
   const baseUiCss = `
+    body { background: #f8f9fa; }
+    header.hero { background: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); }
+    .hero .title { font-weight: 800; letter-spacing: .2px; }
+
+    .news-meta { white-space: normal; }
+    @media (min-width: 768px) { .news-meta { white-space: nowrap; } }
+
+    .hero-logo { max-height: 140px; width: auto; border-radius: 14px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
+    @media (max-width: 576px) { .hero-logo { max-height: 90px; } }
+    @media (min-width: 1400px) { .hero-logo { max-height: 180px; } }
+
+    .card { border-radius: 12px; }
+
+    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
+    @media (min-width: 1200px) { .cards-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
+    @media (min-width: 1920px) { .cards-grid { gap: 1.5rem; } }
+
+    .cards-grid.cards-grid--ach { grid-template-columns: 1fr; }
+    @media (min-width: 768px) { .cards-grid.cards-grid--ach { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+    .maps { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
+    .demos { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
+
+    .rating-table th, .rating-table td { vertical-align: middle; }
+    .rating-table .pos { width: 64px; }
+    .rating-table .pts { width: 120px; text-align: right; }
+
+    .qj-shot-btn { display: inline-block; border: 0; background: transparent; padding: 0; margin: 0; cursor: zoom-in; line-height: 0; }
+
+    .lightbox { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity .2s ease-out; z-index: 9999; }
+    .lightbox.is-open { opacity: 1; pointer-events: auto; }
+    .lightbox-img { max-width: 92vw; max-height: 92vh; box-shadow: 0 20px 60px rgba(0,0,0,0.4); border-radius: 12px; transform: scale(.97); transition: transform .2s ease-out, opacity .2s ease-out; opacity: 0; cursor: zoom-out; }
+    .lightbox.is-open .lightbox-img { transform: scale(1); opacity: 1; }
+    .lightbox-backdrop { position: absolute; inset: 0; }
+    .no-scroll { overflow: hidden !important; }
+
+    .player-modal { position: fixed; inset: 0; z-index: 1060; display: none; }
+    .player-modal.is-open { display: block; }
+    .player-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+    .player-modal-dialog { position: relative; margin: 6vh auto; background: #fff; color: var(--bs-body-color); width: min(920px, calc(100vw - 24px)); max-height: 88vh; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    .player-modal-header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid rgba(0,0,0,.08); position: sticky; top: 0; background: inherit; z-index: 1; }
+    .player-modal-title { font-weight: 600; }
+    .player-modal-body { height: calc(88vh - 52px); overflow: auto; }
+    .player-modal-body iframe { display: block; width: 100%; height: 100%; border: 0; }
+
     .qj-accent { color: var(--bs-primary); }
     .qj-muted { color: var(--bs-secondary); }
     .qj-pts { color: var(--bs-danger-text-emphasis); }
@@ -1945,16 +2113,19 @@ function renderPage({
     .qj-tag { display: inline-block; padding: .25rem .5rem; background-color: var(--bs-secondary-bg-subtle);
       color: var(--bs-secondary-text-emphasis); border-radius: 10rem; font-size: .8rem; border: 1px solid rgba(0,0,0,.05); }
 
+    /* Заголовки секций + DnD хват */
     details > summary.qj-toggle {
       display: flex; align-items: center; gap: .5rem;
       padding: .7rem .95rem;
-      border: 1px solid rgba(0,0,0,.06);
+      border: 1px solid rgba(0,0,0,0.06);
       background: linear-gradient(180deg, #ffffff, #f7f9fb);
       border-radius: 14px;
       box-shadow: 0 2px 8px rgba(16,24,40,.04);
-      cursor: pointer; user-select: none;
+      cursor: grab; user-select: none;
       transition: background .2s ease, box-shadow .2s ease, border-color .2s ease, transform .1s ease;
+      touch-action: none;
     }
+    details > summary.qj-toggle:active { cursor: grabbing; }
     details > summary.qj-toggle:hover {
       background: linear-gradient(180deg, #ffffff, #f4f7fa);
       box-shadow: 0 6px 18px rgba(16,24,40,.08);
@@ -1969,21 +2140,10 @@ function renderPage({
 
     .qj-anchor { opacity: .7; transition: opacity .15s ease; color: inherit; }
     summary.qj-toggle:hover .qj-anchor { opacity: 1; }
-
     .news-collapse summary, .stage-collapse summary, .sub-collapse summary { margin-bottom: .25rem; }
 
-    .maps-rating-table .pos { width: 64px; }
-    .maps-rating-table .cnt { width: 180px; }
-    .rating-table th, .rating-table td { vertical-align: middle; }
-    .rating-table .pos { width: 64px; }
-    .rating-table .pts { width: 120px; text-align: right; }
-
-    .qj-quote {
-      margin: .25rem 0; padding: .65rem .9rem; border-left: 4px solid rgba(0,0,0,.12);
-      background: rgba(0,0,0,.03); border-radius: .65rem;
-      font-style: italic; font-size: .95em; line-height: 1.55; color: var(--bs-secondary-color);
-    }
-
+    /* Мини‑иконки ачивок/перков рядом с именами */
+    .ach-badges { display: inline-flex; align-items: center; gap: .25rem; }
     .ach-badge-img {
       width: 42px; height: 42px; object-fit: contain;
       border-radius: 6px; border: 1px solid rgba(0,0,0,.15);
@@ -1994,29 +2154,6 @@ function renderPage({
       border-radius: 50%; border: 1px solid rgba(0,0,0,.15);
       vertical-align: middle;
     }
-
-    .qj-map-tag {
-      position: relative;
-      z-index: 0;
-      filter: drop-shadow(0 0 2px rgba(148,163,184,.25)) drop-shadow(0 0 4px rgba(96,165,250,.25));
-    }
-    .qj-map-tag::before {
-      content: "";
-      position: absolute;
-      inset: -1.25px;
-      padding: 1.25px;
-      border-radius: 999px;
-      pointer-events: none;
-      opacity: .85;
-      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      background: conic-gradient(#9ca3af, #cbd5e1, #93c5fd, #bfdbfe, #cbd5e1, #9ca3af);
-      animation: mapGlowPulse 2.2s ease-in-out infinite;
-    }
-    @keyframes mapGlowPulse { 0%,100%{opacity:.6;} 50%{opacity:.95;} }
-    @media (prefers-reduced-motion: reduce) { .qj-map-tag::before { animation: none; } }
-
     .ach-badge-link, .perc-badge-link { position: relative; display: inline-block; }
     .ach-badge-link { border-radius: 6px; filter: drop-shadow(0 0 2px rgba(255,77,109,.55)) drop-shadow(0 0 6px rgba(255,153,172,.35)); }
     .perc-badge-link { border-radius: 50%; filter: drop-shadow(0 0 2px rgba(96,165,250,.55)) drop-shadow(0 0 6px rgba(34,211,238,.35)); }
@@ -2030,15 +2167,16 @@ function renderPage({
     .ach-badges img { transition: transform .15s ease, box-shadow .15s ease; transform-origin: center center; }
     .ach-badges img:hover { transform: scale(4); z-index: 10; position: relative; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
     .ach-badge-fallback { font-size: .9em; }
-    .ach-badge-link:hover::before, .perc-badge-link:hover::before { transform: scale(4); }
     @keyframes glowPulse { 0%,100%{opacity:.65;} 50%{opacity:1;} }
 
+    /* Крупные превью ачивок внутри секций */
     .ach-thumb {
       width: 165px; height: 165px; object-fit: contain;
       border-radius: 6px; border: 1px solid rgba(0,0,0,.1);
       box-shadow: 0 6px 18px rgba(16,24,40,.06);
     }
 
+    /* Списки игроков */
     .players { margin: 0; padding: 0; }
     .players li { display: flex; align-items: center; gap: .5rem; padding: .35rem 0; margin: 0; line-height: 1.25; }
     .players li + li { border-top: 1px solid rgba(0,0,0,.08); }
@@ -2050,46 +2188,46 @@ function renderPage({
 
     .player-pts {
       display: inline-flex; align-items: center; justify-content: center;
-      min-width: 1.6rem; height: 1.35rem; padding: 0 .5rem; border-radius: .75rem;
+      min-width: 1.6rem; height: 1.35rem; padding: 0 .5rem;
+      border-radius: .75rem;
       background: linear-gradient(135deg, rgba(255,99,132,.08), rgba(255,159,64,.08));
-      color: #b42318; border: 1px solid rgba(244,63,94,.2); font-weight: 800;
-      font-variant-numeric: tabular-nums; line-height: 1; vertical-align: middle; box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
+      color: #b42318;
+      border: 1px solid rgba(244,63,94,.2);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      vertical-align: middle;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
     }
+
+    /* DnD секции */
+    .qj-section { margin-bottom: 2rem; }
+    .qj-sections-root .qj-section.dragging { opacity: .6; }
   `;
 
+  // Современная тема (градиенты по типам секций)
   const modernUiCss = !useQ2Css ? `
     :root {
       --tone-tournament: linear-gradient(180deg, #f6faff 0%, #eef5ff 100%);
-      --tone-tournament-sub: linear-gradient(180deg, #fafcff 0%, #f3f8ff 100%);
       --tone-tournament-edge: rgba(37,99,235,.18);
 
       --tone-qual: linear-gradient(180deg, #f5fff7 0%, #ecfbf0 100%);
-      --tone-qual-sub: linear-gradient(180deg, #fbfffc 0%, #f4fdf6 100%);
       --tone-qual-edge: rgba(22,163,74,.18);
 
       --tone-final: linear-gradient(180deg, #fbf7ff 0%, #f6effe 100%);
-      --tone-final-sub: linear-gradient(180deg, #fdfbff 0%, #f8f3ff 100%);
       --tone-final-edge: rgba(124,58,237,.18);
 
       --tone-super: linear-gradient(180deg, #fff7f5 0%, #ffefeb 100%);
-      --tone-super-sub: linear-gradient(180deg, #fffbfa 0%, #fff5f2 100%);
       --tone-super-edge: rgba(239,68,68,.18);
 
       --tone-custom: linear-gradient(180deg, #f5fffd 0%, #ebfcf7 100%);
-      --tone-custom-sub: linear-gradient(180deg, #fbfffe 0%, #f4fefb 100%);
       --tone-custom-edge: rgba(14,165,233,.18);
 
       --tone-ach: linear-gradient(180deg, #fffaf2 0%, #fff3e0 100%);
-      --tone-ach-sub: linear-gradient(180deg, #fffcf7 0%, #fff7ea 100%);
       --tone-ach-edge: rgba(245,158,11,.18);
 
       --tone-perk: linear-gradient(180deg, #f6f8ff 0%, #eef3ff 100%);
-      --tone-perk-sub: linear-gradient(180deg, #fafbff 0%, #f2f6ff 100%);
       --tone-perk-edge: rgba(79,70,229,.18);
-
-      --tone-news: linear-gradient(180deg, #f7f9fc 0%, #eff3f9 100%);
-      --tone-news-sub: linear-gradient(180deg, #fafcff 0%, #f3f7fd 100%);
-      --tone-news-edge: rgba(30,41,59,.12);
     }
 
     body:not(.q2css-active) .card {
@@ -2114,7 +2252,6 @@ function renderPage({
       background: var(--tone-tournament);
       border-left: 4px solid var(--tone-tournament-edge);
     }
-
     body:not(.q2css-active) #section-groups > summary.qj-toggle,
     body:not(.q2css-active) #section-news-groups > summary.qj-toggle {
       background: var(--tone-qual);
@@ -2140,22 +2277,18 @@ function renderPage({
     }
     body:not(.q2css-active) #section-perks > summary.qj-toggle {
       background: var(--tone-perk);
-      border-left: 4px solid var(--tone-perk-edge);
-    }
-
-    body:not(.q2css-active) details > summary.qj-toggle .qj-badge {
-      background: rgba(0,0,0,.04); color: var(--bs-emphasis-color);
-      border: 1px solid rgba(0,0,0,.06);
+      border-left: 4px solid var(--tone-perк-edge);
     }
 
     body:not(.q2css-active) { background: linear-gradient(180deg, #f7f9fc, #f3f6fb); }
     body:not(.q2css-active) header.hero { background: transparent; border-bottom: 0; }
   ` : '';
 
+  // Ретро‑режим (Q2CSS) — оверрайды
   const q2OverridesCss = `
     body.q2css-active details > summary.qj-toggle {
       border-radius: 0 !important; background: #FAD3BC !important; border: 1px solid #000 !important;
-      box-shadow: none !important; padding: 6px 8px !important;
+      box-shadow: none !important; padding: 6px 8px !important; cursor: grab;
     }
     body.q2css-active details > summary.qj-toggle .section-title {
       color: #000 !important; font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 12px;
@@ -2203,8 +2336,8 @@ function renderPage({
 
     body.q2css-active .qj-quote { font-style: italic; font-size: .95em; background: #FEECD3; border-left: 4px solid #A22C21; border-radius: 0; color: #000; }
 
-    body.q2css-active .ach-badge-img { border: 1px solid #000; border-radius: 0; }
-    body.q2css-active .perc-badge-img { border: 1px solid #000; border-radius: 50%; }
+    body.q2css-active .ach-badge-img { border: 1px solid #000; border-radius: 0; width: 42px; height: 42px; object-fit: contain; }
+    body.q2css-active .perc-badge-img { border: 1px solid #000; border-radius: 50%; width: 42px; height: 42px; object-fit: contain; }
     body.q2css-active .ach-thumb { border: 1px solid #000; border-radius: 0; }
     body.q2css-active .ach-badges img:hover { box-shadow: none; }
 
@@ -2212,6 +2345,7 @@ function renderPage({
     body.q2css-active * { font-size: inherit !important; }
   `;
 
+  // Фон modern-темы (SITE_BG_IMAGE)
   const animatedBgCss = !useQ2Css ? `
     body:not(.q2css-active) {
       background-color: #0b0d10 !important;
@@ -2236,6 +2370,7 @@ function renderPage({
 
   const q2BtnClass = useQ2Css ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-primary';
   const collBtnClass = collapseAll ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-primary';
+  const resetBtnClass = 'btn btn-sm btn-outline-secondary';
 
   return `<!doctype html>
 <html lang="ru" data-bs-theme="auto" class="${useQ2Css ? 'q2css-active' : ''}">
@@ -2246,52 +2381,6 @@ function renderPage({
   ${faviconLink}
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    body { background: #f8f9fa; }
-    header.hero { background: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); }
-    .hero .title { font-weight: 800; letter-spacing: .2px; }
-
-    .news-meta { white-space: normal; }
-    @media (min-width: 768px) { .news-meta { white-space: nowrap; } }
-
-    .hero-logo { max-height: 140px; width: auto; border-radius: 14px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
-    @media (max-width: 576px) { .hero-logo { max-height: 90px; } }
-    @media (min-width: 1400px) { .hero-logo { max-height: 180px; } }
-
-    .card { border-radius: 12px; }
-
-    .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
-    @media (min-width: 1200px) { .cards-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
-    @media (min-width: 1920px) { .cards-grid { gap: 1.5rem; } }
-
-    .cards-grid.cards-grid--ach { grid-template-columns: 1fr; }
-    @media (min-width: 768px) { .cards-grid.cards-grid--ach { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-
-    .maps { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
-    .demos { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
-
-    .rating-table th, .rating-table td { vertical-align: middle; }
-    .rating-table .pos { width: 64px; }
-    .rating-table .pts { width: 120px; text-align: right; }
-
-    .qj-shot-btn { display: inline-block; border: 0; background: transparent; padding: 0; margin: 0; cursor: zoom-in; line-height: 0; }
-
-    .lightbox { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity .2s ease-out; z-index: 9999; }
-    .lightbox.is-open { opacity: 1; pointer-events: auto; }
-    .lightbox-img { max-width: 92vw; max-height: 92vh; box-shadow: 0 20px 60px rgba(0,0,0,0.4); border-radius: 12px; transform: scale(.97); transition: transform .2s ease-out, opacity .2s ease-out; opacity: 0; cursor: zoom-out; }
-    .lightbox.is-open .lightbox-img { transform: scale(1); opacity: 1; }
-    .lightbox-backdrop { position: absolute; inset: 0; }
-
-    .no-scroll { overflow: hidden !important; }
-
-    .player-modal { position: fixed; inset: 0; z-index: 1060; display: none; }
-    .player-modal.is-open { display: block; }
-    .player-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
-    .player-modal-dialog { position: relative; margin: 6vh auto; background: #fff; color: var(--bs-body-color); width: min(920px, calc(100vw - 24px)); max-height: 88vh; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
-    .player-modal-header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid rgba(0,0,0,.08); position: sticky; top: 0; background: inherit; z-index: 1; }
-    .player-modal-title { font-weight: 600; }
-    .player-modal-body { height: calc(88vh - 52px); overflow: auto; }
-    .player-modal-body iframe { display: block; width: 100%; height: 100%; border: 0; }
-
     ${baseUiCss}
     ${modernUiCss}
     ${animatedBgCss}
@@ -2309,6 +2398,7 @@ function renderPage({
           <div class="d-flex justify-content-end gap-2 mb-2">
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
+            <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
           </div>
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
@@ -2324,6 +2414,7 @@ function renderPage({
           <div class="d-flex justify-content-end gap-2 mb-2">
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
+            <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
           </div>
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h3 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
@@ -2335,66 +2426,9 @@ function renderPage({
   </header>
 
   <main class="${containerClass} py-4">
-    ${descSection}
-    ${extrasTopSec}
-    ${tournamentNewsSecHtml}
-
-    <section class="mb-5">
-      <details id="section-groups" class="stage-collapse"${openAttr}>
-        <summary class="qj-toggle">
-          <span class="section-title">Квалификации</span>
-          <a href="#section-groups" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-          <span class="qj-badge ms-auto">${groups?.length || 0}</span>
-        </summary>
-        <div class="mt-2">
-          ${groupsCards}
-          ${groupsMapsRatingSec}
-          ${groupsNewsSec}
-          ${groupsRatingSec}
-          ${groupsDefinedRatingSec}
-        </div>
-      </details>
-    </section>
-
-    <section class="mb-5">
-      <details id="section-finals" class="stage-collapse"${openAttr}>
-        <summary class="qj-toggle">
-          <span class="section-title">Финальный раунд</span>
-          <a href="#section-finals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-          <span class="qj-badge ms-auto">${finals?.length || 0}</span>
-        </summary>
-        <div class="mt-2">
-          ${finalsCards}
-          ${finalsMapsRatingSec}
-          ${finalsNewsSec}
-          ${finalsRatingSec}
-          ${finalsDefinedRatingSec}
-        </div>
-      </details>
-    </section>
-
-    <section class="mb-5">
-      <details id="section-superfinals" class="stage-collapse"${openAttr}>
-        <summary class="qj-toggle">
-          <span class="section-title">Суперфинал</span>
-          <a href="#section-superfinals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-          <span class="qj-badge ms-auto">${superfinals?.length || 0}</span>
-        </summary>
-        <div class="mt-2">
-          ${superCards}
-          ${superMapsRatingSec}
-          ${superNewsSec}
-          ${superRatingSec}
-        </div>
-      </details>
-    </section>
-
-    ${customWholeSec}
-    ${achievementsAchSec}
-    ${perksSec}
-
-    ${tournamentStatsSec}
-    ${streamsBottomSec}
+    <div id="sections-root" class="qj-sections-root">
+      ${sectionWrappers}
+    </div>
   </main>
 
   <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Просмотр скриншота">
@@ -2427,9 +2461,7 @@ function renderPage({
       const lb = document.getElementById('lightbox');
       const img = lb.querySelector('.lightbox-img');
       const backdrop = lb.querySelector('.lightbox-backdrop');
-
-      let lbOpen = false;
-      let lastCloseAt = 0;
+      let lbOpen = false, lastCloseAt = 0;
 
       function resetImgInlineStyles() {
         img.style.opacity = '';
@@ -2439,15 +2471,12 @@ function renderPage({
         img.style.height = '';
         img.style.position = '';
       }
-
       function openLb(src) {
-        if (!src) return;
-        if (lbOpen) return;
+        if (!src || lbOpen) return;
         resetImgInlineStyles();
         img.removeAttribute('width');
         img.removeAttribute('height');
         img.src = src;
-
         lb.classList.add('is-open');
         document.body.classList.add('no-scroll');
         lb.setAttribute('aria-hidden', 'false');
@@ -2463,36 +2492,20 @@ function renderPage({
         setTimeout(() => { img.removeAttribute('src'); }, 200);
         lbOpen = false;
       }
-
       document.addEventListener('click', function(e){
         const trg = e.target.closest('.js-shot');
         if (!trg) return;
         if (Date.now() - lastCloseAt < 250) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-          return;
+          e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); return;
         }
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.();
         openLb(trg.getAttribute('data-src'));
       });
+      backdrop.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); closeLb(); });
+      img.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); closeLb(); });
+      document.addEventListener('keydown', (e) => { if (lbOpen && (e.key === 'Escape' || e.key === 'Esc')) closeLb(); });
 
-      function onCloseClick(e){
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-        closeLb();
-      }
-      backdrop.addEventListener('click', onCloseClick);
-      img.addEventListener('click', onCloseClick);
-
-      document.addEventListener('keydown', function(e){
-        if (lbOpen && (e.key === 'Escape' || e.key === 'Esc')) closeLb();
-      });
-
-      // Twitch embeds
+      // Twitch embeds (parent=hostname)
       const hostname = location.hostname;
       document.querySelectorAll('iframe.js-twitch-embed[data-channel]').forEach(ifr => {
         const ch = ifr.getAttribute('data-channel'); if (!ch) return;
@@ -2505,10 +2518,9 @@ function renderPage({
         const raw = location.hash.slice(1);
         if (!raw) return;
         const id = decodeURIComponent(raw);
-        let el = document.getElementById(id);
+        const el = document.getElementById(id);
         if (!el) return;
-
-        if (el.tagName && el.tagName.toLowerCase() === 'details') el.open = true;
+        if (el.tagName?.toLowerCase() === 'details') el.open = true;
         if (!el.matches('details')) {
           const innerDetails = el.querySelector('details');
           if (innerDetails) {
@@ -2519,7 +2531,6 @@ function renderPage({
         }
         let parentDetails = el.closest('details');
         while (parentDetails) { parentDetails.open = true; parentDetails = parentDetails.parentElement?.closest?.('details'); }
-
         setTimeout(() => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 0);
       }
       openDetailsForHash();
@@ -2533,7 +2544,6 @@ function renderPage({
       const pmClose = pm?.querySelector('#playerModalClose');
       const pmName = pm?.querySelector('#playerModalName');
       const pmFrame = pm?.querySelector('#playerModalFrame');
-
       function openPlayerModal(playerName) {
         if (!pm || !statsEnabled || !statsBase) return;
         const sep = statsBase.includes('?') ? '&' : '?';
@@ -2551,15 +2561,10 @@ function renderPage({
         pm.setAttribute('aria-hidden', 'true');
         setTimeout(() => { if (pmFrame) pmFrame.src = 'about:blank'; }, 150);
       }
-
       if (statsEnabled && statsBase) {
         document.addEventListener('click', function(e){
           const a = e.target.closest('.js-player-stat');
-          if (a) {
-            e.preventDefault();
-            const player = a.getAttribute('data-player') || '';
-            openPlayerModal(player);
-          }
+          if (a) { e.preventDefault(); openPlayerModal(a.getAttribute('data-player') || ''); }
         });
         pmBackdrop?.addEventListener('click', closePlayerModal);
         pmClose?.addEventListener('click', closePlayerModal);
@@ -2568,24 +2573,118 @@ function renderPage({
         });
       }
 
-      // Переключатели Q2CSS и CollapseAll
+      // Переключатели Q2CSS и CollapseAll (сервер выставит cookies)
       const isQ2Css = ${useQ2Css ? 'true' : 'false'};
       const isCollapsed = ${collapseAll ? 'true' : 'false'};
       const Q2_PARAM = ${JSON.stringify(FORCE_Q2CSS_PARAM)};
       const COLLAPSE_PARAM = ${JSON.stringify(COLLAPSE_ALL_PARAM)};
-
       function toggleParam(name, current) {
         const url = new URL(location.href);
         url.searchParams.set(name, current ? '0' : '1');
         location.href = url.toString();
       }
+      document.querySelectorAll('.js-btn-toggle-q2').forEach(btn => btn.addEventListener('click', () => toggleParam(Q2_PARAM, isQ2Css)));
+      document.querySelectorAll('.js-btn-toggle-collapse').forEach(btn => btn.addEventListener('click', () => toggleParam(COLLAPSE_PARAM, isCollapsed)));
 
-      document.querySelectorAll('.js-btn-toggle-q2').forEach(btn => {
-        btn.addEventListener('click', () => toggleParam(Q2_PARAM, isQ2Css));
-      });
-      document.querySelectorAll('.js-btn-toggle-collapse').forEach(btn => {
-        btn.addEventListener('click', () => toggleParam(COLLAPSE_PARAM, isCollapsed));
-      });
+      // Сброс порядка секций к умолчанию (удалить cookie и перезагрузить)
+      (function(){
+        const COOKIE_NAME = ${JSON.stringify(SECTIONS_COOKIE)};
+        function resetSectionsOrder() {
+          document.cookie = encodeURIComponent(COOKIE_NAME) + '=; Max-Age=0; Path=/; SameSite=Lax';
+          location.reload();
+        }
+        document.querySelectorAll('.js-btn-reset-sections').forEach(btn => {
+          btn.addEventListener('click', (e) => { e.preventDefault(); resetSectionsOrder(); });
+        });
+      })();
+
+      // DnD reorder главных секций (desktop HTML5 DnD + mobile Pointer Events)
+      (function(){
+        const root = document.getElementById('sections-root');
+        if (!root) return;
+        const COOKIE_NAME = ${JSON.stringify(SECTIONS_COOKIE)};
+        const ONE_YEAR = 60*60*24*365;
+
+        function saveOrder() {
+          const ids = Array.from(root.querySelectorAll('.js-draggable-section'))
+            .map(el => el.getAttribute('data-section-id'))
+            .filter(Boolean);
+          document.cookie = encodeURIComponent(COOKIE_NAME) + '=' + encodeURIComponent(ids.join(','))
+            + '; Max-Age=' + ONE_YEAR + '; Path=/; SameSite=Lax';
+        }
+
+        // Desktop DnD
+        let dragging = null;
+        function getDragAfterElement(container, y) {
+          const els = [...container.querySelectorAll('.js-draggable-section:not(.dragging)')];
+          let closest = null, closestOffset = Number.NEGATIVE_INFINITY;
+          for (const el of els) {
+            const box = el.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closestOffset) { closestOffset = offset; closest = el; }
+          }
+          return closest;
+        }
+        root.addEventListener('dragstart', (e) => {
+          const sec = e.target.closest('.js-draggable-section'); if (!sec) return;
+          dragging = sec; sec.classList.add('dragging');
+          try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', sec.dataset.sectionId || ''); } catch(_) {}
+        });
+        root.addEventListener('dragover', (e) => {
+          if (!dragging) return; e.preventDefault();
+          const afterEl = getDragAfterElement(root, e.clientY);
+          if (afterEl == null) root.appendChild(dragging);
+          else root.insertBefore(dragging, afterEl);
+        });
+        root.addEventListener('drop', (e) => { if (!dragging) return; e.preventDefault(); dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
+        root.addEventListener('dragend', () => { if (dragging) dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
+
+        // Mobile Pointer DnD — перетаскиваем за summary.qj-toggle
+        let pDragging = null, started = false, startY = 0, suppressClick = false;
+
+        root.addEventListener('pointerdown', (e) => {
+          const sum = e.target.closest('summary.qj-toggle'); if (!sum) return;
+          const sec = sum.closest('.js-draggable-section'); if (!sec) return;
+          pDragging = sec; startY = e.clientY; started = false; suppressClick = false;
+        }, { passive: true });
+
+        root.addEventListener('pointermove', (e) => {
+          if (!pDragging) return;
+          const dy = Math.abs(e.clientY - startY);
+          if (!started && dy >= 5) {
+            started = true;
+            pDragging.classList.add('dragging');
+            suppressClick = true;
+          }
+          if (!started) return;
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          const targetSec = el ? el.closest('.js-draggable-section') : null;
+          if (!targetSec || targetSec === pDragging) return;
+          const box = targetSec.getBoundingClientRect();
+          const before = e.clientY < box.top + box.height / 2;
+          if (before) root.insertBefore(pDragging, targetSec);
+          else root.insertBefore(pDragging, targetSec.nextSibling);
+          e.preventDefault();
+        });
+
+        function endPointerDrag() {
+          if (!pDragging) return;
+          if (started) saveOrder();
+          pDragging.classList.remove('dragging');
+          pDragging = null; started = false;
+          setTimeout(() => { suppressClick = false; }, 0);
+        }
+        root.addEventListener('pointerup', endPointerDrag);
+        root.addEventListener('pointercancel', endPointerDrag);
+
+        // Глушим «клик» по summary после drag (чтобы не сворачивалось/раскрывалось)
+        root.addEventListener('click', (e) => {
+          if (!suppressClick) return;
+          if (e.target.closest('summary.qj-toggle')) {
+            e.preventDefault(); e.stopPropagation();
+          }
+        }, true);
+      })();
     })();
   </script>
 </body>
@@ -2633,6 +2732,7 @@ async function main() {
   }));
 
   // Главная
+
   app.get('/', async (req, res) => {
     try {
       // 1) Читаем query-флаги и cookies
@@ -2646,6 +2746,9 @@ async function main() {
       const collapseAll = collParamDefined
         ? getBoolQuery(req, COLLAPSE_ALL_PARAM, false)
         : getBoolCookie(req, COLLAPSE_COOKIE, false);
+  
+      // порядок секций из cookie
+      const sectionsOrder = parseSectionsOrderCookie(req);
   
       // 2) Если пришли query — обновим cookies (1 год)
       const cookiesToSet = [];
@@ -2725,6 +2828,7 @@ async function main() {
         achievementsIndex,
         statsBaseUrl: PLAYER_STATS_URL,
         mapsList,
+        sectionOrder: sectionsOrder, // НОВОЕ
       });
   
       if (cookiesToSet.length) {
@@ -2736,6 +2840,7 @@ async function main() {
       res.status(500).send('Internal Server Error');
     }
   });
+  
   
   // Healthcheck
   const server = app.listen(PORT, () => {
