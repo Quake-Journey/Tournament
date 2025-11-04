@@ -15,6 +15,10 @@ const PLAYER_STATS_ENABLED = /^(1|true|yes)$/i.test(String(process.env.PLAYER_ST
 const FORCE_Q2CSS_PARAM = 'forceQuake2ComRuCSS';
 // Параметр для сворачивания всех новостных секций по умолчанию
 const COLLAPSE_ALL_PARAM = 'CollapseAll';
+// Cookies для сохранения пользовательских предпочтений
+const Q2CSS_COOKIE = 'qj_q2css';
+const COLLAPSE_COOKIE = 'qj_collapse';
+
 const SITE_BG_IMAGE = process.env.SITE_BG_IMAGE || '/images/fon1.png';
 
 // Стили quake2.com.ru — подключаются только при наличии ?forceQuake2ComRuCSS=1
@@ -256,6 +260,22 @@ function getBoolQuery(req, name, def = false) {
   return /^(1|true|yes|on)$/i.test(String(raw));
 }
 
+function getBoolCookie(req, name, def = false) {
+  const raw = req.headers?.cookie || '';
+  if (!raw) return def;
+  const pairs = raw.split(';').map(s => s.trim()).filter(Boolean);
+  for (const p of pairs) {
+    const idx = p.indexOf('=');
+    if (idx === -1) continue;
+    const k = decodeURIComponent(p.slice(0, idx).trim());
+    if (k !== name) continue;
+    const v = decodeURIComponent(p.slice(idx + 1).trim());
+    return /^(1|true|yes|on)$/i.test(v);
+  }
+  return def;
+}
+
+
 function linkify(text = '') {
   // Сначала экранируем весь текст
   const escaped = escapeHtml(String(text || ''));
@@ -448,12 +468,12 @@ function linkifyAchievements(html = '') {
   });
 }
 
-// Санитайзер: оставляем только <a>, <strong>, <em>, <br>, чистим атрибуты
+// Санитайзер: оставляем только <a>, <strong>, <em>, <br>, <iframe> (только безопасные источники)
 function sanitizeAchievementHtml(html = '') {
   let s = String(html || '');
 
   // Удаляем все теги, кроме разрешённых
-  s = s.replace(/<\/?(?!a\b|strong\b|em\b|br\b)[a-z][^>]*>/gi, '');
+  s = s.replace(/<\/?(?!a\b|strong\b|em\b|br\b|iframe\b)[a-z][^>]*>/gi, '');
 
   // Чистим теги strong/em/br от любых атрибутов
   s = s.replace(/<(strong|em|br)\b[^>]*>/gi, (m, tag) => `<${tag}>`);
@@ -473,6 +493,70 @@ function sanitizeAchievementHtml(html = '') {
     return `<a href="${escapeAttr(href)}"${extra}>`;
   });
 
+  // Безопасные <iframe> (YouTube, Twitch, VK Video, RuTube, VK Play)
+  s = s.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, (m) => {
+    const getAttr = (name) => {
+      const re = new RegExp(name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i');
+      const mm = m.match(re);
+      return mm ? (mm[1] || mm[2] || mm[3] || '') : '';
+    };
+
+    // ВАЖНО: src может прийти уже с &amp; — нормализуем перед проверками и финальным выводом
+    let src = String(getAttr('src') || '').trim();
+    src = src.replace(/&amp;/g, '&');
+
+    const cls = String(getAttr('class') || '').trim();
+    const dataChannel = String(getAttr('data-channel') || '').trim();
+
+    const isYouTube = /^https?:\/\/(www\.)?youtube\.com\/embed\/[A-Za-z0-9_-]{6,}/i.test(src);
+    const isVkPlay = /^https?:\/\/[^\/]*vkplay/i.test(src);
+    const isVkVideo = /^https?:\/\/(www\.)?vk\.com\/video_ext\.php\?/i.test(src);
+    const isRuTube = /^https?:\/\/rutube\.ru\/play\/embed\/[A-Za-z0-9]+/i.test(src);
+    const isTwitch = !src && /\bjs-twitch-embed\b/.test(cls) && /^[A-Za-z0-9_]{2,30}$/.test(dataChannel);
+
+    if (isYouTube) {
+      return `<iframe src="${escapeAttr(src)}" title="Видео YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    }
+
+    if (isVkVideo) {
+      return `<iframe src="${escapeAttr(src)}" title="Видео VK" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    }
+
+    if (isRuTube) {
+      return `<iframe src="${escapeAttr(src)}" title="Видео RuTube" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    }
+
+    if (isVkPlay) {
+      return `<iframe src="${escapeAttr(src)}" title="Видео" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    }
+
+    if (isTwitch) {
+      return `<iframe class="js-twitch-embed" data-channel="${escapeAttr(dataChannel)}" title="Видео Twitch" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    }
+
+    // Неизвестный iframe — вырезаем
+    return '';
+  });
+
+  return s;
+}
+
+
+// Инлайн-вставка видео в HTML новости: <a href="...">...</a> -> <iframe ...>
+// Заменяем только те ссылки, где текст ссылки равен самому URL (типичный "голый" URL).
+function injectEmbedsIntoNewsHtml(html = '') {
+  let s = String(html || '');
+  s = s.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (m, attrs, label) => {
+    const labelText = String(label || '').trim();
+    const mHref = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const href = (mHref ? (mHref[1] || mHref[2] || mHref[3]) : '' || '').trim();
+
+    // Вставляем плеер только если текст ссылки именно "голый" URL
+    if (!href || labelText !== href) return m;
+
+    const iframe = mediaIframeInlineFromUrl(href);
+    return iframe || m;
+  });
   return s;
 }
 
@@ -481,7 +565,7 @@ function renderAchievementRichText(text = '') {
   // 1) BB -> HTML
   let html = bbToHtmlAchievements(text);
 
-  // 2) Маскируем уже созданные <a>...</a>, чтобы не залинковывать внутри
+  // 2) Маскируем уже существующие <a>...</a>, чтобы autolink не лез внутрь
   const { masked, placeholders } = maskExistingAnchors(html);
 
   // 3) Autolink http/https и #якорей
@@ -490,13 +574,15 @@ function renderAchievementRichText(text = '') {
   // 4) Возвращаем исходные <a>...</a>
   html = unmaskExistingAnchors(html, placeholders);
 
-  // 5) Санитизируем (оставляем только разрешённые теги/атрибуты)
+  // 5) Вставляем видео-превью (YouTube/Twitch/VK) внутрь текста после соответствующих ссылок
+  html = injectEmbedsIntoHtml(html);
+
+  // 6) Санитизируем (оставляем только разрешённые теги/атрибуты, iframe только для известных источников)
   html = sanitizeAchievementHtml(html);
 
   return html;
 }
 
-// Раздел (обобщённый): cards по списку элементов
 // Раздел (обобщённый): cards по списку элементов
 function renderAchievementsSectionTitled(title, sectionId, items = [], collapsedByDefault = false) {
   if (!items?.length) return '';
@@ -916,10 +1002,18 @@ function renderNewsList(title, news = [], collapsedByDefault = false, sectionId 
     const nid = (n && n._id && typeof n._id.toString === 'function') ? n._id.toString() : String(n?._id || '');
     const idAttr = nid ? ` id="news-${escapeHtml(nid)}"` : '';
     const selfLink = nid ? `<a href="#news-${escapeHtml(nid)}" class="ms-2 text-decoration-none" aria-label="Ссылка на новость">#</a>` : '';
+
+    // 1) Рендерим rich-text (экранирование + автоссылки)
+    const baseHtml = renderNewsRichText(n.text || '');
+    // 2) Инлайн-вставляем плееры на место «голых» URL
+    const textWithEmbeds = injectEmbedsIntoNewsHtml(baseHtml).trim();
+
     return `
       <li class="list-group-item"${idAttr}>
         <div class="d-flex flex-column flex-md-row">
-          <div class="flex-grow-1 news-text" style="white-space: pre-wrap;">${renderNewsRichText(n.text || '')}</div>
+          <div class="flex-grow-1">
+            <div class="news-text" style="white-space: pre-wrap;">${textWithEmbeds}</div>
+          </div>
           <div class="news-meta small text-muted mt-2 mt-md-0 ms-0 ms-md-3">
             ${escapeHtml(ts)}${who ? ` (${escapeHtml(who)})` : ''}${selfLink}
           </div>
@@ -963,6 +1057,7 @@ function renderNewsList(title, news = [], collapsedByDefault = false, sectionId 
     </section>
   `;
 }
+
 
 function renderPlayers(players = [], ptsMap = null, achIndex = null) {
   if (!players?.length) return '<div class="text-muted small">(пусто)</div>';
@@ -1197,6 +1292,229 @@ function toVkPlayEmbed(url) {
   return null;
 }
 
+// VK Video: обычные ссылки вида https://<subdomain>.vkvideo.ru/video-<oid>_<id>
+// Преобразуем в официальный embed-плеер VK: https://vk.com/video_ext.php?oid=<oid>&id=<id>&hd=2
+function toVkVideoEmbed(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+    // Любые поддомены *.vkvideo.ru и прямые vk.com/video-... тоже поддержим
+    const host = u.hostname.replace(/^www\./, '');
+    const isVkVideo = host.endsWith('vkvideo.ru') || host === 'vk.com';
+    if (!isVkVideo) return null;
+
+    // Ищем в pathname шаблон /video-<oid>_<id> или просто video-<oid>_<id>
+    const m = u.pathname.match(/\/?video(-?\d+)_(\d+)/i);
+    if (!m) return null;
+    const oid = m[1];
+    const id = m[2];
+    return `https://vk.com/video_ext.php?oid=${encodeURIComponent(oid)}&id=${encodeURIComponent(id)}&hd=2`;
+  } catch (_) { }
+  return null;
+}
+
+// RuTube: обычные ссылки вида https://rutube.ru/video/<id>/...
+// Embed: https://rutube.ru/play/embed/<id>
+function toRutubeEmbed(url) {
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host !== 'rutube.ru') return null;
+    const m = u.pathname.match(/\/video\/([0-9a-f]{10,})/i);
+    if (!m) return null;
+    return `https://rutube.ru/play/embed/${m[1]}`;
+  } catch (_) { }
+  return null;
+}
+
+function escapeRegExp(str = '') {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Удаляем «голые» URL-строки и нормализуем пустые строки
+function escapeRegExp(str = '') {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Удаляем «голые» URL-строки и нормализуем пустые строки
+function cleanupNewsTextForEmbeds(text = '', urls = []) {
+  let s = String(text || '').replace(/\r\n?/g, '\n');
+
+  // Удаляем строки, которые целиком состоят из URL (по которым построен embed)
+  for (const u of urls || []) {
+    if (!u) continue;
+    const re = new RegExp(`^\\s*${escapeRegExp(u)}\\s*$`, 'gm');
+    s = s.replace(re, '');
+  }
+
+  // Удаляем трейлинговые пробелы по строкам
+  s = s.replace(/[ \t]+\n/g, '\n');
+
+  // Схлопываем 2+ пустых строк в одну (важно после удаления строк с URL)
+  s = s.replace(/\n{2,}/g, '\n');
+
+  // Подчищаем ведущие/замыкающие пустые строки
+  s = s.replace(/^\n+|\n+$/g, '');
+
+  return s;
+}
+
+// Извлечение всех http/https ссылок из текста
+function extractUrls(text = '') {
+  const s = String(text || '');
+  const re = /\bhttps?:\/\/[^\s<>"')]+/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(s))) {
+    out.push(m[0]);
+  }
+  return out;
+}
+
+// HTML embed для одного URL (для новостей — только iframe, без «второй» ссылки)
+function mediaEmbedBlockFromUrl(urlRaw = '') {
+  const url = String(urlRaw || '').trim();
+  if (!url) return '';
+
+  // YouTube
+  const yt = toYouTubeEmbed(url);
+  if (yt) {
+    return `
+      <div class="stream-embed mb-2">
+        <iframe class="ratio ratio-16x9"
+                src="${yt}"
+                title="Видео YouTube"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowfullscreen
+                style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+      </div>
+    `;
+  }
+
+  // Twitch (канал)
+  const twitchChan = parseTwitchChannel(url);
+  if (twitchChan) {
+    return `
+      <div class="stream-embed mb-2">
+        <iframe class="js-twitch-embed"
+                data-channel="${escapeHtml(twitchChan)}"
+                title="Видео Twitch"
+                allowfullscreen
+                style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+      </div>
+    `;
+  }
+
+  // VK Video (vkvideo.ru -> vk.com/video_ext.php)
+  const vkVideo = toVkVideoEmbed(url);
+  if (vkVideo) {
+    return `
+      <div class="stream-embed mb-2">
+        <iframe src="${escapeHtml(vkVideo)}"
+                title="Видео VK"
+                allowfullscreen
+                style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+      </div>
+    `;
+  }
+
+  // RuTube
+  const rutube = toRutubeEmbed(url);
+  if (rutube) {
+    return `
+      <div class="stream-embed mb-2">
+        <iframe src="${escapeHtml(rutube)}"
+                title="Видео RuTube"
+                allowfullscreen
+                style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+      </div>
+    `;
+  }
+
+  // VK Play
+  const vk = toVkPlayEmbed(url);
+  if (vk) {
+    return `
+      <div class="stream-embed mb-2">
+        <iframe src="${escapeHtml(vk)}"
+                title="Видео"
+                allowfullscreen
+                style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+      </div>
+    `;
+  }
+
+  return '';
+}
+
+// HTML iframe для одного URL (вариант «инлайн» — без дивов), для ачивок/перков
+function mediaIframeInlineFromUrl(urlRaw = '') {
+  const url = String(urlRaw || '').trim();
+  if (!url) return '';
+
+  // YouTube
+  const yt = toYouTubeEmbed(url);
+  if (yt) {
+    // ВАЖНО: не экранируем здесь src — sanitizeAchievementHtml сделает это один раз корректно
+    return `<iframe src="${yt}" title="Видео YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+  }
+
+  // Twitch
+  const twitchChan = parseTwitchChannel(url);
+  if (twitchChan) {
+    return `<iframe class="js-twitch-embed" data-channel="${escapeHtml(twitchChan)}" title="Видео Twitch" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+  }
+
+  // VK Video
+  const vkVideo = toVkVideoEmbed(url);
+  if (vkVideo) {
+    return `<iframe src="${vkVideo}" title="Видео VK" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+  }
+
+  // RuTube
+  const rutube = toRutubeEmbed(url);
+  if (rutube) {
+    return `<iframe src="${rutube}" title="Видео RuTube" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+  }
+
+  // VK Play
+  const vk = toVkPlayEmbed(url);
+  if (vk) {
+    return `<iframe src="${vk}" title="Видео" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+  }
+
+  return '';
+}
+
+// Формирование набора embed-блоков для новостей по исходному тексту
+function renderNewsEmbeds(text = '') {
+  const urls = extractUrls(text);
+  const usedUrls = [];
+  const seen = new Set();
+  const blocks = urls.map(u => {
+    if (seen.has(u)) return '';
+    const html = mediaEmbedBlockFromUrl(u);
+    if (html) { seen.add(u); usedUrls.push(u); }
+    return html;
+  }).join('');
+  return { html: blocks, usedUrls };
+}
+
+
+// Вставка инлайн-iframe в HTML ачивок/перков: если ссылка — видео, заменяем её на iframe (без дублирования ссылки)
+function injectEmbedsIntoHtml(html = '') {
+  let s = String(html || '');
+  s = s.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (m, attrs) => {
+    const mHref = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const href = mHref ? (mHref[1] || mHref[2] || mHref[3] || '') : '';
+    const iframe = mediaIframeInlineFromUrl(href);
+    if (!iframe) return m; // не видео — оставляем ссылку как есть
+    // Видео — возвращаем только плеер (компактно, без лишних переводов строк)
+    return iframe;
+  });
+  return s;
+}
+
+
 // Подсчёт частоты назначения карт для набора групп
 function computeMapStats(items = []) {
   const map = new Map(); // key: lower-case name => { name, count }
@@ -1384,6 +1702,34 @@ function renderStreamsOnly(tournament, containerClass) {
   `;
 }
 
+function renderTournamentStatsSection(statsUrl, containerClass, collapsedByDefault = true) {
+  const url = String(statsUrl || '').trim();
+  if (!url) return '';
+  const openAttr = collapsedByDefault ? '' : ' open';
+  const safe = escapeHtml(url);
+  return `
+    <section class="mb-5">
+      <details id="section-stats" class="stage-collapse"${openAttr}>
+        <summary class="qj-toggle">
+          <span class="section-title">Статистика турнира</span>
+          <a href="#section-stats" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+        </summary>
+        <div class="mt-2">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <iframe src="${safe}"
+                      title="Статистика турнира"
+                      loading="lazy"
+                      style="width:100%; min-height:70vh; border:0; border-radius:10px;"></iframe>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+
 function renderSection(title, items, scope, screensMap, ptsMap = null, collapsedByDefault = false, achIndex = null) {
   if (!items?.length) return '<div class="text-muted">Нет данных</div>';
 
@@ -1516,7 +1862,6 @@ function renderPage({
 
   const logoBlock = logoUrl ? `<img src="${logoUrl}" alt="Логотип турнира" class="hero-logo me-3" />` : '';
 
-  // Сайт турнира — под названием
   const siteLink = tournament.site
     ? `<a href="${escapeHtml(tournament.site)}" target="_blank" rel="noopener" class="small text-muted text-decoration-none">${escapeHtml(tournament.site)}</a>`
     : '';
@@ -1585,9 +1930,12 @@ function renderPage({
 
   const tournamentNewsSecHtml = renderNewsList('Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
 
+  // Новая секция «Статистика турнира» (по умолчанию свернута всегда)
+  const tournamentStatsSec = renderTournamentStatsSection(statsBaseUrl, containerClass, true);
+
   const streamsBottomSec = useQ2Css ? '' : renderStreamsOnly(tournament, containerClass);
 
-  // Базовые стили
+  // Базовые стили и остальные CSS (без изменений)
   const baseUiCss = `
     .qj-accent { color: var(--bs-primary); }
     .qj-muted { color: var(--bs-secondary); }
@@ -1647,7 +1995,6 @@ function renderPage({
       vertical-align: middle;
     }
 
-    /* Карты: тонкая серо‑светло‑голубая обводка */
     .qj-map-tag {
       position: relative;
       z-index: 0;
@@ -1670,7 +2017,6 @@ function renderPage({
     @keyframes mapGlowPulse { 0%,100%{opacity:.6;} 50%{opacity:.95;} }
     @media (prefers-reduced-motion: reduce) { .qj-map-tag::before { animation: none; } }
 
-    /* Обводки миниатюр ачивок и перков */
     .ach-badge-link, .perc-badge-link { position: relative; display: inline-block; }
     .ach-badge-link { border-radius: 6px; filter: drop-shadow(0 0 2px rgba(255,77,109,.55)) drop-shadow(0 0 6px rgba(255,153,172,.35)); }
     .perc-badge-link { border-radius: 50%; filter: drop-shadow(0 0 2px rgba(96,165,250,.55)) drop-shadow(0 0 6px rgba(34,211,238,.35)); }
@@ -1693,24 +2039,10 @@ function renderPage({
       box-shadow: 0 6px 18px rgba(16,24,40,.06);
     }
 
-    /* Списки игроков: компактно + разделители + колонка позиций */
     .players { margin: 0; padding: 0; }
-    .players li {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      padding: .35rem 0;
-      margin: 0;
-      line-height: 1.25;
-    }
+    .players li { display: flex; align-items: center; gap: .5rem; padding: .35rem 0; margin: 0; line-height: 1.25; }
     .players li + li { border-top: 1px solid rgba(0,0,0,.08); }
-    .player-pos {
-      display: inline-block;
-      min-width: 1.75rem;
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      color: var(--bs-secondary-color);
-    }
+    .player-pos { display: inline-block; min-width: 1.75rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--bs-secondary-color); }
     .player-name { letter-spacing: .2px; }
     .player-link { text-decoration: none; }
     .player-link:hover { text-decoration: underline; }
@@ -1718,21 +2050,13 @@ function renderPage({
 
     .player-pts {
       display: inline-flex; align-items: center; justify-content: center;
-      min-width: 1.6rem; height: 1.35rem;
-      padding: 0 .5rem;
-      border-radius: .75rem;
+      min-width: 1.6rem; height: 1.35rem; padding: 0 .5rem; border-radius: .75rem;
       background: linear-gradient(135deg, rgba(255,99,132,.08), rgba(255,159,64,.08));
-      color: #b42318;
-      border: 1px solid rgba(244,63,94,.2);
-      font-weight: 800;
-      font-variant-numeric: tabular-nums;
-      line-height: 1;
-      vertical-align: middle;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
+      color: #b42318; border: 1px solid rgba(244,63,94,.2); font-weight: 800;
+      font-variant-numeric: tabular-nums; line-height: 1; vertical-align: middle; box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
     }
   `;
 
-  // Современная тема (градиенты заголовков)
   const modernUiCss = !useQ2Css ? `
     :root {
       --tone-tournament: linear-gradient(180deg, #f6faff 0%, #eef5ff 100%);
@@ -1828,7 +2152,6 @@ function renderPage({
     body:not(.q2css-active) header.hero { background: transparent; border-bottom: 0; }
   ` : '';
 
-  // Ретро-режим (Q2CSS) — добавлены разделители и цвет позиций
   const q2OverridesCss = `
     body.q2css-active details > summary.qj-toggle {
       border-radius: 0 !important; background: #FAD3BC !important; border: 1px solid #000 !important;
@@ -1889,7 +2212,6 @@ function renderPage({
     body.q2css-active * { font-size: inherit !important; }
   `;
 
-  // Фон сайта (SITE_BG_IMAGE) — перекрывает тон modernUiCss
   const animatedBgCss = !useQ2Css ? `
     body:not(.q2css-active) {
       background-color: #0b0d10 !important;
@@ -1988,7 +2310,6 @@ function renderPage({
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
           </div>
-          <!-- Название и сайт — вертикально -->
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
             ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
@@ -2004,7 +2325,6 @@ function renderPage({
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
           </div>
-          <!-- Название и сайт — вертикально -->
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h3 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
             ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
@@ -2073,6 +2393,7 @@ function renderPage({
     ${achievementsAchSec}
     ${perksSec}
 
+    ${tournamentStatsSec}
     ${streamsBottomSec}
   </main>
 
@@ -2146,14 +2467,12 @@ function renderPage({
       document.addEventListener('click', function(e){
         const trg = e.target.closest('.js-shot');
         if (!trg) return;
-
         if (Date.now() - lastCloseAt < 250) {
           e.preventDefault();
           e.stopPropagation();
           if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
           return;
         }
-
         e.preventDefault();
         e.stopPropagation();
         if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
@@ -2314,12 +2633,31 @@ async function main() {
   }));
 
   // Главная
-  // Главная
   app.get('/', async (req, res) => {
     try {
-      const useQ2Css = getBoolQuery(req, FORCE_Q2CSS_PARAM, false);
-      const collapseAll = getBoolQuery(req, COLLAPSE_ALL_PARAM, false);
-
+      // 1) Читаем query-флаги и cookies
+      const q2ParamDefined = Object.prototype.hasOwnProperty.call(req.query || {}, FORCE_Q2CSS_PARAM);
+      const collParamDefined = Object.prototype.hasOwnProperty.call(req.query || {}, COLLAPSE_ALL_PARAM);
+  
+      const useQ2Css = q2ParamDefined
+        ? getBoolQuery(req, FORCE_Q2CSS_PARAM, false)
+        : getBoolCookie(req, Q2CSS_COOKIE, false);
+  
+      const collapseAll = collParamDefined
+        ? getBoolQuery(req, COLLAPSE_ALL_PARAM, false)
+        : getBoolCookie(req, COLLAPSE_COOKIE, false);
+  
+      // 2) Если пришли query — обновим cookies (1 год)
+      const cookiesToSet = [];
+      const maxAge = 60 * 60 * 24 * 365; // 1 год
+  
+      if (q2ParamDefined) {
+        cookiesToSet.push(`${Q2CSS_COOKIE}=${useQ2Css ? '1' : '0'}; Max-Age=${maxAge}; Path=/; SameSite=Lax`);
+      }
+      if (collParamDefined) {
+        cookiesToSet.push(`${COLLAPSE_COOKIE}=${collapseAll ? '1' : '0'}; Max-Age=${maxAge}; Path=/; SameSite=Lax`);
+      }
+  
       const [
         tournament, groups, finals, superfinals,
         groupPtsMap, finalPtsMap, superFinalPtsMap
@@ -2332,45 +2670,44 @@ async function main() {
         getFinalPointsMap(CHAT_ID),
         getSuperFinalPointsMap(CHAT_ID),
       ]);
-
+  
       const [groupScreens, finalScreens, superScreens] = await Promise.all([
         getScreensForScope(CHAT_ID, 'group', groups),
         getScreensForScope(CHAT_ID, 'final', finals),
         getScreensForScope(CHAT_ID, 'superfinal', superfinals),
       ]);
-
+  
       const [groupRunId, finalRunId, superRunId] = await Promise.all([
         findLatestRunIdForScope(CHAT_ID, 'group'),
         findLatestRunIdForScope(CHAT_ID, 'final'),
         findLatestRunIdForScope(CHAT_ID, 'superfinal'),
       ]);
-
+  
       const [tournamentNews, groupsNews, finalsNews, superNews] = await Promise.all([
         listNews(CHAT_ID, 'tournament', null),
         groupRunId ? listNews(CHAT_ID, 'group', groupRunId) : Promise.resolve([]),
         finalRunId ? listNews(CHAT_ID, 'final', finalRunId) : Promise.resolve([]),
         superRunId ? listNews(CHAT_ID, 'superfinal', superRunId) : Promise.resolve([]),
       ]);
-
+  
       const [definedGroupRating, definedFinalRating] = await Promise.all([
         getDefinedGroupRating(CHAT_ID),
         getDefinedFinalRating(CHAT_ID),
       ]);
-
+  
       const [customGroups, customPointsByGroup] = await Promise.all([
         getCustomGroups(CHAT_ID),
         getCustomPointsByGroup(CHAT_ID),
       ]);
       const customScreens = await getScreensForScope(CHAT_ID, 'custom', customGroups);
-
+  
       const achievements = await getAchievements(CHAT_ID);
       const achievementsAch = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'achievement');
       const achievementsPerc = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'perc');
       const achievementsIndex = buildAchievementsIndex(achievements);
-
-      // Карты для «Список карт»
+  
       const mapsList = await getMaps(CHAT_ID);
-
+  
       const html = renderPage({
         tournament, groups, finals, superfinals,
         groupScreens, finalScreens, superScreens,
@@ -2389,13 +2726,17 @@ async function main() {
         statsBaseUrl: PLAYER_STATS_URL,
         mapsList,
       });
+  
+      if (cookiesToSet.length) {
+        res.setHeader('Set-Cookie', cookiesToSet);
+      }
       res.status(200).send(html);
     } catch (e) {
       console.error('Error rendering page:', e);
       res.status(500).send('Internal Server Error');
     }
   });
-
+  
   // Healthcheck
   const server = app.listen(PORT, () => {
     console.log(`Site started on http://localhost:${PORT} (chatId=${CHAT_ID})`);
