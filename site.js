@@ -317,6 +317,7 @@ function linkify(text = '') {
   });
 }
 
+
 function renderServersSection(tournament, containerClass, collapsedByDefault = false) {
   const hasServers = Array.isArray(tournament.servers) && tournament.servers.length > 0;
   if (!hasServers) return '';
@@ -432,6 +433,63 @@ function renderNewsRichText(text = '') {
 
   return blocks.join('');
 }
+
+function renderTopMenu({
+  tournament,
+  tournamentNews = [],
+  groups = [],
+  finals = [],
+  superfinals = [],
+  achievementsAch = [],
+  achievementsPerc = [],
+  showStats = false,
+}) {
+  const items = [];
+
+  // Новости: якорь на последнюю турнирную новость
+  if (Array.isArray(tournamentNews) && tournamentNews.length > 0) {
+    const n = tournamentNews[0];
+    const nid = (n && n._id && typeof n._id.toString === 'function') ? n._id.toString() : String(n?._id || '');
+    if (nid) items.push({ label: 'Новости', href: `#news-${nid}` });
+  }
+
+  // Информация (Описание турнира)
+  if (tournament?.desc) items.push({ label: 'Информация', href: '#section-desc' });
+
+  // Квалификации
+  if (Array.isArray(groups) && groups.length > 0) items.push({ label: 'Квалификации', href: '#section-groups' });
+
+  // Финалы
+  if (Array.isArray(finals) && finals.length > 0) items.push({ label: 'Финалы', href: '#section-finals' });
+
+  // Суперфинал
+  if (Array.isArray(superfinals) && superfinals.length > 0) items.push({ label: 'Суперфинал', href: '#section-superfinals' });
+
+  // Статистика (после «Суперфинал»)
+  if (showStats) items.push({ label: 'Статистика', href: '#section-stats' });
+
+  // Ачивки / Перки
+  if (Array.isArray(achievementsAch) && achievementsAch.length > 0) items.push({ label: 'Ачивки', href: '#section-achievements' });
+  if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) items.push({ label: 'Перки', href: '#section-perks' });
+
+  // Сервера
+  if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) items.push({ label: 'Сервера', href: '#section-servers' });
+
+  // Стримы
+  if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) items.push({ label: 'Стримы', href: '#section-streams' });
+
+  if (!items.length) return '';
+
+  // Чипы как у тэгов (овальные плашки), на мобилках — горизонтальный скролл
+  const links = items.map(it => `<a class="qj-chip" href="${escapeAttr(it.href)}">${escapeHtml(it.label)}</a>`).join('');
+
+  return `
+    <nav class="qj-menu mt-2">
+      <div class="qj-menu-scroll">${links}</div>
+    </nav>
+  `;
+}
+
 
 // BB-коды для ачивок -> HTML (жирный/курсив/ссылки)
 function bbToHtmlAchievements(text = '') {
@@ -668,6 +726,101 @@ function renderAchievementsSectionTitled(title, sectionId, items = [], collapsed
     </section>
   `;
 }
+
+function renderStreamsSection(tournament, containerClass, collapsedByDefault = false) {
+  const hasStreams = Array.isArray(tournament.streams) && tournament.streams.length > 0;
+  if (!hasStreams) return '';
+  const openAttr = collapsedByDefault ? '' : ' open';
+
+  const items = tournament.streams.map((raw) => {
+    const url = String(raw || '').trim();
+    const safe = escapeHtml(url);
+    const yt = toYouTubeEmbed(url);
+    const twitchChan = parseTwitchChannel(url);
+    const vk = toVkPlayEmbed(url);
+    const vkVideo = toVkVideoEmbed(url);
+    const rutube = toRutubeEmbed(url);
+
+    if (yt) {
+      return `
+        <div class="stream-embed mb-2">
+          <iframe data-src="${yt}" title="Трансляция YouTube"
+                  loading="lazy" tabindex="-1"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen
+                  class="js-video-iframe"
+                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
+        </div>`;
+    }
+    if (twitchChan) {
+      return `
+        <div class="stream-embed mb-2">
+          <iframe class="js-video-iframe js-twitch-embed"
+                  data-channel="${escapeHtml(twitchChan)}"
+                  title="Трансляция Twitch"
+                  loading="lazy" tabindex="-1"
+                  allowfullscreen
+                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
+        </div>`;
+    }
+    if (vkVideo) {
+      return `
+        <div class="stream-embed mb-2">
+          <iframe data-src="${escapeHtml(vkVideo)}" title="Трансляция VK"
+                  loading="lazy" tabindex="-1"
+                  allowfullscreen
+                  class="js-video-iframe"
+                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
+        </div>`;
+    }
+    if (rutube) {
+      return `
+        <div class="stream-embed mb-2">
+          <iframe data-src="${escapeHtml(rutube)}" title="Трансляция RuTube"
+                  loading="lazy" tabindex="-1"
+                  allowfullscreen
+                  class="js-video-iframe"
+                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
+        </div>`;
+    }
+    if (vk) {
+      return `
+        <div class="stream-embed mb-2">
+          <iframe data-src="${escapeHtml(vk)}" title="Трансляция"
+                  loading="lazy" tabindex="-1"
+                  allowfullscreen
+                  class="js-video-iframe"
+                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
+          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
+        </div>`;
+    }
+    return `<div class="mb-2"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>`;
+  }).join('');
+
+  return `
+    <section class="mb-5">
+      <details id="section-streams" class="stage-collapse"${openAttr}>
+        <summary class="qj-toggle">
+          <span class="section-title">Стримеры</span>
+          <a href="#section-streams" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+          <span class="qj-badge ms-auto">${tournament.streams.length}</span>
+        </summary>
+        <div class="mt-2">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              ${items || '<div class="text-muted small">(нет)</div>'}
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
 
 // Формат даты/времени для России (МСК, 24 часа)
 const dtfRU_MSK = new Intl.DateTimeFormat('ru-RU', {
@@ -1105,34 +1258,34 @@ function renderPlayers(players = [], ptsMap = null, achIndex = null) {
 
   return `<ul class="players list-unstyled mb-2">
     ${arr.map((p, i) => {
-      const pts = ptsMap?.get(p.nameNorm);
-      const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
+    const pts = ptsMap?.get(p.nameNorm);
+    const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
 
-      const posHtml = hasPtsFlag
-        ? `<span class="player-pos text-muted">${i + 1}.</span>`
-        : '';
+    const posHtml = hasPtsFlag
+      ? `<span class="player-pos text-muted">${i + 1}.</span>`
+      : '';
 
-      const ptsHtml = (pts !== undefined && pts !== null)
-        ? `<span class="player-pts qj-pts">${pts}</span>`
-        : '';
+    const ptsHtml = (pts !== undefined && pts !== null)
+      ? `<span class="player-pts qj-pts">${pts}</span>`
+      : '';
 
-      const metaHtml = (ptsHtml || badges)
-        ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
-        : '';
+    const metaHtml = (ptsHtml || badges)
+      ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
+      : '';
 
-      const displayName = p.nameOrig || p.nameNorm || '';
+    const displayName = p.nameOrig || p.nameNorm || '';
 
-      const pnameHtml = PLAYER_STATS_ENABLED
-        ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat"
+    const pnameHtml = PLAYER_STATS_ENABLED
+      ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat"
               data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
-        : `<span class="player-name qj-accent fw-semibold">${escapeHtml(displayName)}</span>`;
+      : `<span class="player-name qj-accent fw-semibold">${escapeHtml(displayName)}</span>`;
 
-      return `<li>
+    return `<li>
         ${posHtml}
         ${pnameHtml}
         ${metaHtml}
       </li>`;
-    }).join('')}
+  }).join('')}
   </ul>`;
 }
 
@@ -1401,11 +1554,14 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
   if (yt) {
     return `
       <div class="stream-embed mb-2">
-        <iframe class="ratio ratio-16x9"
-                src="${yt}"
+        <iframe
+                data-src="${yt}"
                 title="Видео YouTube"
+                loading="lazy"
+                tabindex="-1"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowfullscreen
+                class="js-video-iframe"
                 style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
       </div>
     `;
@@ -1416,9 +1572,11 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
   if (twitchChan) {
     return `
       <div class="stream-embed mb-2">
-        <iframe class="js-twitch-embed"
+        <iframe class="js-video-iframe js-twitch-embed"
                 data-channel="${escapeHtml(twitchChan)}"
                 title="Видео Twitch"
+                loading="lazy"
+                tabindex="-1"
                 allowfullscreen
                 style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
       </div>
@@ -1430,9 +1588,12 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
   if (vkVideo) {
     return `
       <div class="stream-embed mb-2">
-        <iframe src="${escapeHtml(vkVideo)}"
+        <iframe data-src="${escapeHtml(vkVideo)}"
                 title="Видео VK"
+                loading="lazy"
+                tabindex="-1"
                 allowfullscreen
+                class="js-video-iframe"
                 style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
       </div>
     `;
@@ -1443,9 +1604,12 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
   if (rutube) {
     return `
       <div class="stream-embed mb-2">
-        <iframe src="${escapeHtml(rutube)}"
+        <iframe data-src="${escapeHtml(rutube)}"
                 title="Видео RuTube"
+                loading="lazy"
+                tabindex="-1"
                 allowfullscreen
+                class="js-video-iframe"
                 style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
       </div>
     `;
@@ -1456,9 +1620,12 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
   if (vk) {
     return `
       <div class="stream-embed mb-2">
-        <iframe src="${escapeHtml(vk)}"
+        <iframe data-src="${escapeHtml(vk)}"
                 title="Видео"
+                loading="lazy"
+                tabindex="-1"
                 allowfullscreen
+                class="js-video-iframe"
                 style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
       </div>
     `;
@@ -1466,6 +1633,7 @@ function mediaEmbedBlockFromUrl(urlRaw = '') {
 
   return '';
 }
+
 
 // HTML iframe для одного URL (вариант «инлайн» — без дивов), для ачивок/перков
 function mediaIframeInlineFromUrl(urlRaw = '') {
@@ -1475,36 +1643,57 @@ function mediaIframeInlineFromUrl(urlRaw = '') {
   // YouTube
   const yt = toYouTubeEmbed(url);
   if (yt) {
-    // ВАЖНО: не экранируем здесь src — sanitizeAchievementHtml сделает это один раз корректно
-    return `<iframe src="${yt}" title="Видео YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    return `<iframe data-src="${yt}" title="Видео YouTube"
+                    loading="lazy" tabindex="-1"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen
+                    class="js-video-iframe"
+                    style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
   }
 
   // Twitch
   const twitchChan = parseTwitchChannel(url);
   if (twitchChan) {
-    return `<iframe class="js-twitch-embed" data-channel="${escapeHtml(twitchChan)}" title="Видео Twitch" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    return `<iframe class="js-video-iframe js-twitch-embed" data-channel="${escapeHtml(twitchChan)}"
+                    title="Видео Twitch"
+                    loading="lazy" tabindex="-1"
+                    allowfullscreen
+                    style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
   }
 
   // VK Video
   const vkVideo = toVkVideoEmbed(url);
   if (vkVideo) {
-    return `<iframe src="${vkVideo}" title="Видео VK" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    return `<iframe data-src="${vkVideo}" title="Видео VK"
+                    loading="lazy" tabindex="-1"
+                    allowfullscreen
+                    class="js-video-iframe"
+                    style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
   }
 
   // RuTube
   const rutube = toRutubeEmbed(url);
   if (rutube) {
-    return `<iframe src="${rutube}" title="Видео RuTube" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    return `<iframe data-src="${rutube}" title="Видео RuTube"
+                    loading="lazy" tabindex="-1"
+                    allowfullscreen
+                    class="js-video-iframe"
+                    style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
   }
 
   // VK Play
   const vk = toVkPlayEmbed(url);
   if (vk) {
-    return `<iframe src="${vk}" title="Видео" allowfullscreen style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
+    return `<iframe data-src="${vk}" title="Видео"
+                    loading="lazy" tabindex="-1"
+                    allowfullscreen
+                    class="js-video-iframe"
+                    style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>`;
   }
 
   return '';
 }
+
 
 // Формирование набора embed-блоков для новостей по исходному тексту
 function renderNewsEmbeds(text = '') {
@@ -1651,76 +1840,6 @@ function renderTournamentExtrasTopOnly(tournament, containerClass, collapsedByDe
   const mapsSec = renderMapsListSection(mapsList, containerClass, collapsedByDefault);
   if (!serversSec && !packSec && !mapsSec) return '';
   return serversSec + packSec + mapsSec;
-}
-
-
-// Только блок «Стримеры» — для обычного режима, выводим в самом конце страницы
-function renderStreamsOnly(tournament, containerClass) {
-  const hasStreams = Array.isArray(tournament.streams) && tournament.streams.length > 0;
-  if (!hasStreams) return '';
-
-  const embItems = tournament.streams.map(raw => {
-    const url = String(raw || '').trim();
-    const safe = escapeHtml(url);
-    const yt = toYouTubeEmbed(url);
-    const twitchChan = parseTwitchChannel(url);
-    const vk = toVkPlayEmbed(url);
-
-    if (yt) {
-      return `
-        <div class="stream-embed mb-2">
-          <iframe class="ratio ratio-16x9"
-                  src="${yt}"
-                  title="Трансляция YouTube"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowfullscreen
-                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
-          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
-        </div>
-      `;
-    }
-    if (twitchChan) {
-      return `
-        <div class="stream-embed mb-2">
-          <iframe class="js-twitch-embed"
-                  data-channel="${escapeHtml(twitchChan)}"
-                  title="Трансляция Twitch"
-                  allowfullscreen
-                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
-          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
-        </div>
-      `;
-    }
-    if (vk) {
-      return `
-        <div class="stream-embed mb-2">
-          <iframe src="${escapeHtml(vk)}"
-                  title="Трансляция"
-                  allowfullscreen
-                  style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
-          <div class="small mt-1"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>
-        </div>
-      `;
-    }
-    return `<div class="mb-2"><a href="${safe}" target="_blank" rel="noopener">${safe}</a></div>`;
-  }).join('');
-
-  return `
-    <section class="mb-5">
-      <div class="${containerClass}">
-        <div class="row g-3">
-          <div class="col-12">
-            <div class="card shadow-sm h-100">
-              <div class="card-body">
-                <h5 class="card-title mb-2">Стримеры</h5>
-                ${embItems || '<div class="text-muted small">(нет)</div>'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  `;
 }
 
 function renderTournamentStatsSection(statsUrl, containerClass, collapsedByDefault = true) {
@@ -1873,7 +1992,7 @@ function renderPage({
   achievementsIndex = new Map(),
   statsBaseUrl = '',
   mapsList = [],
-  sectionOrder = [], // порядок главных секций из cookie
+  sectionOrder = [],
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -1889,9 +2008,10 @@ function renderPage({
 
   const containerClass = useQ2Css ? 'container-fluid px-0' : 'container';
 
-  const extrasTopSec = useQ2Css
-    ? renderTournamentExtrasFull(tournament, containerClass, true /* linksOnly */, collapseAll, mapsList)
-    : renderTournamentExtrasTopOnly(tournament, containerClass, collapseAll, mapsList);
+  // Верхние отдельные секции
+  const serversSec = renderServersSection(tournament, containerClass, collapseAll);
+  const packSec = renderPackSection(tournament, containerClass, collapseAll);
+  const mapsListSec = renderMapsListSection(mapsList, containerClass, collapseAll);
 
   const descSection = renderTournamentDescSection(tournament, containerClass, collapseAll);
 
@@ -1951,16 +2071,51 @@ function renderPage({
 
   const tournamentNewsSecHtml = renderNewsList('Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
 
-  // Новая секция «Статистика турнира» (по умолчанию свернута всегда, показывается если задан URL)
-  const tournamentStatsSec = renderTournamentStatsSection(statsBaseUrl, containerClass, true);
+  // Статистика (если включена и есть URL)
+  const statsBaseNorm = (PLAYER_STATS_ENABLED && statsBaseUrl) ? statsBaseUrl : '';
+  const tournamentStatsSec = renderTournamentStatsSection(statsBaseNorm, containerClass, true);
 
-  const streamsBottomSec = useQ2Css ? '' : renderStreamsOnly(tournament, containerClass);
+  // Стримеры
+  const streamsSec = renderStreamsSection(tournament, containerClass, collapseAll);
 
-  // Собираем главные секции в карту: id -> html (пустые не включаем при рендере)
+  // Карта секций
   const sectionsMap = new Map([
-    ['desc', descSection],
-    ['extras', extrasTopSec],
     ['news-tournament', tournamentNewsSecHtml],
+    ['superfinals', `
+      <section class="mb-5">
+        <details id="section-superfinals" class="stage-collapse"${openAttr}>
+          <summary class="qj-toggle">
+            <span class="section-title">Суперфинал</span>
+            <a href="#section-superfinals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+            <span class="qj-badge ms-auto">${superfinals?.length || 0}</span>
+          </summary>
+          <div class="mt-2">
+            ${superCards}
+            ${superMapsRatingSec}
+            ${superNewsSec}
+            ${superRatingSec}
+          </div>
+        </details>
+      </section>
+    `],
+    ['finals', `
+      <section class="mb-5">
+        <details id="section-finals" class="stage-collapse"${openAttr}>
+          <summary class="qj-toggle">
+            <span class="section-title">Финальный раунд</span>
+            <a href="#section-finals" class="qj-anchor ms-2 text-secondary text-decoration:none" aria-label="Ссылка на раздел">#</a>
+            <span class="qj-badge ms-auto">${finals?.length || 0}</span>
+          </summary>
+          <div class="mt-2">
+            ${finalsCards}
+            ${finalsMapsRatingSec}
+            ${finalsNewsSec}
+            ${finalsRatingSec}
+            ${finalsDefinedRatingSec}
+          </div>
+        </details>
+      </section>
+    `],
     ['groups', `
       <section class="mb-5">
         <details id="section-groups" class="stage-collapse"${openAttr}>
@@ -1979,56 +2134,33 @@ function renderPage({
         </details>
       </section>
     `],
-    ['finals', `
-      <section class="mb-5">
-        <details id="section-finals" class="stage-collapse"${openAttr}>
-          <summary class="qj-toggle">
-            <span class="section-title">Финальный раунд</span>
-            <a href="#section-finals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-            <span class="qj-badge ms-auto">${finals?.length || 0}</span>
-          </summary>
-          <div class="mt-2">
-            ${finalsCards}
-            ${finalsMapsRatingSec}
-            ${finalsNewsSec}
-            ${finalsRatingSec}
-            ${finalsDefinedRatingSec}
-          </div>
-        </details>
-      </section>
-    `],
-    ['superfinals', `
-      <section class="mb-5">
-        <details id="section-superfinals" class="stage-collapse"${openAttr}>
-          <summary class="qj-toggle">
-            <span class="section-title">Суперфинал</span>
-            <a href="#section-superfinals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-            <span class="qj-badge ms-auto">${superfinals?.length || 0}</span>
-          </summary>
-          <div class="mt-2">
-            ${superCards}
-            ${superMapsRatingSec}
-            ${superNewsSec}
-            ${superRatingSec}
-          </div>
-        </details>
-      </section>
-    `],
+    ['stats', tournamentStatsSec],
     ['custom', customWholeSec],
+    ['servers', serversSec],
+    ['pack', packSec],
+    ['maps-list', mapsListSec],
+    ['desc', descSection],
     ['achievements', achievementsAchSec],
     ['perks', perksSec],
-    ['stats', tournamentStatsSec],
-    ['streams', streamsBottomSec],
+    ['streams', streamsSec],
   ]);
 
-  const defaultOrder = [
-    'desc', 'extras', 'news-tournament',
-    'groups', 'finals', 'superfinals',
-    'custom', 'achievements', 'perks',
-    'stats', 'streams'
-  ];
+  // Порядок секций
+  const hasNews = !!(tournamentNews?.length);
+  const hasSuper = !!(superfinals?.length);
+  const hasFinals = !!(finals?.length);
+  const hasGroups = !!(groups?.length);
+  const hasStats = !!statsBaseNorm;
 
-  // Итоговый порядок: сначала порядок из cookie, затем оставшиеся по умолчанию
+  const defaultOrder = [];
+  if (hasNews) defaultOrder.push('news-tournament');
+  if (hasSuper) defaultOrder.push('superfinals');
+  if (hasFinals) defaultOrder.push('finals');
+  if (hasGroups && !hasFinals) defaultOrder.push('groups');
+  if (hasStats) defaultOrder.push('stats');
+  if (hasGroups && hasFinals) defaultOrder.push('groups');
+  defaultOrder.push('custom', 'servers', 'pack', 'maps-list', 'desc', 'achievements', 'perks', 'streams');
+
   const seen = new Set();
   const order = [];
   for (const id of sectionOrder || []) {
@@ -2047,27 +2179,53 @@ function renderPage({
     order.push(id);
   }
 
-  // Оборачиваем секции в draggable-контейнеры
   const sectionWrappers = order.map(id => {
     const inner = sectionsMap.get(id);
     if (!inner) return '';
     return `
-      <div class="qj-section js-draggable-section" data-section-id="${escapeHtml(id)}" draggable="true">
+      <div class="qj-section js-draggable-section" data-section-id="${escapeHtml(id)}">
         ${inner}
       </div>
     `;
   }).join('');
 
-  // Базовые стили (включая мини‑иконки ачивок/перков и DnD)
+  // Меню (для десктопа — чипы; для мобилок — скрываем чипы и даём компактную кнопку)
+  const topMenuHtml = renderTopMenu({
+    tournament,
+    tournamentNews,
+    groups,
+    finals,
+    superfinals,
+    achievementsAch,
+    achievementsPerc,
+    showStats: Boolean(statsBaseNorm),
+  });
+
+  // Стили
   const baseUiCss = `
-    body { background: #f8f9fa; }
+    html, body { max-width: 100%; }
+    body { background: #f8f9fa; overflow-x: hidden; }
     header.hero { background: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); }
     .hero .title { font-weight: 800; letter-spacing: .2px; }
+
+    /* Sticky header: только для десктопа и только в modern-режиме (не Q2CSS) */
+    @media (min-width: 768px) {
+      body:not(.q2css-active) .hero--sticky {
+        position: sticky;
+        top: 0;
+        z-index: 1050;
+        background: rgba(255,255,255,0.9);
+        backdrop-filter: saturate(120%) blur(8px);
+        -webkit-backdrop-filter: saturate(120%) blur(8px);
+        border-bottom: 1px solid rgba(0,0,0,0.06);
+        box-shadow: 0 6px 18px rgba(16,24,40,.12);
+      }
+    }
 
     .news-meta { white-space: normal; }
     @media (min-width: 768px) { .news-meta { white-space: nowrap; } }
 
-    .hero-logo { max-height: 140px; width: auto; border-radius: 14px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
+    .hero-logo { max-height: 140px; width: auto; border-radius: 14px; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); height: auto; }
     @media (max-width: 576px) { .hero-logo { max-height: 90px; } }
     @media (min-width: 1400px) { .hero-logo { max-height: 180px; } }
 
@@ -2113,6 +2271,28 @@ function renderPage({
     .qj-tag { display: inline-block; padding: .25rem .5rem; background-color: var(--bs-secondary-bg-subtle);
       color: var(--bs-secondary-text-emphasis); border-radius: 10rem; font-size: .8rem; border: 1px solid rgba(0,0,0,.05); }
 
+    /* Меню (верхние ссылки-чипы) */
+    .qj-menu { width: 100%; }
+    .qj-menu-scroll { display: flex; flex-wrap: wrap; gap: .35rem; overflow-x: auto; padding-bottom: .125rem; }
+    .qj-menu-scroll::-webkit-scrollbar { height: 6px; }
+    .qj-menu-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 999px; }
+    .qj-chip {
+      display: inline-block;
+      padding: .38rem .8rem;
+      border-radius: 9999px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: .9rem;
+      line-height: 1;
+      background: linear-gradient(180deg, #eef4ff, #e6efff);
+      color: #2b4c7e;
+      border: 1px solid rgba(60,100,170,.25);
+      box-shadow: 0 2px 6px rgba(16,24,40,.05);
+      transition: transform .1s ease, background .15s ease, box-shadow .15s ease;
+      white-space: nowrap;
+    }
+    .qj-chip:hover { background: linear-gradient(180deg, #e9f1ff, #e0ebff); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,24,40,.08); }
+
     /* Заголовки секций + DnD хват */
     details > summary.qj-toggle {
       display: flex; align-items: center; gap: .5rem;
@@ -2121,11 +2301,13 @@ function renderPage({
       background: linear-gradient(180deg, #ffffff, #f7f9fb);
       border-radius: 14px;
       box-shadow: 0 2px 8px rgba(16,24,40,.04);
-      cursor: grab; user-select: none;
+      cursor: default; user-select: none;
       transition: background .2s ease, box-shadow .2s ease, border-color .2s ease, transform .1s ease;
-      touch-action: none;
+      touch-action: pan-y; /* важно: не блокируем вертикальную прокрутку пальцем */
     }
-    details > summary.qj-toggle:active { cursor: grabbing; }
+    body.dnd-enabled details > summary.qj-toggle { cursor: grab; }
+    body.dnd-enabled details > summary.qj-toggle:active { cursor: grabbing; }
+
     details > summary.qj-toggle:hover {
       background: linear-gradient(180deg, #ffffff, #f4f7fa);
       box-shadow: 0 6px 18px rgba(16,24,40,.08);
@@ -2142,46 +2324,17 @@ function renderPage({
     summary.qj-toggle:hover .qj-anchor { opacity: 1; }
     .news-collapse summary, .stage-collapse summary, .sub-collapse summary { margin-bottom: .25rem; }
 
-    /* Мини‑иконки ачивок/перков рядом с именами */
+    /* Мини‑иконки */
     .ach-badges { display: inline-flex; align-items: center; gap: .25rem; }
-    .ach-badge-img {
-      width: 42px; height: 42px; object-fit: contain;
-      border-radius: 6px; border: 1px solid rgba(0,0,0,.15);
-      vertical-align: middle;
-    }
-    .perc-badge-img {
-      width: 42px; height: 42px; object-fit: contain;
-      border-radius: 50%; border: 1px solid rgba(0,0,0,.15);
-      vertical-align: middle;
-    }
-    .ach-badge-link, .perc-badge-link { position: relative; display: inline-block; }
-    .ach-badge-link { border-radius: 6px; filter: drop-shadow(0 0 2px rgba(255,77,109,.55)) drop-shadow(0 0 6px rgba(255,153,172,.35)); }
-    .perc-badge-link { border-radius: 50%; filter: drop-shadow(0 0 2px rgba(96,165,250,.55)) drop-shadow(0 0 6px rgba(34,211,238,.35)); }
-    .ach-badge-link::before, .perc-badge-link::before {
-      content: ""; position: absolute; inset: -1.25px; padding: 1.25px; border-radius: inherit; pointer-events: none; opacity: .85;
-      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor; mask-composite: exclude; animation: glowPulse 2.2s ease-in-out infinite;
-    }
-    .ach-badge-link::before { background: conic-gradient(#ff4d6d, #ff99ac, #ff4d6d); }
-    .perc-badge-link::before { background: conic-gradient(#60a5fa, #22d3ee, #60a5fa); }
-    .ach-badges img { transition: transform .15s ease, box-shadow .15s ease; transform-origin: center center; }
-    .ach-badges img:hover { transform: scale(4); z-index: 10; position: relative; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
-    .ach-badge-fallback { font-size: .9em; }
-    @keyframes glowPulse { 0%,100%{opacity:.65;} 50%{opacity:1;} }
+    .ach-badge-img { width: 42px; height: 42px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
+    .perc-badge-img { width: 42px; height: 42px; object-fit: contain; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
 
-    /* Крупные превью ачивок внутри секций */
-    .ach-thumb {
-      width: 165px; height: 165px; object-fit: contain;
-      border-radius: 6px; border: 1px solid rgba(0,0,0,.1);
-      box-shadow: 0 6px 18px rgba(16,24,40,.06);
-    }
+    .ach-thumb { width: 165px; height: 165px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
 
-    /* Списки игроков */
     .players { margin: 0; padding: 0; }
     .players li { display: flex; align-items: center; gap: .5rem; padding: .35rem 0; margin: 0; line-height: 1.25; }
     .players li + li { border-top: 1px solid rgba(0,0,0,.08); }
     .player-pos { display: inline-block; min-width: 1.75rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--bs-secondary-color); }
-    .player-name { letter-spacing: .2px; }
     .player-link { text-decoration: none; }
     .player-link:hover { text-decoration: underline; }
     .player-meta { display: inline-flex; align-items: center; gap: .35rem; }
@@ -2200,32 +2353,54 @@ function renderPage({
       box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
     }
 
-    /* DnD секции */
     .qj-section { margin-bottom: 2rem; }
     .qj-sections-root .qj-section.dragging { opacity: .6; }
+
+    /* Отступ якорям под липкую шапку */
+    [id^="section-"], [id^="news-"], [id^="group-"], [id^="final-"], [id^="super-"], [id^="custom-"], [id^="ach-"] {
+      scroll-margin-top: var(--qj-sticky-offset, 0px);
+    }
+
+    /* Мобильные улучшения */
+    @media (max-width: 767.98px) {
+      html, body { overflow-x: hidden; }
+      .qj-controls { flex-wrap: wrap; gap: .5rem; }
+      .qj-controls > * { flex: 0 0 auto; }
+      .qj-menu { display: none; } /* скрываем чипы меню на мобильном */
+      .hero-logo { max-width: 28vw; height: auto; }
+      .news-text { overflow-wrap: anywhere; word-break: break-word; }
+    }
+
+    /* Кнопка мобильного меню всегда видима в мобильной шапке */
+    .mobile-menu-trigger { display: inline-flex; align-items: center; justify-content: center; padding: .25rem .6rem; min-height: 30px; }
+
+    /* Мобильное меню (оверлей) */
+    .qj-mm { position: fixed; inset: 0; z-index: 1080; display: none; }
+    .qj-mm.is-open { display: block; }
+    .qj-mm-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+    .qj-mm-panel { position: absolute; left: 0; right: 0; top: 0; background: #fff; border-radius: 0 0 12px 12px; box-shadow: 0 12px 24px rgba(0,0,0,.25); transform: translateY(-100%); transition: transform .2s ease-out; }
+    .qj-mm.is-open .qj-mm-panel { transform: translateY(0); }
+    .qj-mm-header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid rgba(0,0,0,.08); }
+    .qj-mm-title { font-weight: 600; }
+    .qj-mm-body { max-height: 70vh; overflow: auto; padding: .5rem; }
+    .qj-mm-body a { display: block; padding: .6rem .75rem; border-radius: .5rem; text-decoration: none; color: var(--bs-emphasis-color); }
+    .qj-mm-body a:hover { background: rgba(0,0,0,.04); }
   `;
 
-  // Современная тема (градиенты по типам секций)
   const modernUiCss = !useQ2Css ? `
     :root {
       --tone-tournament: linear-gradient(180deg, #f6faff 0%, #eef5ff 100%);
       --tone-tournament-edge: rgba(37,99,235,.18);
-
       --tone-qual: linear-gradient(180deg, #f5fff7 0%, #ecfbf0 100%);
       --tone-qual-edge: rgba(22,163,74,.18);
-
       --tone-final: linear-gradient(180deg, #fbf7ff 0%, #f6effe 100%);
       --tone-final-edge: rgba(124,58,237,.18);
-
       --tone-super: linear-gradient(180deg, #fff7f5 0%, #ffefeb 100%);
       --tone-super-edge: rgba(239,68,68,.18);
-
       --tone-custom: linear-gradient(180deg, #f5fffd 0%, #ebfcf7 100%);
       --tone-custom-edge: rgba(14,165,233,.18);
-
       --tone-ach: linear-gradient(180deg, #fffaf2 0%, #fff3e0 100%);
       --tone-ach-edge: rgba(245,158,11,.18);
-
       --tone-perk: linear-gradient(180deg, #f6f8ff 0%, #eef3ff 100%);
       --tone-perk-edge: rgba(79,70,229,.18);
     }
@@ -2277,29 +2452,40 @@ function renderPage({
     }
     body:not(.q2css-active) #section-perks > summary.qj-toggle {
       background: var(--tone-perk);
-      border-left: 4px solid var(--tone-perк-edge);
+      border-left: 4px solid var(--tone-perk-edge);
     }
 
     body:not(.q2css-active) { background: linear-gradient(180deg, #f7f9fc, #f3f6fb); }
     body:not(.q2css-active) header.hero { background: transparent; border-bottom: 0; }
   ` : '';
 
-  // Ретро‑режим (Q2CSS) — оверрайды
   const q2OverridesCss = `
     body.q2css-active details > summary.qj-toggle {
       border-radius: 0 !important; background: #FAD3BC !important; border: 1px solid #000 !important;
-      box-shadow: none !important; padding: 6px 8px !important; cursor: grab;
+      box-shadow: none !important; padding: 6px 8px !important; cursor: default;
     }
+    body.q2css-active.dnd-enabled details > summary.qj-toggle { cursor: grab; }
+    body.q2css-active.dnd-enabled details > summary.qj-toggle:active { cursor: grabbing; }
+
     body.q2css-active details > summary.qj-toggle .section-title {
       color: #000 !important; font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 12px;
     }
     body.q2css-active details > summary.qj-toggle::after { color: #3D3D3D !important; }
-    body.q2css-active .qj-badge {
-      background: #FEF1DE; color: #000; border: 1px solid #000; border-radius: 0;
-      font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 11px;
+    body.q2css-active .qj-badge { background: #FEF1DE; color: #000; border: 1px solid #000; border-radius: 0; font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 11px; }
+    body.q2css-active .qj-tag { background: #FEF1DE; color: #A22C21; border: 1px solid #000; border-radius: 0; font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 11px; }
+
+    /* Меню в Q2CSS стиле */
+    body.q2css-active .qj-menu-scroll { gap: .35rem; }
+    body.q2css-active .qj-chip {
+      background: #FEF1DE !important;
+      color: #A22C21 !important;
+      border: 1px solid #000 !important;
+      border-radius: 0 !important;
+      font-family: Verdana, Geneva, Arial, Helvetica, sans-serif !important;
+      font-size: 11px !important;
+      padding: 2px 6px !important;
+      box-shadow: none !important;
     }
-    body.q2css-active .qj-tag { background: #FEF1DE; color: #A22C21; border: 1px solid #000; border-radius: 0;
-      font-family: Verdana, Geneva, Arial, Helvetica, sans-serif; font-size: 11px; }
 
     body.q2css-active { background-color: #FEF1DE !important; }
     body.q2css-active header.hero { background-color: #FEF1DE !important; border-bottom: 0 !important; }
@@ -2339,13 +2525,8 @@ function renderPage({
     body.q2css-active .ach-badge-img { border: 1px solid #000; border-radius: 0; width: 42px; height: 42px; object-fit: contain; }
     body.q2css-active .perc-badge-img { border: 1px solid #000; border-radius: 50%; width: 42px; height: 42px; object-fit: contain; }
     body.q2css-active .ach-thumb { border: 1px solid #000; border-radius: 0; }
-    body.q2css-active .ach-badges img:hover { box-shadow: none; }
-
-    html.q2css-active, body.q2css-active { font-size: 14px !important; }
-    body.q2css-active * { font-size: inherit !important; }
   `;
 
-  // Фон modern-темы (SITE_BG_IMAGE)
   const animatedBgCss = !useQ2Css ? `
     body:not(.q2css-active) {
       background-color: #0b0d10 !important;
@@ -2355,16 +2536,12 @@ function renderPage({
       background-size: cover;
       background-attachment: fixed;
     }
-    body:not(.q2css-active) header.hero {
-      background-color: transparent !important;
-      background: transparent !important;
-      border-bottom: 0 !important;
+    @media (pointer: coarse) {
+      body:not(.q2css-active) { background-attachment: scroll; }
     }
+    body:not(.q2css-active) header.hero { background: transparent !important; border-bottom: 0 !important; }
     @media (prefers-reduced-motion: reduce) {
-      body:not(.q2css-active) {
-        background-image: none !important;
-        background-color: #f5f7fa !important;
-      }
+      body:not(.q2css-active) { background-image: none !important; background-color: #f5f7fa !important; }
     }
   ` : '';
 
@@ -2373,7 +2550,7 @@ function renderPage({
   const resetBtnClass = 'btn btn-sm btn-outline-secondary';
 
   return `<!doctype html>
-<html lang="ru" data-bs-theme="auto" class="${useQ2Css ? 'q2css-active' : ''}">
+<html lang="ру" data-bs-theme="auto" class="${useQ2Css ? 'q2css-active' : ''}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -2389,36 +2566,44 @@ function renderPage({
   ${useQ2Css ? `<style id="q2-overrides-css">${q2OverridesCss}</style>` : ''}
 </head>
 <body class="${useQ2Css ? 'q2css-active' : ''}">
-  <header class="hero py-3 ${useQ2Css ? 'head_image' : ''}">
+  <header class="hero py-3 ${useQ2Css ? 'head_image' : 'hero--sticky'}">
     <div class="${containerClass}">
-      <!-- Мобильная шапка -->
-      <div class="d-flex d-md-none align-items-start">
-        ${logoBlock}
-        <div class="ms-3 flex-grow-1">
-          <div class="d-flex justify-content-end gap-2 mb-2">
-            <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
-            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
-            <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
-          </div>
-          <div class="d-flex flex-column align-items-start">
-            <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
-            ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
+      <!-- Мобильная шапка: 1) логотип+название+ссылка 2) панель кнопок (включая ≡ Меню) -->
+      <div class="d-flex d-md-none flex-column">
+        <div class="d-flex align-items-start">
+          ${logoBlock}
+          <div class="ms-3 flex-grow-1">
+            <div class="d-flex flex-column align-items-start">
+              <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
+              ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
+            </div>
           </div>
         </div>
+        <div class="d-flex justify-content-start gap-2 mt-2 qj-controls">
+          <button type="button" class="mobile-menu-trigger btn btn-sm btn-secondary" title="Меню">≡ Меню</button>
+          <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
+          <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
+          <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
+          <button type="button" class="js-btn-toggle-dnd btn btn-sm btn-outline-warning" title="Включить/выключить редактирование разделов">Редактировать разделы</button>
+        </div>
+        <!-- Чипы меню скрыты на мобильном через CSS (но остаются в DOM для заполнения мобильного меню) -->
+        ${topMenuHtml || ''}
       </div>
 
-      <!-- Десктопная шапка -->
+      <!-- Десктопная шапка (липкая) -->
       <div class="d-none d-md-flex align-items-start">
         ${logoBlock}
         <div class="flex-grow-1">
-          <div class="d-flex justify-content-end gap-2 mb-2">
+          <div class="d-flex justify-content-end gap-2 mb-2 qj-controls">
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
             <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
+            <button type="button" class="js-btn-toggle-dnd btn btn-sm btn-outline-warning" title="Включить/выключить редактирование разделов">Редактировать разделы</button>
           </div>
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h3 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
             ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
+            ${topMenuHtml || ''}
           </div>
         </div>
       </div>
@@ -2449,6 +2634,20 @@ function renderPage({
     </div>
   </div>
 
+  <!-- Мобильное меню -->
+  <div id="mobileMenu" class="qj-mm" aria-hidden="true">
+    <div class="qj-mm-backdrop"></div>
+    <div class="qj-mm-panel">
+      <div class="qj-mm-header">
+        <div class="qj-mm-title">Меню</div>
+        <button type="button" class="btn-close qj-mm-close" aria-label="Закрыть"></button>
+      </div>
+      <div class="qj-mm-body">
+        <nav id="mobileMenuList"></nav>
+      </div>
+    </div>
+  </div>
+
   <footer class="py-4">
     <div class="${containerClass} text-center text-muted small">
       Работает на QuakeJourney Bot — ${new Date().getFullYear()}
@@ -2457,6 +2656,91 @@ function renderPage({
 
   <script>
     (function(){
+
+      // Анти-скролл на первом заходе
+      (function initialAntiAnchoring(){
+        const style = document.createElement('style');
+        style.id = 'qj-anti-anch';
+        style.textContent = 'html,body{overflow-anchor:none !important;}';
+        document.head.appendChild(style);
+
+        let firstNavigate = !location.hash;
+        try {
+          const nav = (performance.getEntriesByType && performance.getEntriesByType('navigation') || [])[0];
+          if (nav) firstNavigate = (!location.hash && nav.type === 'navigate');
+        } catch(_) {}
+
+        if (firstNavigate) {
+          try { history.scrollRestoration = 'manual'; } catch(_) {}
+          window.scrollTo(0, 0);
+          requestAnimationFrame(() => window.scrollTo(0, 0));
+        }
+
+        window.addEventListener('load', () => {
+          setTimeout(() => {
+            const el = document.getElementById('qj-anti-anch');
+            if (el) el.remove();
+            try { history.scrollRestoration = 'auto'; } catch(_) {}
+          }, 800);
+        });
+      })();
+
+      // Обновление CSS-переменной для отступа якорей под липкую шапку
+      function updateStickyOffset() {
+        const stickyHeader = document.querySelector('header.hero.hero--sticky');
+        const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+        const stickyActive = !!stickyHeader && isDesktop && !document.body.classList.contains('q2css-active');
+        const h = stickyActive ? Math.ceil(stickyHeader.getBoundingClientRect().height) : 0;
+        document.documentElement.style.setProperty('--qj-sticky-offset', (h + 8) + 'px');
+      }
+      window.addEventListener('load', updateStickyOffset);
+      window.addEventListener('resize', () => requestAnimationFrame(updateStickyOffset));
+
+      // Вспомогательное: раскрыть все вложенные <details> внутри основной секции
+      function openAllInnerDetails(root) {
+        if (!root) return;
+        const list = root.querySelectorAll('details');
+        list.forEach(d => { if (d !== root) d.open = true; });
+      }
+
+      // Автораскрытие по якорю + раскрытие дочерних, если это основная секция
+      function openDetailsForHash(){
+        const raw = location.hash.slice(1);
+        if (!raw) return;
+        const id = decodeURIComponent(raw);
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        if (el.tagName?.toLowerCase() === 'details') el.open = true;
+
+        if (!el.matches('details')) {
+          const innerDetails = el.querySelector('details');
+          if (innerDetails) {
+            innerDetails.open = true;
+            let p = innerDetails.parentElement?.closest?.('details');
+            while (p) { p.open = true; p = p.parentElement?.closest?.('details'); }
+          }
+        }
+
+        let parentDetails = el.closest('details');
+        while (parentDetails) { parentDetails.open = true; parentDetails = parentDetails.parentElement?.closest?.('details'); }
+
+        const main = el.matches('.stage-collapse') ? el : el.closest('.stage-collapse');
+        if (main) openAllInnerDetails(main);
+
+        setTimeout(() => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 0);
+      }
+      openDetailsForHash();
+      window.addEventListener('hashchange', openDetailsForHash);
+
+      // При ручном открытии основной секции — открыть дочерние
+      document.addEventListener('toggle', function(e){
+        const t = e.target;
+        if (t && t.matches && t.matches('.stage-collapse') && t.open) {
+          openAllInnerDetails(t);
+        }
+      }, true);
+
       // Lightbox
       const lb = document.getElementById('lightbox');
       const img = lb.querySelector('.lightbox-img');
@@ -2464,18 +2748,13 @@ function renderPage({
       let lbOpen = false, lastCloseAt = 0;
 
       function resetImgInlineStyles() {
-        img.style.opacity = '';
-        img.style.left = '';
-        img.style.top = '';
-        img.style.width = '';
-        img.style.height = '';
-        img.style.position = '';
+        img.style.opacity = ''; img.style.left = ''; img.style.top = '';
+        img.style.width = ''; img.style.height = ''; img.style.position = '';
       }
       function openLb(src) {
         if (!src || lbOpen) return;
         resetImgInlineStyles();
-        img.removeAttribute('width');
-        img.removeAttribute('height');
+        img.removeAttribute('width'); img.removeAttribute('height');
         img.src = src;
         lb.classList.add('is-open');
         document.body.classList.add('no-scroll');
@@ -2495,9 +2774,7 @@ function renderPage({
       document.addEventListener('click', function(e){
         const trg = e.target.closest('.js-shot');
         if (!trg) return;
-        if (Date.now() - lastCloseAt < 250) {
-          e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); return;
-        }
+        if (Date.now() - lastCloseAt < 250) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.(); return; }
         e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation?.();
         openLb(trg.getAttribute('data-src'));
       });
@@ -2508,37 +2785,63 @@ function renderPage({
       // Twitch embeds (parent=hostname)
       const hostname = location.hostname;
       document.querySelectorAll('iframe.js-twitch-embed[data-channel]').forEach(ifr => {
+        if (ifr.classList.contains('js-video-iframe')) return;
         const ch = ifr.getAttribute('data-channel'); if (!ch) return;
         const src = 'https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=' + encodeURIComponent(hostname) + '&muted=true';
         ifr.src = src; ifr.setAttribute('allow', 'autoplay; picture-in-picture; fullscreen');
       });
 
-      // Авто-раскрытие по якорю
-      function openDetailsForHash(){
-        const raw = location.hash.slice(1);
-        if (!raw) return;
-        const id = decodeURIComponent(raw);
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (el.tagName?.toLowerCase() === 'details') el.open = true;
-        if (!el.matches('details')) {
-          const innerDetails = el.querySelector('details');
-          if (innerDetails) {
-            innerDetails.open = true;
-            let p = innerDetails.parentElement?.closest?.('details');
-            while (p) { p.open = true; p = p.parentElement?.closest?.('details'); }
+      // Ленивая гидратация видео iframe
+      (function hydrateVideoIframes(){
+        const setSrc = (el) => {
+          if (!el) return;
+          if (el.classList.contains('js-twitch-embed')) {
+            const ch = el.getAttribute('data-channel');
+            if (!ch) return;
+            const src = 'https://player.twitch.tv/?channel=' + encodeURIComponent(ch) +
+                        '&parent=' + encodeURIComponent(location.hostname) + '&muted=true';
+            el.src = src;
+            el.setAttribute('allow', 'autoplay; picture-in-picture; fullscreen');
+            el.removeAttribute('data-channel');
+          } else {
+            const s = el.getAttribute('data-src');
+            if (!s) return;
+            el.src = s;
+            el.removeAttribute('data-src');
           }
+          el.setAttribute('tabindex', '-1');
+          try { if (document.activeElement === el) el.blur(); } catch(_) {}
+        };
+
+        const iframes = Array.from(document.querySelectorAll('iframe.js-video-iframe'));
+        if (!iframes.length) return;
+
+        if ('IntersectionObserver' in window) {
+          const io = new IntersectionObserver((entries, obs) => {
+            entries.forEach(en => {
+              if (en.isIntersecting && en.intersectionRatio > 0) {
+                setSrc(en.target);
+                obs.unobserve(en.target);
+              }
+            });
+          }, { root: null, rootMargin: '0px', threshold: 0.01 });
+          iframes.forEach(el => io.observe(el));
+        } else {
+          iframes.forEach(setSrc);
         }
-        let parentDetails = el.closest('details');
-        while (parentDetails) { parentDetails.open = true; parentDetails = parentDetails.parentElement?.closest?.('details'); }
-        setTimeout(() => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 0);
-      }
-      openDetailsForHash();
-      window.addEventListener('hashchange', openDetailsForHash);
+
+        document.addEventListener('focusin', (e) => {
+          const el = e.target;
+          if (el && el.tagName === 'IFRAME' && el.classList.contains('js-video-iframe') &&
+              (el.hasAttribute('data-src') || el.classList.contains('js-twitch-embed'))) {
+            try { el.blur(); } catch(_) {}
+          }
+        }, true);
+      })();
 
       // Player stats modal
       const statsEnabled = ${PLAYER_STATS_ENABLED ? 'true' : 'false'};
-      const statsBase = ${JSON.stringify(statsBaseUrl || '')};
+      const statsBase = ${JSON.stringify(statsBaseNorm || '')};
       const pm = document.getElementById('playerModal');
       const pmBackdrop = pm?.querySelector('.player-modal-backdrop');
       const pmClose = pm?.querySelector('#playerModalClose');
@@ -2573,20 +2876,71 @@ function renderPage({
         });
       }
 
-      // Переключатели Q2CSS и CollapseAll (сервер выставит cookies)
+      // Переключатели Q2CSS и CollapseAll (UPDATED)
       const isQ2Css = ${useQ2Css ? 'true' : 'false'};
-      const isCollapsed = ${collapseAll ? 'true' : 'false'};
+      const isCollapsedInitial = ${collapseAll ? 'true' : 'false'};
       const Q2_PARAM = ${JSON.stringify(FORCE_Q2CSS_PARAM)};
       const COLLAPSE_PARAM = ${JSON.stringify(COLLAPSE_ALL_PARAM)};
+      const COLLAPSE_COOKIE = ${JSON.stringify(COLLAPSE_COOKIE)};
+      const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 год
+
       function toggleParam(name, current) {
         const url = new URL(location.href);
         url.searchParams.set(name, current ? '0' : '1');
         location.href = url.toString();
       }
-      document.querySelectorAll('.js-btn-toggle-q2').forEach(btn => btn.addEventListener('click', () => toggleParam(Q2_PARAM, isQ2Css)));
-      document.querySelectorAll('.js-btn-toggle-collapse').forEach(btn => btn.addEventListener('click', () => toggleParam(COLLAPSE_PARAM, isCollapsed)));
 
-      // Сброс порядка секций к умолчанию (удалить cookie и перезагрузить)
+      function isCollapsedNow() {
+        try {
+          const url = new URL(location.href);
+          const raw = url.searchParams.get(COLLAPSE_PARAM);
+          if (raw == null) return isCollapsedInitial;
+          return /^(1|true|yes|on)$/i.test(String(raw));
+        } catch(_) {
+          return isCollapsedInitial;
+        }
+      }
+
+      function collapseAllClientSide() {
+        document.querySelectorAll('details').forEach(d => { d.open = false; });
+      }
+
+      function applyCollapsedUrlState() {
+        const url = new URL(location.href);
+        url.searchParams.set(COLLAPSE_PARAM, '1');
+        const newUrl = url.toString().split('#')[0];
+        history.replaceState(null, '', newUrl);
+        document.cookie = encodeURIComponent(COLLAPSE_COOKIE) + '=1; Max-Age=' + COOKIE_MAX_AGE + '; Path=/; SameSite=Lax';
+      }
+
+      function scrollToFirstMainSection() {
+        try { updateStickyOffset(); } catch(_) {}
+        const firstSection = document.querySelector('.stage-collapse');
+        if (firstSection) {
+          firstSection.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+      }
+
+      document.querySelectorAll('.js-btn-toggle-q2').forEach(btn =>
+        btn.addEventListener('click', () => toggleParam(Q2_PARAM, isQ2Css))
+      );
+
+      document.querySelectorAll('.js-btn-toggle-collapse').forEach(btn =>
+        btn.addEventListener('click', () => {
+          const collapsed = isCollapsedNow();
+          if (!collapsed) {
+            applyCollapsedUrlState();
+            collapseAllClientSide();
+            scrollToFirstMainSection();
+          } else {
+            toggleParam(COLLAPSE_PARAM, true);
+          }
+        })
+      );
+
+      // Сброс порядка секций
       (function(){
         const COOKIE_NAME = ${JSON.stringify(SECTIONS_COOKIE)};
         function resetSectionsOrder() {
@@ -2598,12 +2952,16 @@ function renderPage({
         });
       })();
 
-      // DnD reorder главных секций (desktop HTML5 DnD + mobile Pointer Events)
+      // DnD reorder главных секций
       (function(){
         const root = document.getElementById('sections-root');
         if (!root) return;
         const COOKIE_NAME = ${JSON.stringify(SECTIONS_COOKIE)};
         const ONE_YEAR = 60*60*24*365;
+        const STORAGE_KEY = 'qj_dnd_enabled';
+        const isTouch = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+
+        let dndEnabled = (localStorage.getItem(STORAGE_KEY) ?? (isTouch ? '0' : '1')) === '1';
 
         function saveOrder() {
           const ids = Array.from(root.querySelectorAll('.js-draggable-section'))
@@ -2612,6 +2970,26 @@ function renderPage({
           document.cookie = encodeURIComponent(COOKIE_NAME) + '=' + encodeURIComponent(ids.join(','))
             + '; Max-Age=' + ONE_YEAR + '; Path=/; SameSite=Lax';
         }
+
+        function applyDndState() {
+          document.body.classList.toggle('dnd-enabled', dndEnabled);
+          root.querySelectorAll('.js-draggable-section').forEach(el => { el.draggable = dndEnabled; });
+          document.querySelectorAll('.js-btn-toggle-dnd').forEach(btn => {
+            btn.classList.toggle('btn-warning', dndEnabled);
+            btn.classList.toggle('btn-outline-warning', !dndEnabled);
+            btn.textContent = dndEnabled ? 'Готово (закончить редактирование)' : 'Редактировать разделы';
+          });
+        }
+        applyDndState();
+
+        document.querySelectorAll('.js-btn-toggle-dnd').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            dndEnabled = !dndEnabled;
+            localStorage.setItem(STORAGE_KEY, dndEnabled ? '1' : '0');
+            applyDndState();
+          });
+        });
 
         // Desktop DnD
         let dragging = null;
@@ -2626,29 +3004,32 @@ function renderPage({
           return closest;
         }
         root.addEventListener('dragstart', (e) => {
+          if (!dndEnabled) return;
           const sec = e.target.closest('.js-draggable-section'); if (!sec) return;
           dragging = sec; sec.classList.add('dragging');
           try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', sec.dataset.sectionId || ''); } catch(_) {}
         });
         root.addEventListener('dragover', (e) => {
-          if (!dragging) return; e.preventDefault();
+          if (!dndEnabled || !dragging) return; e.preventDefault();
           const afterEl = getDragAfterElement(root, e.clientY);
           if (afterEl == null) root.appendChild(dragging);
           else root.insertBefore(dragging, afterEl);
         });
-        root.addEventListener('drop', (e) => { if (!dragging) return; e.preventDefault(); dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
-        root.addEventListener('dragend', () => { if (dragging) dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
+        root.addEventListener('drop', (e) => { if (!dndEnabled || !dragging) return; e.preventDefault(); dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
+        root.addEventListener('dragend', () => { if (!dndEnabled || !dragging) return; dragging.classList.remove('dragging'); dragging = null; saveOrder(); });
 
-        // Mobile Pointer DnD — перетаскиваем за summary.qj-toggle
+        // Mobile Pointer DnD (по умолчанию выключено на touch)
         let pDragging = null, started = false, startY = 0, suppressClick = false;
 
         root.addEventListener('pointerdown', (e) => {
+          if (!dndEnabled) return;
           const sum = e.target.closest('summary.qj-toggle'); if (!sum) return;
           const sec = sum.closest('.js-draggable-section'); if (!sec) return;
           pDragging = sec; startY = e.clientY; started = false; suppressClick = false;
         }, { passive: true });
 
         root.addEventListener('pointermove', (e) => {
+          if (!dndEnabled) return;
           if (!pDragging) return;
           const dy = Math.abs(e.clientY - startY);
           if (!started && dy >= 5) {
@@ -2677,13 +3058,84 @@ function renderPage({
         root.addEventListener('pointerup', endPointerDrag);
         root.addEventListener('pointercancel', endPointerDrag);
 
-        // Глушим «клик» по summary после drag (чтобы не сворачивалось/раскрывалось)
         root.addEventListener('click', (e) => {
+          if (!dndEnabled) return;
           if (!suppressClick) return;
           if (e.target.closest('summary.qj-toggle')) {
             e.preventDefault(); e.stopPropagation();
           }
         }, true);
+      })();
+
+      // Мобильное меню (≡ Меню -> список пунктов)
+      (function(){
+        const btn = document.querySelector('.mobile-menu-trigger');
+        const modal = document.getElementById('mobileMenu');
+        const closeBtn = modal?.querySelector('.qj-mm-close');
+        const backdrop = modal?.querySelector('.qj-mm-backdrop');
+        const list = document.getElementById('mobileMenuList');
+
+        function fillMenu() {
+          if (!list) return;
+          list.innerHTML = '';
+
+          // 1) Пытаемся взять пункты с чипов верхнего меню (как на десктопе)
+          const chipLinks = Array.from(document.querySelectorAll('.qj-menu a.qj-chip'));
+          if (chipLinks.length) {
+            chipLinks.forEach(a => {
+              const href = a.getAttribute('href') || '#';
+              const text = (a.textContent || href).trim();
+              const item = document.createElement('a');
+              item.href = href;
+              item.textContent = text;
+              item.addEventListener('click', () => closeMenu());
+              list.appendChild(item);
+            });
+            return;
+          }
+
+          // 2) Резервный вариант: формируем меню по наличию основных секций
+          const candidates = [
+            { id: 'section-news-tournament', label: 'Новости' },
+            { id: 'section-desc', label: 'Информация' },
+            { id: 'section-groups', label: 'Квалификации' },
+            { id: 'section-finals', label: 'Финалы' },
+            { id: 'section-superfinals', label: 'Суперфинал' },
+            { id: 'section-stats', label: 'Статистика' },
+            { id: 'section-achievements', label: 'Ачивки' },
+            { id: 'section-perks', label: 'Перки' },
+            { id: 'section-servers', label: 'Сервера' },
+            { id: 'section-streams', label: 'Стримы' },
+          ];
+          candidates.forEach(c => {
+            if (document.getElementById(c.id)) {
+              const a = document.createElement('a');
+              a.href = '#' + c.id;
+              a.textContent = c.label;
+              a.addEventListener('click', () => closeMenu());
+              list.appendChild(a);
+            }
+          });
+        }
+
+        function openMenu() {
+          fillMenu();
+          modal?.classList.add('is-open');
+          modal?.setAttribute('aria-hidden', 'false');
+          document.body.classList.add('no-scroll');
+        }
+        function closeMenu() {
+          modal?.classList.remove('is-open');
+          modal?.setAttribute('aria-hidden', 'true');
+          document.body.classList.remove('no-scroll');
+        }
+
+        btn?.addEventListener('click', (e) => { e.preventDefault(); openMenu(); });
+        closeBtn?.addEventListener('click', (e) => { e.preventDefault(); closeMenu(); });
+        backdrop?.addEventListener('click', (e) => { e.preventDefault(); closeMenu(); });
+        document.addEventListener('keydown', (e) => {
+          if (modal?.classList.contains('is-open') && (e.key === 'Escape' || e.key === 'Esc')) closeMenu();
+        });
       })();
     })();
   </script>
@@ -2738,29 +3190,29 @@ async function main() {
       // 1) Читаем query-флаги и cookies
       const q2ParamDefined = Object.prototype.hasOwnProperty.call(req.query || {}, FORCE_Q2CSS_PARAM);
       const collParamDefined = Object.prototype.hasOwnProperty.call(req.query || {}, COLLAPSE_ALL_PARAM);
-  
+
       const useQ2Css = q2ParamDefined
         ? getBoolQuery(req, FORCE_Q2CSS_PARAM, false)
         : getBoolCookie(req, Q2CSS_COOKIE, false);
-  
+
       const collapseAll = collParamDefined
         ? getBoolQuery(req, COLLAPSE_ALL_PARAM, false)
         : getBoolCookie(req, COLLAPSE_COOKIE, false);
-  
+
       // порядок секций из cookie
       const sectionsOrder = parseSectionsOrderCookie(req);
-  
+
       // 2) Если пришли query — обновим cookies (1 год)
       const cookiesToSet = [];
       const maxAge = 60 * 60 * 24 * 365; // 1 год
-  
+
       if (q2ParamDefined) {
         cookiesToSet.push(`${Q2CSS_COOKIE}=${useQ2Css ? '1' : '0'}; Max-Age=${maxAge}; Path=/; SameSite=Lax`);
       }
       if (collParamDefined) {
         cookiesToSet.push(`${COLLAPSE_COOKIE}=${collapseAll ? '1' : '0'}; Max-Age=${maxAge}; Path=/; SameSite=Lax`);
       }
-  
+
       const [
         tournament, groups, finals, superfinals,
         groupPtsMap, finalPtsMap, superFinalPtsMap
@@ -2773,44 +3225,44 @@ async function main() {
         getFinalPointsMap(CHAT_ID),
         getSuperFinalPointsMap(CHAT_ID),
       ]);
-  
+
       const [groupScreens, finalScreens, superScreens] = await Promise.all([
         getScreensForScope(CHAT_ID, 'group', groups),
         getScreensForScope(CHAT_ID, 'final', finals),
         getScreensForScope(CHAT_ID, 'superfinal', superfinals),
       ]);
-  
+
       const [groupRunId, finalRunId, superRunId] = await Promise.all([
         findLatestRunIdForScope(CHAT_ID, 'group'),
         findLatestRunIdForScope(CHAT_ID, 'final'),
         findLatestRunIdForScope(CHAT_ID, 'superfinal'),
       ]);
-  
+
       const [tournamentNews, groupsNews, finalsNews, superNews] = await Promise.all([
         listNews(CHAT_ID, 'tournament', null),
         groupRunId ? listNews(CHAT_ID, 'group', groupRunId) : Promise.resolve([]),
         finalRunId ? listNews(CHAT_ID, 'final', finalRunId) : Promise.resolve([]),
         superRunId ? listNews(CHAT_ID, 'superfinal', superRunId) : Promise.resolve([]),
       ]);
-  
+
       const [definedGroupRating, definedFinalRating] = await Promise.all([
         getDefinedGroupRating(CHAT_ID),
         getDefinedFinalRating(CHAT_ID),
       ]);
-  
+
       const [customGroups, customPointsByGroup] = await Promise.all([
         getCustomGroups(CHAT_ID),
         getCustomPointsByGroup(CHAT_ID),
       ]);
       const customScreens = await getScreensForScope(CHAT_ID, 'custom', customGroups);
-  
+
       const achievements = await getAchievements(CHAT_ID);
       const achievementsAch = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'achievement');
       const achievementsPerc = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'perc');
       const achievementsIndex = buildAchievementsIndex(achievements);
-  
+
       const mapsList = await getMaps(CHAT_ID);
-  
+
       const html = renderPage({
         tournament, groups, finals, superfinals,
         groupScreens, finalScreens, superScreens,
@@ -2830,7 +3282,7 @@ async function main() {
         mapsList,
         sectionOrder: sectionsOrder, // НОВОЕ
       });
-  
+
       if (cookiesToSet.length) {
         res.setHeader('Set-Cookie', cookiesToSet);
       }
@@ -2840,8 +3292,8 @@ async function main() {
       res.status(500).send('Internal Server Error');
     }
   });
-  
-  
+
+
   // Healthcheck
   const server = app.listen(PORT, () => {
     console.log(`Site started on http://localhost:${PORT} (chatId=${CHAT_ID})`);

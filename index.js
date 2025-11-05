@@ -138,6 +138,88 @@ function dedupByNorm(items) {
   return out;
 }
 
+// --- Safe outbound send helpers (rate-limit aware) ---
+
+// Минимальный интервал между исходящими сообщениями в один и тот же чат (мс).
+// Можно переопределить через ENV: OUTBOUND_MIN_INTERVAL_MS
+const OUTBOUND_MIN_INTERVAL_MS = Number(process.env.OUTBOUND_MIN_INTERVAL_MS || 1100);
+
+// Последнее время отправки сообщения по каждому чату
+const outboundChatPace = new Map(); // chatId -> timestamp
+
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+async function paceChatSend(ctx, minMs = OUTBOUND_MIN_INTERVAL_MS) {
+  const chatId = ctx.chat?.id;
+  if (!chatId || minMs <= 0) return;
+  const last = outboundChatPace.get(chatId) || 0;
+  const now = Date.now();
+  const wait = last ? Math.max(0, minMs - (now - last)) : 0;
+  if (wait > 0) await sleep(wait);
+  outboundChatPace.set(chatId, Date.now());
+}
+
+/**
+ * Универсальный вызов Telegram API с повтором при 429 Too Many Requests.
+ * executor: () => Promise<any> — функция, делающая собственно вызов (например, () => ctx.reply(...))
+ */
+async function telegramCallWithRetry(ctx, executor, opts = {}) {
+  const {
+    maxRetries = 6,
+    baseDelayMs = 1000,
+    jitterMs = 150,
+  } = opts;
+
+  let attempt = 0;
+  while (true) {
+    // Пейсинг по чату (1 сообщение ~ в секунду по умолчанию)
+    await paceChatSend(ctx);
+    try {
+      const res = await executor();
+      return res;
+    } catch (e) {
+      const is429 = e && (
+        e.code === 429 ||
+        e.response?.error_code === 429 ||
+        /Too Many Requests/i.test(String(e.description || e.message))
+      );
+      if (!is429) throw e;
+
+      const retryAfterSec =
+        Number(e.parameters?.retry_after) ||
+        Number(e.response?.parameters?.retry_after) ||
+        Number((e.on && e.on.payload && e.on.payload.retry_after)) ||
+        1;
+
+      attempt++;
+      if (attempt > maxRetries) throw e;
+
+      const delay = Math.max(retryAfterSec * 1000, baseDelayMs) + Math.floor(Math.random() * jitterMs);
+
+      // Сдвигаем вперёд "последнюю отправку" — чтобы следующий вызов тоже подождал
+      const chatId = ctx.chat?.id;
+      if (chatId) outboundChatPace.set(chatId, Date.now() + delay);
+
+      await sleep(delay);
+      continue;
+    }
+  }
+}
+
+async function replySafe(ctx, text, extra = {}) {
+  if (!text) return;
+  return telegramCallWithRetry(ctx, () =>
+    ctx.reply(text, { disable_web_page_preview: true, ...extra })
+  );
+}
+
+async function replyWithPhotoSafe(ctx, media, extra = {}) {
+  return telegramCallWithRetry(ctx, () =>
+    ctx.replyWithPhoto(media, extra)
+  );
+}
+
+
 // Crypto-random helpers
 function randInt(maxExclusive) {
   return crypto.randomInt(0, maxExclusive);
@@ -259,25 +341,22 @@ function formatRolesTable(docs = []) {
   return lines.join('\n');
 }
 
-
 async function isAchievementsEditor(ctx) {
-  // владельцы и админы всегда могут
-  if (await isChatAdminOrOwner(ctx)) return true;
-  // роль Achievements — тоже можно
-  if (!ctx.chat?.id || !ctx.from?.id) return false;
-  return hasUserRole(ctx.chat.id, ctx.from.id, ACHIEVEMENTS_ROLE);
+  const chatId = getEffectiveChatId(ctx);
+  if (await isChatAdminOrOwner(ctx, chatId)) return true;
+  if (!ctx.from?.id) return false;
+  return hasUserRole(chatId, ctx.from.id, ACHIEVEMENTS_ROLE);
 }
 
 async function requireAchievementsGuard(ctx) {
   if (!requireGroupContext(ctx)) {
-    await ctx.reply('Эта команда доступна только в контексте группы/супергруппы.');
+    await ctx.reply('Эта команда доступна только в контексте чатов (группы или личные), не в каналах.');
     return false;
   }
   if (await isAchievementsEditor(ctx)) return true;
-  await ctx.reply('Недостаточно прав. Требуется админ чата или роль Achievements.');
+  await ctx.reply('Недостаточно прав. Требуется админ целевого чата или роль Achievements.');
   return false;
 }
-
 
 function userMatchesAdmin(user, adminEntry) {
   // Match by userId if present; else by username (case-insensitive)
@@ -290,11 +369,13 @@ function userMatchesAdmin(user, adminEntry) {
   return false;
 }
 
-async function isChatAdminOrOwner(ctx) {
-  if (isOwner(ctx.from?.id)) return true;
-  // В личном чате сам пользователь — админ по умолчанию
-  if (ctx.chat?.type === 'private' && ctx.from?.id === ctx.chat?.id) return true;
-  const admins = await getChatAdmins(ctx.chat?.id);
+// ПОЛНАЯ ЗАМЕНА функций прав — проверяем права по ЦЕЛЕВОМУ чату (getEffectiveChatId)
+async function isChatAdminOrOwner(ctx, targetChatId = null) {
+  const userId = ctx.from?.id;
+  if (isOwner(userId)) return true;
+
+  const chatId = targetChatId ?? getEffectiveChatId(ctx);
+  const admins = await getChatAdmins(chatId);
   return admins.some(a => userMatchesAdmin(ctx.from, a));
 }
 
@@ -308,11 +389,12 @@ function requireGroupContext(ctx) {
 
 async function requireAdminGuard(ctx) {
   if (!requireGroupContext(ctx)) {
-    await ctx.reply('Эта команда доступна только в контексте группы/супергруппы.');
+    await ctx.reply('Эта команда доступна только в контексте чатов (группы или личные), не в каналах.');
     return false;
   }
-  if (!(await isChatAdminOrOwner(ctx))) {
-    await ctx.reply('Недостаточно прав. Доступно владельцам и администраторам этого чата.');
+  const chatId = getEffectiveChatId(ctx);
+  if (!(await isChatAdminOrOwner(ctx, chatId))) {
+    await ctx.reply(`Недостаточно прав. Требуются владельцы или администраторы целевого чата #${chatId}.`);
     return false;
   }
   return true;
@@ -630,24 +712,35 @@ async function showAchievement(ctx, ach) {
   if (ach.player?.nameOrig) {
     header.push(`Player: ${ach.player.nameOrig}`);
   }
-  await ctx.reply(header.join('\n'));
 
+  // Заголовок
+  await replySafe(ctx, header.join('\n'));
+
+  // Лого (если есть)
   if (ach.image) {
     const media = ach.image.tgFileId
       ? ach.image.tgFileId
       : { source: fs.createReadStream(path.join(SCREENSHOTS_DIR, ach.image.relPath)) };
-    await ctx.replyWithPhoto(media);
+    await replyWithPhotoSafe(ctx, media);
   }
+
+  // Описание
   const desc = ach.desc && ach.desc.trim() ? ach.desc : '(no description)';
-  await ctx.reply(desc);
+  await replySafe(ctx, desc);
 }
 
 async function showAllAchievements(ctx, chatId) {
   const arr = await listAchievements(chatId);
   if (!arr.length) {
-    await ctx.reply('Achievements: (none)');
+    await replySafe(ctx, 'Achievements: (none)');
     return;
   }
+
+  // Опциональное вступление (чтобы пользователь понимал, что сейчас придёт много сообщений)
+  await replySafe(ctx, `Achievements: ${arr.length} item(s). Будет отправлено несколько сообщений, пожалуйста, подождите.`);
+
+  // Последовательно выводим каждую ачивку.
+  // Внутри showAchievement используются безопасные методы с ретраями и троттлингом.
   for (const a of arr) {
     // eslint-disable-next-line no-await-in-loop
     await showAchievement(ctx, a);
@@ -1788,7 +1881,7 @@ async function customHandler(ctx) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -2128,7 +2221,7 @@ bot.use(async (ctx, next) => {
 bot.on('text', async (ctx, next) => {
   if (!requireGroupContext(ctx)) return next();
 
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
   const key = achvKey(chatId, userId);
 
@@ -2472,7 +2565,7 @@ bot.command(['info', 'i'], async ctx => {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const [
     settings, sgs, maps, ggs, fgs, sfgs, waiting, rating, finalRating, groupPtsArr, finalPtsArr
   ] = await Promise.all([
@@ -2551,12 +2644,13 @@ bot.command(['info', 'i'], async ctx => {
 
 
 // ADMIN
+// ПОЛНАЯ ЗАМЕНА adminHandler(ctx) — chatId = getEffectiveChatId(ctx)
 async function adminHandler(ctx) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в группе.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const [sub, ...rest] = args.split(' ').filter(Boolean);
 
@@ -2721,12 +2815,13 @@ async function adminHandler(ctx) {
 bot.command(['admin', 'a'], adminHandler);
 
 // SKILLGROUPS
+// ПОЛНАЯ ЗАМЕНА skillGroupHandler(ctx) — chatId = getEffectiveChatId(ctx)
 async function skillGroupHandler(ctx) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в группе.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -2843,15 +2938,18 @@ async function skillGroupHandler(ctx) {
 
   await ctx.reply('Неизвестная опция. Используйте: add | del | (пусто для списка)');
 }
+
+
 bot.command(['skillgroup', 'sg'], skillGroupHandler);
 
 // MAPS
+// ПОЛНАЯ ЗАМЕНА mapsHandler(ctx) — chatId = getEffectiveChatId(ctx)
 async function mapsHandler(ctx) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в группе.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const [action, ...rest] = args.split(' ').filter(Boolean);
 
@@ -2899,6 +2997,8 @@ async function mapsHandler(ctx) {
 
   await ctx.reply('Неизвестная опция. Используйте: add | del | delall | (пусто для списка)');
 }
+
+
 bot.command(['map', 'm'], mapsHandler);
 
 // REPLACE the entire tournamentHandler(ctx) function with the version below
@@ -2910,7 +3010,7 @@ async function tournamentHandler(ctx) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -3275,6 +3375,23 @@ async function tournamentHandler(ctx) {
 
   await ctx.reply('Неизвестная опция /tournament. Используйте: name, site, desc, logo, news, info, servers, pack, streams, demos, newschannel или delall.');
 }
+
+// ДОБАВИТЬ ГЛОБАЛЬНО (рядом с другими runtime-состояниями)
+/**
+ * Переключение контекста чата: userId -> targetChatId
+ * Если задан, все операции будут работать с данным chatId (права/данные — из него),
+ * а ответы бот по-прежнему отправляет в текущий чат.
+ */
+const userTargetChat = new Map(); // key = Number(userId) -> Number(chatId)
+
+/** Возвращает целевой chatId для операций (переключённый через /setid) или текущий ctx.chat.id */
+function getEffectiveChatId(ctx) {
+  const uid = Number(ctx.from?.id);
+  const override = userTargetChat.get(uid);
+  if (Number.isInteger(override)) return override;
+  return ctx.chat?.id;
+}
+
 
 
 // --------- Screenshots helpers and runtime state ---------
@@ -3890,7 +4007,7 @@ async function groupsHandler(ctx) {
     await ctx.reply('Эта команда доступна только в группе.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -4434,7 +4551,7 @@ async function finalsHandler(ctx) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -4915,7 +5032,7 @@ async function superfinalHandler(ctx) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -5245,7 +5362,7 @@ async function achievementsHandler(ctx) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
@@ -5423,7 +5540,7 @@ bot.command('delall', async ctx => {
   }
   if (!(await requireAdminGuard(ctx))) return;
 
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   try {
     // Удалим файлы скриншотов + доки по всем scope
     const shots = await deleteAllScreenshotsForChat(chatId);
@@ -5468,7 +5585,7 @@ bot.command('delall', async ctx => {
 bot.command('done', async ctx => {
   purgeExpiredSessions();
   if (!requireGroupContext(ctx)) return;
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
 
   const sKey = ssKey(chatId, userId);
@@ -5562,7 +5679,7 @@ bot.command('done', async ctx => {
 bot.command('cancel', async ctx => {
   purgeExpiredSessions();
   if (!requireGroupContext(ctx)) return;
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
 
   const sKey = ssKey(chatId, userId);
@@ -5610,7 +5727,7 @@ bot.command('news', async ctx => {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const chatId = ctx.chat.id;
+  const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
   const [sub, idStr, ...rest] = args.split(' ').filter(Boolean);
   const text = rest.join(' ').trim();
@@ -5639,6 +5756,64 @@ bot.command('news', async ctx => {
   }
 
   await ctx.reply('Неизвестная опция /news. Используйте: del | edit');
+});
+
+// НОВАЯ КОМАНДА: /setid <ID> — установить/показать/сбросить целевой chatId для текущего пользователя
+bot.command('setid', async ctx => {
+  if (!requireGroupContext(ctx)) {
+    await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
+    return;
+  }
+  const args = parseCommandArgs(ctx.message.text || '').trim();
+
+  // /setid — показать текущие настройки
+  if (!args) {
+    const uid = Number(ctx.from.id);
+    const cur = userTargetChat.get(uid);
+    const effective = getEffectiveChatId(ctx);
+    await ctx.reply(
+      `Текущий чат: #${ctx.chat.id}\n` +
+      `Установленный целевой chatId: ${Number.isInteger(cur) ? '#' + cur : '(не задан)'}\n` +
+      `Фактически используемый для данных: #${effective}\n\n` +
+      `Подсказки:\n` +
+      `- Установить: /setid <числовой_id>\n` +
+      `- Сбросить: /setid clear`
+    );
+    return;
+  }
+
+  // /setid clear — сбросить
+  if (args.toLowerCase() === 'clear' || args.toLowerCase() === 'reset') {
+    const uid = Number(ctx.from.id);
+    userTargetChat.delete(uid);
+    await ctx.reply('Целевой chatId сброшен. Теперь используются данные текущего чата.');
+    return;
+  }
+
+  // /setid <ID> — установить
+  const idStr = args.replace(/\s+/g, '');
+  if (!/^-?\d+$/.test(idStr)) {
+    await ctx.reply('Укажите числовой ID чата/канала. Пример: /setid -1001234567890');
+    return;
+  }
+  const tgt = Number(idStr);
+  const uid = Number(ctx.from.id);
+  userTargetChat.set(uid, tgt);
+
+  // Попытаемся прочитать настройки, чтобы подсказать, что данные доступны
+  try {
+    const s = await getChatSettings(tgt);
+    await ctx.reply(
+      `Целевой chatId установлен: #${tgt}.\n` +
+      `Будут использоваться права и данные чата #${tgt}.\n` +
+      `Турнир (в целевом чате): ${s.tournamentName || '(not set)'}`
+    );
+  } catch (_) {
+    await ctx.reply(
+      `Целевой chatId установлен: #${tgt}.\n` +
+      `Внимание: данных по этому чату может не быть до первого сохранения настроек.`
+    );
+  }
 });
 
 
