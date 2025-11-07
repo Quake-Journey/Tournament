@@ -5,22 +5,48 @@ const { MongoClient } = require('mongodb');
 const path = require('path');
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const SITE_CHAT_ID = process.env.SITE_CHAT_ID; // ID чата/группы/канала, для которого показываем сайт
+const SITE_CHAT_ID = process.env.SITE_CHAT_ID; // может быть один ID или несколько через запятую
 const PORT = Number(process.env.SITE_PORT || 3000);
 const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.resolve(process.cwd(), 'screenshots');
-const PLAYER_STATS_URL = process.env.PLAYER_STATS_URL || ''; // https://q2.agly.eu/?lang=ru&r=r_6901e479cced6
-const PLAYER_STATS_ENABLED = /^(1|true|yes)$/i.test(String(process.env.PLAYER_STATS_ENABLED || ''));
+var PLAYER_STATS_URL = ""; // process.env.PLAYER_STATS_URL || ''; // https://q2.agly.eu/?lang=ru&r=r_6901e479cced6
+var PLAYER_STATS_ENABLED = false; // /^(1|true|yes)$/i.test(String(process.env.PLAYER_STATS_ENABLED || ''));
 
 // Параметр для принудительного подключения CSS quake2.com.ru
 const FORCE_Q2CSS_PARAM = 'forceQuake2ComRuCSS';
 // Параметр для сворачивания всех новостных секций по умолчанию
 const COLLAPSE_ALL_PARAM = 'CollapseAll';
+
+// Новый параметр для выбора турнира в URL
+const TOURNAMENT_QUERY_PARAM = 'tournamentId';
+
 // Cookies для сохранения пользовательских предпочтений
 const Q2CSS_COOKIE = 'qj_q2css';
 const COLLAPSE_COOKIE = 'qj_collapse';
 const SECTIONS_COOKIE = 'qj_sections'; // порядок главных секций
 
 const SITE_BG_IMAGE = process.env.SITE_BG_IMAGE || '/images/fon1.png';
+
+if (!SITE_CHAT_ID) {
+  console.error('SITE_CHAT_ID is required in .env (ID чата/группы/канала Telegram)');
+  process.exit(1);
+}
+
+// Поддержка множественных ID в SITE_CHAT_ID (через запятую)
+function parseAllowedChatIds(raw = '') {
+  return String(raw || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(v => Number(v))
+    .filter(n => Number.isFinite(n));
+}
+
+const ALLOWED_CHAT_IDS = parseAllowedChatIds(SITE_CHAT_ID);
+if (ALLOWED_CHAT_IDS.length === 0) {
+  console.error('SITE_CHAT_ID must contain at least one valid numeric chat id');
+  process.exit(1);
+}
+const DEFAULT_CHAT_ID = ALLOWED_CHAT_IDS[0];
 
 // Стили quake2.com.ru — подключаются только при наличии ?forceQuake2ComRuCSS=1
 const QUAKE2_COM_RU_CSS = `
@@ -296,26 +322,29 @@ function parseSectionsOrderCookie(req) {
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-
 function linkify(text = '') {
-  // Сначала экранируем весь текст
+  // 1) экранируем
   const escaped = escapeHtml(String(text || ''));
 
-  // Единый проход: http/https ИЛИ внутренняя #якорь-ссылка
+  // 2) первый проход: http/https и #якоря (оставь твой current 're' и коллбэк как есть)
   const re = /(\bhttps?:\/\/[^\s<>"']+)|(^|[\s(])#([A-Za-z][\w-]{0,100})/g;
-
-  return escaped.replace(re, (m, url, pre, anchor) => {
+  const withUrls = escaped.replace(re, (m, url, pre, anchor) => {
     if (url) {
-      // Внешние ссылки — как раньше, в новой вкладке
       return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
     }
     if (anchor) {
-      // Внутренние якоря — в той же вкладке (для плавного скролла и авто-раскрытия секций)
       return `${pre}<a href="#${anchor}">#${anchor}</a>`;
     }
     return m;
   });
+
+  // 3) второй проход: @username → https://t.me/username (не трогаем email адреса)
+  //   - Матчим @ после начала строки или НЕ [a-zA-Z0-9_@], чтобы не задевать user@domain
+  return withUrls.replace(/(^|[^a-zA-Z0-9_@])@([A-Za-z0-9_]{4,64})\b/g,
+    (m, pre, user) => `${pre}<a href="https://t.me/${user}" target="_blank" rel="noopener">@${user}</a>`);
 }
+
+
 
 
 function renderServersSection(tournament, containerClass, collapsedByDefault = false) {
@@ -397,10 +426,8 @@ function renderMapsListSection(mapsList = [], containerClass, collapsedByDefault
   `;
 }
 
-
-
 function renderNewsRichText(text = '') {
-  // Поддержка markdown‑подобных цитат: строки, начинающиеся с "> " или ">"
+  // Поддержка markdown-подобных цитат: строки, начинающиеся с "> " или ">"
   const src = String(text || '').replace(/\r\n?/g, '\n');
   const lines = src.split('\n');
 
@@ -410,12 +437,21 @@ function renderNewsRichText(text = '') {
 
   function pushBlock() {
     if (!buf.length) return;
-    const raw = buf.join('\n');
-    // linkify уже экранирует текст и превращает URL/якоря в ссылки
-    const innerHtml = linkify(raw);
-    blocks.push(inQuote
-      ? `<blockquote class="qj-quote">${innerHtml}</blockquote>`
-      : `<div class="qj-paragraph">${innerHtml}</div>`);
+
+    // Собираем блок и слегка нормализуем «лесенки»:
+    // 3+ пустых строк -> 2 (чтобы не раздувать вертикальные отступы)
+    const raw = buf.join('\n').replace(/(\n){3,}/g, '\n\n');
+
+    // linkify уже экранирует HTML и превращает URL/якоря в ссылки,
+    // linkifyTelegramHandles дополняет @handles -> https://t.me/<handle>
+    // Затем переводим \n в <br>, чтобы не зависеть от pre-wrap
+    const innerHtml = linkifyTelegramHandles(linkify(raw)).replace(/\n/g, '<br>');
+
+    blocks.push(
+      inQuote
+        ? `<blockquote class="qj-quote">${innerHtml}</blockquote>`
+        : `<div class="qj-paragraph">${innerHtml}</div>`
+    );
     buf = [];
   }
 
@@ -434,6 +470,7 @@ function renderNewsRichText(text = '') {
   return blocks.join('');
 }
 
+
 function renderTopMenu({
   tournament,
   tournamentNews = [],
@@ -444,49 +481,161 @@ function renderTopMenu({
   achievementsPerc = [],
   showStats = false,
 }) {
-  const items = [];
+  const raw = [];
 
   // Новости: якорь на последнюю турнирную новость
   if (Array.isArray(tournamentNews) && tournamentNews.length > 0) {
     const n = tournamentNews[0];
     const nid = (n && n._id && typeof n._id.toString === 'function') ? n._id.toString() : String(n?._id || '');
-    if (nid) items.push({ label: 'Новости', href: `#news-${nid}` });
+    if (nid) raw.push({ label: 'Новости', href: `#news-${nid}` });
   }
 
-  // Информация (Описание турнира)
-  if (tournament?.desc) items.push({ label: 'Информация', href: '#section-desc' });
+  if (tournament?.desc) raw.push({ label: 'Информация', href: '#section-desc' });
+  if (Array.isArray(groups) && groups.length > 0) raw.push({ label: 'Квалификации', href: '#section-groups' });
+  if (Array.isArray(finals) && finals.length > 0) raw.push({ label: 'Финалы', href: '#section-finals' });
+  if (Array.isArray(superfinals) && superfinals.length > 0) raw.push({ label: 'Суперфинал', href: '#section-superfinals' });
+  if (showStats) raw.push({ label: 'Статистика', href: '#section-stats' });
+  if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: 'Ачивки', href: '#section-achievements' });
+  if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: 'Перки', href: '#section-perks' });
+  if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: 'Сервера', href: '#section-servers' });
+  if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
 
-  // Квалификации
-  if (Array.isArray(groups) && groups.length > 0) items.push({ label: 'Квалификации', href: '#section-groups' });
+  if (!raw.length) return '';
 
-  // Финалы
-  if (Array.isArray(finals) && finals.length > 0) items.push({ label: 'Финалы', href: '#section-finals' });
+  // Де-дупликация на этапе рендера (страховка)
+  const seen = new Set();
+  const items = [];
+  for (const it of raw) {
+    const href = String(it.href || '').trim();
+    const label = String(it.label || '').trim();
+    if (!href || !label) continue;
+    const key = href + '|' + label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ href, label });
+  }
 
-  // Суперфинал
-  if (Array.isArray(superfinals) && superfinals.length > 0) items.push({ label: 'Суперфинал', href: '#section-superfinals' });
-
-  // Статистика (после «Суперфинал»)
-  if (showStats) items.push({ label: 'Статистика', href: '#section-stats' });
-
-  // Ачивки / Перки
-  if (Array.isArray(achievementsAch) && achievementsAch.length > 0) items.push({ label: 'Ачивки', href: '#section-achievements' });
-  if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) items.push({ label: 'Перки', href: '#section-perks' });
-
-  // Сервера
-  if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) items.push({ label: 'Сервера', href: '#section-servers' });
-
-  // Стримы
-  if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) items.push({ label: 'Стримы', href: '#section-streams' });
-
-  if (!items.length) return '';
-
-  // Чипы как у тэгов (овальные плашки), на мобилках — горизонтальный скролл
-  const links = items.map(it => `<a class="qj-chip" href="${escapeAttr(it.href)}">${escapeHtml(it.label)}</a>`).join('');
+  const labelsCanonical = items.map(it => it.label.trim().toLowerCase());
+  const links = items
+    .map(it => `<a class="qj-chip" data-qj-key="${escapeAttr(it.href + '|' + it.label.toLowerCase())}" href="${escapeAttr(it.href)}">${escapeHtml(it.label)}</a>`)
+    .join('');
 
   return `
-    <nav class="qj-menu mt-2">
+    <nav class="qj-menu mt-2" id="qj-top-menu">
       <div class="qj-menu-scroll">${links}</div>
     </nav>
+
+    <script>
+      (function QJ_MENU_STRONG_DEDUP(){
+        if (window.__QJ_MENU_STRONG_DEDUP_READY__) return;
+        window.__QJ_MENU_STRONG_DEDUP_READY__ = true;
+
+        // Эталонная последовательность текстов (с сервера)
+        var REF = ${JSON.stringify(labelsCanonical)};
+
+        // Помощник: получить "пункты" внутри контейнера — это и <a>, и <li>, и кнопки,
+        // любой элемент-строка меню (фильтруем пустые)
+        function collectMenuItems(container){
+          if (!container) return [];
+          // Выбираем широким селектором
+          var candidates = container.querySelectorAll('a, li, button, .qj-chip');
+          var out = [];
+          for (var i=0;i<candidates.length;i++){
+            var el = candidates[i];
+            // Берём видимый текст
+            var txt = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (!txt) continue;
+            out.push({ el: el, text: txt });
+          }
+          return out;
+        }
+
+        // Нормализация текста
+        function norm(s){ return String(s||'').trim().toLowerCase(); }
+
+        // Пытаемся найти в контейнере два подряд идущих одинаковых блока меню и удалить второй
+        function dedupeSequentialBlock(container){
+          var items = collectMenuItems(container);
+          if (items.length < 2*REF.length) return false;
+
+          // Соберём тексты в нижнем регистре
+          var texts = items.map(function(x){ return norm(x.text); });
+
+          // Поищем подряд два одинаковых блока длиной REF.length
+          var L = REF.length;
+          for (var start=0; start + 2*L <= texts.length; start++){
+            var blockA = texts.slice(start, start+L);
+            var blockB = texts.slice(start+L, start+2*L);
+
+            // Вариант 1: точное совпадение по текстам
+            var eqBlocks = true;
+            for (var i=0;i<L;i++){ if (blockA[i] !== blockB[i]) { eqBlocks = false; break; } }
+            if (!eqBlocks) continue;
+
+            // Доп. проверка: блок совпадает с нашей эталонной последовательностью (по позициям).
+            // Это защищает от ложных срабатываний.
+            var eqRef = true;
+            for (var j=0;j<L;j++){ if (blockA[j] !== norm(REF[j])) { eqRef = false; break; } }
+            if (!eqRef) continue;
+
+            // Удаляем второй блок (start+L .. start+2L-1)
+            for (var k = start+L; k < start+2*L; k++){
+              if (items[k] && items[k].el && items[k].el.parentNode) {
+                items[k].el.parentNode.removeChild(items[k].el);
+              }
+            }
+            return true;
+          }
+          return false;
+        }
+
+        // Проходим по всем разумным контейнерам мобильного меню
+        function run(){
+          var containers = document.querySelectorAll(
+            '.offcanvas, .offcanvas-body, .collapse, .navbar-collapse, .mobile-menu, .drawer, .drawer-body, nav, .qj-menu, .qj-menu-scroll, ul, .menu'
+          );
+          var changed = false;
+          for (var i=0;i<containers.length;i++){
+            try { changed = dedupeSequentialBlock(containers[i]) || changed; } catch(_){}
+          }
+          return changed;
+        }
+
+        // Запуск при загрузке
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function(){ try{ run(); }catch(_){} }, { once: true });
+        } else {
+          try { run(); } catch(_){}
+        }
+
+        // На события открытия/показа (Bootstrap и подобные)
+        ['show.bs.offcanvas','shown.bs.offcanvas','show.bs.collapse','shown.bs.collapse'].forEach(function(ev){
+          document.addEventListener(ev, function(){ setTimeout(run, 0); });
+        });
+
+        // На любые клики по возможным триггерам
+        document.addEventListener('click', function(e){
+          var t = e.target;
+          if (!t) return;
+          if (t.closest && (t.closest('.navbar-toggler') || t.closest('[data-bs-toggle]') || t.closest('.menu-toggle') || t.closest('.offcanvas-toggle'))) {
+            setTimeout(run, 0);
+          } else {
+            var txt = (t.textContent||'').trim().toLowerCase();
+            if (txt === 'меню' || txt === 'menu') setTimeout(run, 0);
+          }
+        });
+
+        // На ресайз
+        window.addEventListener('resize', function(){ setTimeout(run, 0); });
+
+        // На любые мутации DOM — ловим "тихие" дубли
+        var mo = new MutationObserver(function(){
+          if (window.__qj_menu_seq_timer) clearTimeout(window.__qj_menu_seq_timer);
+          window.__qj_menu_seq_timer = setTimeout(run, 25);
+        });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+      })();
+    </script>
   `;
 }
 
@@ -850,6 +999,88 @@ function relToUrl(relPath) {
   return relPath.split(path.sep).map(encodeURIComponent).join('/');
 }
 
+// Получение метаданных турниров по списку chatId
+async function getTournamentsMeta(chatIds = []) {
+  if (!Array.isArray(chatIds) || chatIds.length === 0) return [];
+  // Берём имя турнира из коллекции chats (поле tournamentName)
+  const docs = await colChats.find(
+    { chatId: { $in: chatIds } },
+    { projection: { chatId: 1, tournamentName: 1 } }
+  ).toArray();
+
+  const nameById = new Map();
+  for (const d of docs) {
+    if (Number.isFinite(d?.chatId)) {
+      nameById.set(Number(d.chatId), String(d?.tournamentName || '').trim());
+    }
+  }
+
+  return chatIds.map(id => {
+    const name = nameById.get(id);
+    return { id, name: name || `Чат ${id}` };
+  });
+}
+
+// Безопасные утилиты для Telegram-ссылок и текстов
+
+function escapeHtml(s = '') {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Нормализуем значение из tournamentNewsChannel в полноценный URL (или null)
+function normalizeTelegramLink(input) {
+  if (!input) return null;
+  let s = String(input).trim();
+
+  // Канал/юзер в виде @handle
+  if (s.startsWith('@')) {
+    const handle = s.slice(1);
+    if (/^[A-Za-z0-9_]{5,32}$/.test(handle)) return `https://t.me/${handle}`;
+    return null;
+  }
+
+  // Уже ссылка t.me
+  if (/^https?:\/\/t\.me\//i.test(s)) return s;
+  if (/^t\.me\//i.test(s)) return 'https://' + s;
+
+  // Иначе — не распознали как телеграм-ссылку
+  return null;
+}
+
+// Отображаемая подпись: всегда в виде @handle, даже если хранилось как URL
+function displayTelegramHandle(input) {
+  if (!input) return '';
+  const s = String(input).trim();
+  if (s.startsWith('@')) return s;
+  const m = s.match(/^https?:\/\/t\.me\/([A-Za-z0-9_]{5,32})/i);
+  if (m) return '@' + m[1];
+  return escapeHtml(s);
+}
+
+/**
+ * Линкуем @handle в произвольном HTML-фрагменте.
+ * - Не трогаем уже существующие <a ...>...</a>
+ * - @handle должен быть 5–32 символа [A-Za-z0-9_]
+ */
+function linkifyTelegramHandles(html = '') {
+  // Разбиваем по тегам <a> — обрабатываем только невнутренние куски
+  const parts = html.split(/(<a\b[^>]*>.*?<\/a>)/gis);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) continue; // это внутри <a>...</a>
+    parts[i] = parts[i].replace(
+      /(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{5,32})(?![A-Za-z0-9_])/g,
+      (m, p1, handle) => `${p1}<a href="https://t.me/${handle}" target="_blank" rel="noopener">@${handle}</a>`
+    );
+  }
+  return parts.join('');
+}
+
+
 async function getTournament(chatId) {
   const doc = await colChats.findOne({ chatId });
   return {
@@ -857,11 +1088,13 @@ async function getTournament(chatId) {
     site: doc?.tournamentSite || '',
     desc: doc?.tournamentDesc || '',
     logo: doc?.tournamentLogo || null, // { relPath, ... }
-
     // Новые поля для верхнего блока
     servers: Array.isArray(doc?.tournamentServers) ? doc.tournamentServers : [],
     pack: doc?.tournamentPack || '',
     streams: Array.isArray(doc?.tournamentStreams) ? doc.tournamentStreams : [],
+    newsChannel: doc?.tournamentNewsChannel || '',   // ← ДОБАВИТЬ ЭТО
+    tournamentStatsUrl: doc?.tournamentStatsUrl || '',
+    tournamentStatsEnabled: doc?.tournamentStatsEnabled || false,
   };
 }
 
@@ -913,7 +1146,7 @@ function renderCustomSection(items = [], pointsByGroup = new Map(), screensMap =
     const maps = renderMaps(Array.isArray(g.maps) ? g.maps : []);
     const demos = renderDemos(Array.isArray(g.demos) ? g.demos : []);
     const files = screensMap.get(Number(g.groupId)) || [];
-    const shots = renderScreenshots(files);
+    const shots = renderScreenshots(files, id);
 
     return `
       <div>
@@ -1039,10 +1272,8 @@ function buildAchievementsIndex(achievements = []) {
   return byPlayer;
 }
 
-// Мини-иконки ачивок рядом с именем игрока
-// Мини-иконки ачивок/перков рядом с именем игрока
-// Мини-иконки ачивок/перков рядом с именем игрока
 // Мини-иконки ачивок/перков рядом с именем игрока (с подсветкой контуров)
+// Мини-иконки ачивок/перков рядом с именем игрока (c hover-увеличением x4)
 function renderAchievementBadgesInline(nameNorm, achIndex) {
   const key = String(nameNorm || '').trim().toLowerCase();
   if (!key || !achIndex || !achIndex.has(key)) return '';
@@ -1051,17 +1282,28 @@ function renderAchievementBadgesInline(nameNorm, achIndex) {
   const percs = pack.percs || [];
   if (!achs.length && !percs.length) return '';
 
+  // Общий обработчик на ссылке: увеличиваем первый дочерний элемент (img или span)
+  const handlers =
+    ' onmouseenter="(function(a){var el=a.firstElementChild;if(el){el.style.transform=\'scale(4)\';el.style.transformOrigin=\'left center\';el.style.transition=\'transform .12s ease, box-shadow .12s ease\';el.style.position=\'relative\';el.style.zIndex=\'1060\';el.style.boxShadow=\'0 12px 36px rgba(0,0,0,.35)\';}})(this)"' +
+    ' onmouseleave="(function(a){var el=a.firstElementChild;if(el){el.style.transform=\'\';el.style.boxShadow=\'\';el.style.zIndex=\'\';el.style.position=\'\';}})(this)"' +
+    ' onfocus="(function(a){var el=a.firstElementChild;if(el){el.style.transform=\'scale(4)\';el.style.transformOrigin=\'left center\';el.style.transition=\'transform .12s ease, box-shadow .12s ease\';el.style.position=\'relative\';el.style.zIndex=\'1060\';el.style.boxShadow=\'0 12px 36px rgba(0,0,0,.35)\';}})(this)"' +
+    ' onblur="(function(a){var el=a.firstElementChild;if(el){el.style.transform=\'\';el.style.boxShadow=\'\';el.style.zIndex=\'\';el.style.position=\'\';}})(this)"';
+
   const renderItem = (ai, cls, kind) => {
     const href = `#${escapeHtml(ai.id)}`;
     const linkCls = kind === 'perc' ? 'perc-badge-link' : 'ach-badge-link';
+
     if (ai.url) {
       const alt = escapeHtml(ai.title || 'ach');
-      return `<a href="${href}" class="me-1 align-middle ${linkCls}" title="${alt}">
-        <img src="${escapeHtml(ai.url)}" alt="${alt}" class="${cls}" loading="lazy" />
+      return `<a href="${href}" class="me-1 align-middle ${linkCls}" title="${alt}"${handlers}>
+        <img src="${escapeHtml(ai.url)}" alt="${alt}" class="${cls}" loading="lazy"
+             style="transition: transform .12s ease, box-shadow .12s ease; transform-origin: left center;" />
       </a>`;
     }
-    return `<a href="${href}" class="me-1 align-middle ${linkCls}" title="${escapeHtml(ai.title || 'ach')}">
-      <span class="ach-badge-fallback">🏆</span>
+
+    // Фоллбек без картинки — увеличиваем сам emoji как замену
+    return `<a href="${href}" class="me-1 align-middle ${linkCls}" title="${escapeHtml(ai.title || 'ach')}"${handlers}>
+      <span class="ach-badge-fallback" style="display:inline-block; transition: transform .12s ease;">🏆</span>
     </a>`;
   };
 
@@ -1172,24 +1414,57 @@ function renderNewsList(title, news = [], collapsedByDefault = false, sectionId 
 
   function renderItem(n) {
     const ts = n.createdAt ? formatRuMskDateTime(n.createdAt) : '';
-    const who = n.authorUsername ? `@${n.authorUsername}` : (n.authorId ? `#${n.authorId}` : '');
-    const nid = (n && n._id && typeof n._id.toString === 'function') ? n._id.toString() : String(n?._id || '');
-    const idAttr = nid ? ` id="news-${escapeHtml(nid)}"` : '';
-    const selfLink = nid ? `<a href="#news-${escapeHtml(nid)}" class="ms-2 text-decoration-none" aria-label="Ссылка на новость">#</a>` : '';
 
-    // 1) Рендерим rich-text (экранирование + автоссылки)
+    // Автор: сначала из n.author.username, потом из твоих старых полей
+    const whoUsername =
+      (n.author && n.author.username) ||
+      n.authorUsername ||
+      n.username ||
+      '';
+    const who = whoUsername
+      ? `@${String(whoUsername)}`
+      : (n.authorId ? `#${n.authorId}` : '');
+
+    const nid = (n && n._id && typeof n._id.toString === 'function')
+      ? n._id.toString()
+      : String(n?._id || '');
+    const idAttr = nid ? ` id="news-${escapeHtml(nid)}"` : '';
+    const selfLink = nid
+      ? `<a href="#news-${escapeHtml(nid)}" class="ms-2 text-decoration-none" aria-label="Ссылка на новость">#</a>`
+      : '';
+
+    // 1) Текст новости (rich + embeds). Переносы уже <br> внутри renderNewsRichText.
     const baseHtml = renderNewsRichText(n.text || '');
-    // 2) Инлайн-вставляем плееры на место «голых» URL
     const textWithEmbeds = injectEmbedsIntoNewsHtml(baseHtml).trim();
 
+    // 2) Обложка новости при наличии news_img_file_name
+    // Путь относительно /media: "<chatId>\\news\\<file>"
+    let coverHtml = '';
+    if (n.news_img_file_name && n.chatId != null) {
+      const relPathRaw = `${String(n.chatId).trim()}\\news\\${String(n.news_img_file_name).trim()}`;
+      const url = `/media/${relToUrl(relPathRaw)}`;
+      coverHtml = `
+        <div class="news-cover" style="margin:0 0 .5rem 0;">
+          <img
+            src="${escapeAttr(url)}"
+            alt=""
+            loading="lazy"
+            style="display:block; margin:0 auto; max-width:100%; height:auto;"
+          />
+        </div>`;
+    }
+
     return `
-      <li class="list-group-item"${idAttr}>
+      <li class="list-group-item qj-news-item"${idAttr} style="margin-bottom: 1.25rem;">
         <div class="d-flex flex-column flex-md-row">
           <div class="flex-grow-1">
-            <div class="news-text" style="white-space: pre-wrap;">${textWithEmbeds}</div>
+            ${coverHtml}
+            <div class="news-text">
+              ${textWithEmbeds}
+            </div>
           </div>
           <div class="news-meta small text-muted mt-2 mt-md-0 ms-0 ms-md-3">
-            ${escapeHtml(ts)}${who ? ` (${escapeHtml(who)})` : ''}${selfLink}
+            ${escapeHtml(ts)}${who ? ` (${linkify(who)})` : ''}${selfLink}
           </div>
         </div>
       </li>`;
@@ -1289,22 +1564,239 @@ function renderPlayers(players = [], ptsMap = null, achIndex = null) {
   </ul>`;
 }
 
-
-function renderScreenshots(files = []) {
+function renderScreenshots(files = [], groupKey = '') {
   if (!files?.length) {
     return '<div class="text-muted small">Скриншоты отсутствуют</div>';
   }
+
   const thumbs = files.map(f => {
     const url = '/media/' + relToUrl(f.relPath || '');
     const alt = escapeHtml(f.mime || 'image');
     return `
-      <button type="button" class="js-shot qj-shot-btn me-1 mb-1" data-src="${url}" aria-label="Открыть скриншот">
-        <img src="${url}" alt="${alt}" loading="lazy"
+      <button type="button"
+              class="qj-shot-btn me-1 mb-1"
+              data-src="${escapeHtml(url)}"
+              onclick="window.QJ_LB_open && window.QJ_LB_open(this, event)"
+              aria-label="Открыть скриншот">
+        <img src="${escapeHtml(url)}" alt="${alt}" loading="lazy"
              style="max-width: 120px; max-height: 90px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(0,0,0,0.08);" />
       </button>`;
   }).join('');
-  return `<div class="mt-1">${thumbs}</div>`;
+
+  return `
+    <div class="mt-1 d-flex flex-wrap qj-shots" data-shots-group="${escapeAttr(groupKey)}">
+      ${thumbs}
+    </div>
+    <script>(function QJ_LB_BOOT_80P(){
+      if (window.__QJ_LB_READY__) return;
+      window.__QJ_LB_READY__ = true;
+
+      // ===== CSS =====
+      if (!document.getElementById('qj-lightbox-style')) {
+        var styleEl = document.createElement('style');
+        styleEl.id = 'qj-lightbox-style';
+        styleEl.textContent =
+          'html.qj-lock, body.qj-lock{overflow:hidden; overscroll-behavior:contain; touch-action:none}' +
+          '.qj-lb-root{position:fixed;inset:0;z-index:9999;display:none}' +
+          '.qj-lb-root.qj-visible{display:block}' +
+          '.qj-lb-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6)}' +
+          '.qj-lb-panel{position:absolute;box-shadow:0 8px 32px rgba(0,0,0,.35);border-radius:12px;background:#000;display:flex;align-items:flex-start;justify-content:center;overflow:auto}' +
+          '.qj-lb-img{width:100%;height:auto;display:block}' +
+          '.qj-lb-btn{position:absolute;border:0;background:rgba(0,0,0,.45);color:#fff;cursor:pointer;border-radius:8px;font-size:28px;line-height:1;padding:.25rem .6rem}' +
+          '.qj-lb-btn:hover{background:rgba(0,0,0,.75)}' +
+          '.qj-lb-prev{left:8px;top:50%;transform:translateY(-50%)}' +
+          '.qj-lb-next{right:8px;top:50%;transform:translateY(-50%)}' +
+          '.qj-lb-close{right:8px;top:8px;font-size:32px}' +
+          '@media (max-width:768px){.qj-lb-btn{font-size:22px}}';
+        (document.head || document.documentElement).appendChild(styleEl);
+      }
+
+      // ===== DOM =====
+      var root = document.querySelector('.qj-lb-root');
+      if (!root) {
+        root = document.createElement('div');
+        root.className = 'qj-lb-root';
+        root.innerHTML =
+          '<div class="qj-lb-backdrop"></div>' +
+          '<div class="qj-lb-panel" role="dialog" aria-modal="true">' +
+            '<button class="qj-lb-btn qj-lb-prev" aria-label="Предыдущий">‹</button>' +
+            '<img class="qj-lb-img" alt="screenshot"/>' +
+            '<button class="qj-lb-btn qj-lb-next" aria-label="Следующий">›</button>' +
+            '<button class="qj-lb-btn qj-lb-close" aria-label="Закрыть">×</button>' +
+          '</div>';
+        (document.body || document.documentElement).appendChild(root);
+      }
+
+      var backdrop = root.querySelector('.qj-lb-backdrop');
+      var panel    = root.querySelector('.qj-lb-panel');
+      var imgEl    = root.querySelector('.qj-lb-img');
+      var prevBtn  = root.querySelector('.qj-lb-prev');
+      var nextBtn  = root.querySelector('.qj-lb-next');
+      var closeBtn = root.querySelector('.qj-lb-close');
+
+      var currentGroup = [];
+      var currentIndex = 0;
+
+      // ширина «80% сайта/iframe» на время сессии
+      var sessionWidth = null; // px
+      // вертикальная привязка к миниатюре (для iframe)
+      var sessionTop = null;
+
+      function clamp(n,a,b){ return Math.max(a, Math.min(b, n)); }
+      function isInIframe(){ try { return window.top !== window.self; } catch(_){ return true; } }
+      function updateNav(){
+        prevBtn.style.display = currentIndex > 0 ? 'block' : 'none';
+        nextBtn.style.display = currentIndex < currentGroup.length - 1 ? 'block' : 'none';
+      }
+
+      // === Ширина сайта/iframe * 0.8 ===
+      function measureSiteWidth80(){
+        var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        var bodyW = document.body ? (document.body.clientWidth || 0) : 0;
+        var selectors = '.container,.container-fluid,.qj-container,.content,.main,.page,.wrapper,main';
+        var maxCont = 0;
+        try {
+          var nodes = document.querySelectorAll(selectors);
+          for (var i=0;i<nodes.length;i++){
+            var r = nodes[i].getBoundingClientRect();
+            if (r.width > maxCont) maxCont = r.width;
+          }
+        } catch(_){}
+        var base = Math.max(vw, bodyW, maxCont);   // «ширина сайта»
+        var target = Math.floor(base * 0.80);      // 80% от неё
+        // но не выходить за рамки вьюпорта (оставим поля)
+        return clamp(target, 320, Math.floor(vw * 0.95));
+      }
+
+      // Рассчитываем бокс (ширина фикс, высота ≤ 92% окна)
+      function computeBox(widthPx, ar){
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var maxH = Math.floor(vh * 0.92);
+        var w = clamp(widthPx, 320, Math.floor(vw * 0.95));
+        var idealH = (ar && ar > 0) ? Math.floor(w / ar) : Math.floor(w / (16/9));
+        var h = Math.min(idealH, maxH);
+        return { w: w, h: h };
+      }
+
+      // позиционирование: по центру по X; по Y — центр или привязка к миниатюре (в iframe)
+      function placePanel(sz, anchorBtn){
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var left = Math.max(8, Math.floor((vw - sz.w)/2));
+        var top;
+        if (sessionTop != null) {
+          top = clamp(sessionTop, 8, vh - sz.h - 8);
+        } else if (anchorBtn && isInIframe()) {
+          var r = anchorBtn.getBoundingClientRect();
+          top = clamp(Math.floor(r.top), 8, vh - sz.h - 8);
+          sessionTop = top;
+        } else {
+          top = Math.max(8, Math.floor((vh - sz.h)/2));
+        }
+        panel.style.left   = left + 'px';
+        panel.style.top    = top  + 'px';
+        panel.style.width  = sz.w + 'px';
+        panel.style.height = sz.h + 'px';
+      }
+
+      function lockScroll(){
+        document.documentElement.classList.add('qj-lock');
+        document.body.classList.add('qj-lock');
+      }
+      function unlockScroll(){
+        document.documentElement.classList.remove('qj-lock');
+        document.body.classList.remove('qj-lock');
+      }
+
+      function openAt(index, anchorBtn){
+        currentIndex = clamp(index, 0, currentGroup.length - 1);
+        var src = currentGroup[currentIndex].dataset.src;
+
+        if (sessionWidth == null) sessionWidth = measureSiteWidth80();
+
+        lockScroll(); // мягкий lock — без scrollTo
+
+        var probe = new Image();
+        probe.onload = function(){
+          var ar = (probe.naturalWidth && probe.naturalHeight)
+            ? (probe.naturalWidth / probe.naturalHeight)
+            : (16/9);
+          var box = computeBox(sessionWidth, ar);
+          placePanel(box, anchorBtn);
+          imgEl.src = src;
+          root.classList.add('qj-visible');
+          updateNav();
+        };
+        probe.onerror = function(){
+          var box = computeBox(sessionWidth, 16/9);
+          placePanel(box, anchorBtn);
+          imgEl.src = src;
+          root.classList.add('qj-visible');
+          updateNav();
+        };
+        probe.src = src;
+      }
+
+      function closeLB(){
+        root.classList.remove('qj-visible');
+        imgEl.src = '';
+        sessionWidth = null;
+        sessionTop = null;
+        unlockScroll();
+      }
+
+      // Навигация
+      prevBtn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); if (currentIndex > 0) openAt(currentIndex - 1, currentGroup[currentIndex - 1]); });
+      nextBtn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); if (currentIndex < currentGroup.length - 1) openAt(currentIndex + 1, currentGroup[currentIndex + 1]); });
+      closeBtn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); closeLB(); });
+      root.querySelector('.qj-lb-backdrop').addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); closeLB(); });
+
+      // Свайпы
+      var touchX = null;
+      panel.addEventListener('touchstart', function(e){ touchX = e.touches && e.touches[0] ? e.touches[0].clientX : null; }, {passive:true});
+      panel.addEventListener('touchend', function(e){
+        if (touchX == null) return;
+        var dx = (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0) - touchX;
+        if (Math.abs(dx) > 40){
+          if (dx < 0 && currentIndex < currentGroup.length - 1) openAt(currentIndex + 1, currentGroup[currentIndex + 1]);
+          if (dx > 0 && currentIndex > 0) openAt(currentIndex - 1, currentGroup[currentIndex - 1]);
+        }
+        touchX = null;
+      });
+
+      document.addEventListener('keydown', function(e){
+        if (!root.classList.contains('qj-visible')) return;
+        if (e.key === 'Escape') { e.preventDefault(); closeLB(); }
+        if (e.key === 'ArrowLeft'  && currentIndex > 0) { e.preventDefault(); openAt(currentIndex - 1, currentGroup[currentIndex - 1]); }
+        if (e.key === 'ArrowRight' && currentIndex < currentGroup.length - 1) { e.preventDefault(); openAt(currentIndex + 1, currentGroup[currentIndex + 1]); }
+      });
+
+      // Глобальный open из миниатюры
+      window.QJ_LB_open = function(btn, evt){
+        try {
+          if (evt) { evt.preventDefault(); evt.stopPropagation(); if (evt.stopImmediatePropagation) evt.stopImmediatePropagation(); }
+        } catch(_){}
+        var groupEl = btn.closest && btn.closest('[data-shots-group]') ? btn.closest('[data-shots-group]') : document.body;
+        currentGroup = Array.prototype.slice.call(groupEl.querySelectorAll('[data-src]'));
+        var idx = Math.max(0, currentGroup.indexOf ? currentGroup.indexOf(btn) : currentGroup.findIndex(function(x){return x===btn;}));
+        openAt(idx, btn);
+      };
+
+      // Ресайз: пересчитываем «80% ширины сайта» и перецентрируем текущий скрин
+      window.addEventListener('resize', function(){
+        if (!root.classList.contains('qj-visible')) return;
+        sessionWidth = measureSiteWidth80();
+        var img = new Image();
+        img.onload = function(){
+          var ar = (img.naturalWidth && img.naturalHeight) ? (img.naturalWidth / img.naturalHeight) : (16/9);
+          var box = computeBox(sessionWidth, ar);
+          placePanel(box, currentGroup[currentIndex] || null);
+        };
+        img.src = imgEl.src || '';
+      });
+    })();</script>
+  `;
 }
+
 
 function renderMaps(maps = []) {
   if (!maps?.length) {
@@ -1796,7 +2288,9 @@ function renderMapsPopularityTable(sectionId, items = [], collapsedByDefault = f
 function renderTournamentDescSection(tournament, containerClass, collapsedByDefault = false) {
   if (!tournament?.desc) return '';
   const openAttr = collapsedByDefault ? '' : ' open';
-  const descHtml = linkify(tournament.desc);
+  //const descHtml = linkify(tournament.desc);
+  let descHtml = linkify(tournament.desc);
+  descHtml = linkifyTelegramHandles(descHtml);
 
   return `
     <section class="mb-4">
@@ -1993,6 +2487,9 @@ function renderPage({
   statsBaseUrl = '',
   mapsList = [],
   sectionOrder = [],
+  // НОВОЕ:
+  tournamentsMeta = [],           // [{id, name}], для селектора
+  selectedChatId = null,          // текущий выбранный chatId
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -2006,7 +2503,35 @@ function renderPage({
     ? `<a href="${escapeHtml(tournament.site)}" target="_blank" rel="noopener" class="small text-muted text-decoration-none">${escapeHtml(tournament.site)}</a>`
     : '';
 
+  const newsChannelLink = tournament.newsChannel
+    ? (() => {
+      const h = tournament.newsChannel.trim();                 // может быть с @
+      const handle = h.replace(/^@/, '');
+      const href = `https://t.me/${encodeURIComponent(handle)}`;
+      // оборачиваем так же, как siteLink (под твой стиль ссылок)
+      return `<a href="${href}" target="_blank" rel="noopener" class="link-success link-underline-opacity-0 link-underline-opacity-50-hover">${escapeHtml(h)}</a>`;
+    })()
+    : '';
+
   const containerClass = useQ2Css ? 'container-fluid px-0' : 'container';
+
+  // НОВОЕ: селектор турниров (показываем только если турниров > 1)
+  const tournamentSelectHtml = Array.isArray(tournamentsMeta) && tournamentsMeta.length > 1
+    ? (() => {
+      const opts = tournamentsMeta.map(t => {
+        const sel = (Number(t.id) === Number(selectedChatId)) ? ' selected' : '';
+        return `<option value="${escapeAttr(String(t.id))}"${sel}>${escapeHtml(t.name || `Чат ${t.id}`)}</option>`;
+      }).join('');
+      return `
+          <div class="d-flex align-items-center gap-2">
+            <span class="small text-secondary"></span>
+            <select class="form-select form-select-sm js-tournament-select" style="min-width: 240px;">
+              ${opts}
+            </select>
+          </div>
+        `;
+    })()
+    : '';
 
   // Верхние отдельные секции
   const serversSec = renderServersSection(tournament, containerClass, collapseAll);
@@ -2066,7 +2591,7 @@ function renderPage({
     </section>
   ` : '';
 
-  const achievementsAchSec = renderAchievementsSectionTitled('Ачивки', 'section-achievements', achievementsAch, collapseAll);
+  const achievementsAchSec = renderAchievementsSectionTitled('Ачивки (оплачиваемые достижения)', 'section-achievements', achievementsAch, collapseAll);
   const perksSec = renderAchievementsSectionTitled('Перки', 'section-perks', achievementsPerc, collapseAll);
 
   const tournamentNewsSecHtml = renderNewsList('Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
@@ -2222,6 +2747,19 @@ function renderPage({
       }
     }
 
+    /* NEW: возможность откреплять липкую шапку кнопкой-скрепкой (только desktop) */
+    @media (min-width: 768px) {
+      body:not(.q2css-active) .hero--sticky.is-unpinned {
+        position: static !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        box-shadow: none !important;
+      }
+    }
+
+    /* NEW: компактная кнопка-скрепка */
+    .qj-pin-btn { line-height: 1; }
+
     .news-meta { white-space: normal; }
     @media (min-width: 768px) { .news-meta { white-space: nowrap; } }
 
@@ -2326,10 +2864,24 @@ function renderPage({
 
     /* Мини‑иконки */
     .ach-badges { display: inline-flex; align-items: center; gap: .25rem; }
-    .ach-badge-img { width: 42px; height: 42px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
-    .perc-badge-img { width: 42px; height: 42px; object-fit: contain; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
+    .ach-badge-img { width: 55px; height: 55px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
+    .perc-badge-img { width: 55px; height: 55px; object-fit: contain; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); vertical-align: middle; }
 
-    .ach-thumb { width: 165px; height: 165px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
+    .ach-thumb { width: 200px; height: 200px; object-fit: contain; border-radius: 6px; border: 1px solid rgba(0,0,0,.1); box-shadow: 0 6px 18px rgba(16,24,40,.06); }
+
+    /* Превью поверх всего — чтобы hover-увеличение не обрезалось таблицами */
+    .ach-preview {
+      position: fixed;
+      z-index: 200000;
+      pointer-events: none;
+      box-shadow: 0 12px 36px rgba(0,0,0,.35);
+    }
+    .ach-preview img {
+      display: block;
+      width: var(--ach-preview-w, 220px);
+      height: auto;
+      border-radius: var(--ach-preview-br, 0); /* NEW: копируем скругление источника */
+    }
 
     .players { margin: 0; padding: 0; }
     .players li { display: flex; align-items: center; gap: .5rem; padding: .35rem 0; margin: 0; line-height: 1.25; }
@@ -2522,9 +3074,9 @@ function renderPage({
 
     body.q2css-active .qj-quote { font-style: italic; font-size: .95em; background: #FEECD3; border-left: 4px solid #A22C21; border-radius: 0; color: #000; }
 
-    body.q2css-active .ach-badge-img { border: 1px solid #000; border-radius: 0; width: 42px; height: 42px; object-fit: contain; }
-    body.q2css-active .perc-badge-img { border: 1px solid #000; border-radius: 50%; width: 42px; height: 42px; object-fit: contain; }
-    body.q2css-active .ach-thumb { border: 1px solid #000; border-radius: 0; }
+    body.q2css-active .ach-badge-img { border: 1px solid #000; border-radius: 0; width: 55px; height: 55px; object-fit: contain; }
+    body.q2css-active .perc-badge-img { border: 1px solid #000; border-radius: 50%; width: 55px; height: 55px; object-fit: contain; }
+    body.q2css-active .ach-thumb { border: 1px solid #000; border-radius: 0; width: 200px; height: 200px; }
   `;
 
   const animatedBgCss = !useQ2Css ? `
@@ -2576,11 +3128,13 @@ function renderPage({
             <div class="d-flex flex-column align-items-start">
               <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
               ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
+              ${newsChannelLink ? `<div class="site-link mt-1">${newsChannelLink}</div>` : ''}
             </div>
           </div>
         </div>
         <div class="d-flex justify-content-start gap-2 mt-2 qj-controls">
           <button type="button" class="mobile-menu-trigger btn btn-sm btn-secondary" title="Меню">≡ Меню</button>
+          ${tournamentSelectHtml}
           <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
           <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
           <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
@@ -2595,6 +3149,7 @@ function renderPage({
         ${logoBlock}
         <div class="flex-grow-1">
           <div class="d-flex justify-content-end gap-2 mb-2 qj-controls">
+            ${tournamentSelectHtml}
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
             <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
             <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
@@ -2603,6 +3158,7 @@ function renderPage({
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h3 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
             ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
+            ${newsChannelLink ? `<div class="site-link mt-1">${newsChannelLink}</div>` : ''}
             ${topMenuHtml || ''}
           </div>
         </div>
@@ -2686,13 +3242,71 @@ function renderPage({
       })();
 
       // Обновление CSS-переменной для отступа якорей под липкую шапку
+      // Обновление CSS-переменной для отступа якорей под липкую шапку (UPDATED)
       function updateStickyOffset() {
         const stickyHeader = document.querySelector('header.hero.hero--sticky');
         const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-        const stickyActive = !!stickyHeader && isDesktop && !document.body.classList.contains('q2css-active');
+        const stickyActive = !!stickyHeader
+          && isDesktop
+          && !document.body.classList.contains('q2css-active')
+          && !stickyHeader.classList.contains('is-unpinned'); // NEW: отключаем offset, если шапка откреплена
         const h = stickyActive ? Math.ceil(stickyHeader.getBoundingClientRect().height) : 0;
         document.documentElement.style.setProperty('--qj-sticky-offset', (h + 8) + 'px');
       }
+
+      // NEW: кнопка-скрепка для закрепления/открепления липкой шапки (desktop only)
+      (function initStickyPinToggle(){
+        const COOKIE = 'qj_pin';                 // 1 = прикреплена (по умолчанию), 0 = откреплена
+        const COOKIE_MAX_AGE = 60*60*24*365;     // 1 год
+
+        const header = document.querySelector('header.hero.hero--sticky');
+        const desktopControls = document.querySelector('header.hero .d-none.d-md-flex .qj-controls');
+
+        // Не показываем скрепку в Q2CSS-режиме и при отсутствии нужных узлов
+        if (!header || !desktopControls || document.body.classList.contains('q2css-active')) return;
+
+        function readCookie(name){
+          const pair = document.cookie.split(';').map(s=>s.trim()).find(s => s.startsWith(encodeURIComponent(name)+'='));
+          if (!pair) return null;
+          try { return decodeURIComponent(pair.split('=').slice(1).join('=')); } catch(_) { return null; }
+        }
+        function writeCookie(name, value, maxAge){
+          document.cookie = encodeURIComponent(name) + '=' + encodeURIComponent(String(value)) +
+            '; Max-Age=' + (maxAge||0) + '; Path=/; SameSite=Lax';
+        }
+
+        // Инициализация состояния из cookie (по умолчанию прикреплена)
+        const initialPinned = readCookie(COOKIE) !== '0';
+        if (!initialPinned) header.classList.add('is-unpinned');
+
+        // Создаём кнопку 📎
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'js-btn-toggle-sticky btn btn-sm btn-outline-secondary qj-pin-btn';
+        btn.innerText = '📎';
+        btn.title = initialPinned ? 'Открепить шапку' : 'Прикрепить шапку';
+        btn.setAttribute('aria-pressed', initialPinned ? 'true' : 'false');
+
+        function setPinned(pinned){
+          header.classList.toggle('is-unpinned', !pinned);
+          writeCookie(COOKIE, pinned ? '1' : '0', COOKIE_MAX_AGE);
+          btn.title = pinned ? 'Открепить шапку' : 'Прикрепить шапку';
+          btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+          try { updateStickyOffset(); } catch(_) {}
+        }
+
+        btn.addEventListener('click', function(){
+          const currentlyPinned = !header.classList.contains('is-unpinned');
+          setPinned(!currentlyPinned);
+        });
+
+        // Добавляем кнопку в начало панели управления (desktop)
+        desktopControls.prepend(btn);
+
+        // Пересчитываем отступ якорей на всякий случай
+        try { updateStickyOffset(); } catch(_) {}
+      })();
+
       window.addEventListener('load', updateStickyOffset);
       window.addEventListener('resize', () => requestAnimationFrame(updateStickyOffset));
 
@@ -2884,6 +3498,9 @@ function renderPage({
       const COLLAPSE_COOKIE = ${JSON.stringify(COLLAPSE_COOKIE)};
       const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 год
 
+       // НОВОЕ: параметр выбора турнира
+       const TOURN_PARAM = ${JSON.stringify(TOURNAMENT_QUERY_PARAM)};
+
       function toggleParam(name, current) {
         const url = new URL(location.href);
         url.searchParams.set(name, current ? '0' : '1');
@@ -2939,6 +3556,17 @@ function renderPage({
           }
         })
       );
+
+      // НОВОЕ: обработчик выбора турнира
+      document.querySelectorAll('.js-tournament-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const id = sel.value || '';
+          const url = new URL(location.href);
+          if (id) url.searchParams.set(TOURN_PARAM, id);
+          else url.searchParams.delete(TOURN_PARAM);
+          location.href = url.toString();
+        });
+      });
 
       // Сброс порядка секций
       (function(){
@@ -3137,6 +3765,119 @@ function renderPage({
           if (modal?.classList.contains('is-open') && (e.key === 'Escape' || e.key === 'Esc')) closeMenu();
         });
       })();
+      // === FIX: превью миниатюр вне потока, чтобы их не обрезали таблицы (v2) ===
+      // В ЭТОЙ ВЕРСИИ:
+      // - превью-«портал» работает ТОЛЬКО внутри .table-responsive (группы/финалы/суперфинал);
+      // - локальное увеличение (ваше) там же отключаем, чтобы не было «двойного» эффекта;
+      // - круглая форма перков сохраняется (копируем border-radius из исходной миниатюры).
+      // === FIX (v3): глобальное превью значков ачивок/перков через портал поверх всего ===
+      (function initAchBadgeHoverPreview(){
+        if (!window.matchMedia || !window.matchMedia('(pointer: fine)').matches) return;
+
+        // Работает везде, не только внутри таблиц
+        const SELECTOR = '.ach-badge-link, .perc-badge-link';
+        let currentAnchor = null;
+        let preview = null;
+
+        // Сносим локальные inline-обработчики и стили масштабирования, которые ставятся при рендере
+        function disableLocalScale(root){
+          (root || document).querySelectorAll(SELECTOR).forEach(a => {
+            a.onmouseenter = a.onmouseleave = a.onfocus = a.onblur = null;
+            a.removeAttribute('onmouseenter');
+            a.removeAttribute('onmouseleave');
+            a.removeAttribute('onfocus');
+            a.removeAttribute('onblur');
+            const img = a.firstElementChild;
+            if (img && img.style) {
+              img.style.removeProperty('transform');
+              img.style.removeProperty('box-shadow');
+              img.style.removeProperty('position');
+              img.style.removeProperty('z-index');
+            }
+          });
+        }
+        disableLocalScale(document);
+
+        // Если узлы подгружаются — чистим и на них тоже
+        const mo = new MutationObserver(muts => {
+          for (const m of muts) {
+            if (m.addedNodes && m.addedNodes.length) {
+              m.addedNodes.forEach(n => { if (n.nodeType === 1) disableLocalScale(n); });
+            }
+          }
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+
+        function cleanup() {
+          if (preview) { preview.remove(); preview = null; }
+          document.removeEventListener('scroll', cleanup, true);
+          window.removeEventListener('resize', cleanup, true);
+        }
+
+        function showPreviewFor(anchor) {
+          const img = anchor.querySelector('img');
+          if (!img) return;
+
+          const rect = img.getBoundingClientRect();
+          const scale = 4; // x4 как и раньше
+          const w = Math.round(rect.width * scale);
+          const h = Math.round(rect.height * scale);
+
+          // Портал-превью
+          preview = document.createElement('div');
+          preview.className = 'ach-preview';
+          preview.style.setProperty('--ach-preview-w', w + 'px');
+
+          // Сохраняем форму (круг/скругления) — берём border-radius источника
+          const br = getComputedStyle(img).borderRadius || '0';
+          preview.style.setProperty('--ach-preview-br', br);
+
+          const big = new Image();
+          big.src = img.currentSrc || img.src;
+          big.alt = img.alt || '';
+          big.style.borderRadius = 'inherit';
+          preview.appendChild(big);
+          document.body.appendChild(preview);
+
+          // Позиция: справа от значка, если влазит; иначе — слева. По Y — по верхнему краю с врезкой.
+          const margin = 8;
+          const vw = document.documentElement.clientWidth;
+          const vh = document.documentElement.clientHeight;
+
+          let left = rect.right + margin;
+          if (left + w > vw) left = Math.max(margin, rect.left - w - margin);
+
+          let top = rect.top;
+          if (top + h > vh - margin) top = Math.max(margin, vh - h - margin);
+
+          preview.style.left = left + 'px';
+          preview.style.top  = top  + 'px';
+
+          document.addEventListener('scroll', cleanup, true);
+          window.addEventListener('resize', cleanup, true);
+        }
+
+        // Делегирование событий на документ
+        document.addEventListener('mouseover', function(e){
+          const a = e.target.closest(SELECTOR);
+          if (a && a !== currentAnchor) {
+            currentAnchor = a;
+            cleanup();
+            showPreviewFor(a);
+          }
+        }, true);
+
+        document.addEventListener('mouseout', function(e){
+          if (!currentAnchor) return;
+          const to = e.relatedTarget;
+          if (e.target.closest && e.target.closest(SELECTOR) === currentAnchor && (!to || !currentAnchor.contains(to))) {
+            currentAnchor = null;
+            cleanup();
+          }
+        }, true);
+      })();
+
+
     })();
   </script>
 </body>
@@ -3184,7 +3925,6 @@ async function main() {
   }));
 
   // Главная
-
   app.get('/', async (req, res) => {
     try {
       // 1) Читаем query-флаги и cookies
@@ -3213,55 +3953,69 @@ async function main() {
         cookiesToSet.push(`${COLLAPSE_COOKIE}=${collapseAll ? '1' : '0'}; Max-Age=${maxAge}; Path=/; SameSite=Lax`);
       }
 
+      // 3) Определяем выбранный турнир
+      const rawParamId = req.query?.[TOURNAMENT_QUERY_PARAM];
+      let selectedChatId = Number(rawParamId);
+      if (!Number.isFinite(selectedChatId) || !ALLOWED_CHAT_IDS.includes(selectedChatId)) {
+        selectedChatId = DEFAULT_CHAT_ID;
+      }
+
+      // 4) Метаданные для селектора турниров
+      const tournamentsMeta = await getTournamentsMeta(ALLOWED_CHAT_IDS);
+
+      // 5) Загружаем данные по выбранному турниру
       const [
         tournament, groups, finals, superfinals,
         groupPtsMap, finalPtsMap, superFinalPtsMap
       ] = await Promise.all([
-        getTournament(CHAT_ID),
-        getGroups(CHAT_ID),
-        getFinals(CHAT_ID),
-        getSuperfinals(CHAT_ID),
-        getGroupPointsMap(CHAT_ID),
-        getFinalPointsMap(CHAT_ID),
-        getSuperFinalPointsMap(CHAT_ID),
+        getTournament(selectedChatId),
+        getGroups(selectedChatId),
+        getFinals(selectedChatId),
+        getSuperfinals(selectedChatId),
+        getGroupPointsMap(selectedChatId),
+        getFinalPointsMap(selectedChatId),
+        getSuperFinalPointsMap(selectedChatId),
       ]);
 
+      PLAYER_STATS_ENABLED = tournament.tournamentStatsEnabled;
+      PLAYER_STATS_URL = tournament.tournamentStatsUrl;
+
       const [groupScreens, finalScreens, superScreens] = await Promise.all([
-        getScreensForScope(CHAT_ID, 'group', groups),
-        getScreensForScope(CHAT_ID, 'final', finals),
-        getScreensForScope(CHAT_ID, 'superfinal', superfinals),
+        getScreensForScope(selectedChatId, 'group', groups),
+        getScreensForScope(selectedChatId, 'final', finals),
+        getScreensForScope(selectedChatId, 'superfinal', superfinals),
       ]);
 
       const [groupRunId, finalRunId, superRunId] = await Promise.all([
-        findLatestRunIdForScope(CHAT_ID, 'group'),
-        findLatestRunIdForScope(CHAT_ID, 'final'),
-        findLatestRunIdForScope(CHAT_ID, 'superfinal'),
+        findLatestRunIdForScope(selectedChatId, 'group'),
+        findLatestRunIdForScope(selectedChatId, 'final'),
+        findLatestRunIdForScope(selectedChatId, 'superfinal'),
       ]);
 
       const [tournamentNews, groupsNews, finalsNews, superNews] = await Promise.all([
-        listNews(CHAT_ID, 'tournament', null),
-        groupRunId ? listNews(CHAT_ID, 'group', groupRunId) : Promise.resolve([]),
-        finalRunId ? listNews(CHAT_ID, 'final', finalRunId) : Promise.resolve([]),
-        superRunId ? listNews(CHAT_ID, 'superfinal', superRunId) : Promise.resolve([]),
+        listNews(selectedChatId, 'tournament', null),
+        groupRunId ? listNews(selectedChatId, 'group', groupRunId) : Promise.resolve([]),
+        finalRunId ? listNews(selectedChatId, 'final', finalRunId) : Promise.resolve([]),
+        superRunId ? listNews(selectedChatId, 'superfinal', superRunId) : Promise.resolve([]),
       ]);
 
       const [definedGroupRating, definedFinalRating] = await Promise.all([
-        getDefinedGroupRating(CHAT_ID),
-        getDefinedFinalRating(CHAT_ID),
+        getDefinedGroupRating(selectedChatId),
+        getDefinedFinalRating(selectedChatId),
       ]);
 
       const [customGroups, customPointsByGroup] = await Promise.all([
-        getCustomGroups(CHAT_ID),
-        getCustomPointsByGroup(CHAT_ID),
+        getCustomGroups(selectedChatId),
+        getCustomPointsByGroup(selectedChatId),
       ]);
-      const customScreens = await getScreensForScope(CHAT_ID, 'custom', customGroups);
+      const customScreens = await getScreensForScope(selectedChatId, 'custom', customGroups);
 
-      const achievements = await getAchievements(CHAT_ID);
+      const achievements = await getAchievements(selectedChatId);
       const achievementsAch = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'achievement');
       const achievementsPerc = achievements.filter(a => String(a?.type || 'achievement').toLowerCase() === 'perc');
       const achievementsIndex = buildAchievementsIndex(achievements);
 
-      const mapsList = await getMaps(CHAT_ID);
+      const mapsList = await getMaps(selectedChatId);
 
       const html = renderPage({
         tournament, groups, finals, superfinals,
@@ -3280,7 +4034,11 @@ async function main() {
         achievementsIndex,
         statsBaseUrl: PLAYER_STATS_URL,
         mapsList,
-        sectionOrder: sectionsOrder, // НОВОЕ
+        sectionOrder: sectionsOrder,
+
+        // НОВОЕ:
+        tournamentsMeta,
+        selectedChatId,
       });
 
       if (cookiesToSet.length) {
@@ -3293,10 +4051,15 @@ async function main() {
     }
   });
 
-
   // Healthcheck
   const server = app.listen(PORT, () => {
-    console.log(`Site started on http://localhost:${PORT} (chatId=${CHAT_ID})`);
+    console.log(`Site started on http://localhost:${PORT}`);
+    if (ALLOWED_CHAT_IDS.length === 1) {
+      console.log(`Tournament chatId=${DEFAULT_CHAT_ID}`);
+    } else {
+      console.log(`Allowed tournaments: ${ALLOWED_CHAT_IDS.join(', ')} (default=${DEFAULT_CHAT_ID})`);
+      console.log(`URL param for selection: ?${TOURNAMENT_QUERY_PARAM}=<chatId>`);
+    }
     console.log(`Optional CSS param: ?${FORCE_Q2CSS_PARAM}=1`);
   });
 
@@ -3304,6 +4067,7 @@ async function main() {
     socket.setMaxListeners(30);
   });
 }
+
 
 
 main().catch(err => {

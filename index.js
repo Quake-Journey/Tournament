@@ -138,6 +138,81 @@ function dedupByNorm(items) {
   return out;
 }
 
+// --- NEW: News2 (конструктор новостей с блоками) ---
+
+// Черновики конструкторов: key = `${chatId}:${userId}`
+const news2Sessions = new Map();
+function n2Key(chatId, userId) { return `${chatId}:${userId}`; }
+
+function purgeExpiredNews2Sessions() {
+  const now = Date.now();
+  for (const [k, s] of news2Sessions) {
+    if (s.expiresAt && s.expiresAt < now) news2Sessions.delete(k);
+  }
+}
+
+function blocksToPlainText(blocks = []) {
+  return blocks
+    .filter(b => b && b.type === 'text' && b.text && String(b.text).trim())
+    .map(b => String(b.text).trim())
+    .join('\n\n')
+    .trim();
+}
+
+async function promptNews2Next(ctx) {
+  await replySafe(ctx,
+    'Добавьте текст (/text) или картинку (/image). ' +
+    'Завершить — /done, отменить — /cancel.'
+  );
+}
+
+// Показ одной новости с сохранением порядка блоков.
+// Если блоков нет (старая новость) — печатаем текст.
+async function showNews(ctx, newsDoc) {
+  const idStr = String(newsDoc._id);
+  const when = newsDoc.createdAt ? new Date(newsDoc.createdAt).toLocaleString() : '';
+  const head = ['Новость', `ID: ${idStr}`];
+  if (when) head.push(`Дата: ${when}`);
+  await replySafe(ctx, head.join('\n'));
+
+  const blocks = Array.isArray(newsDoc.blocks) ? newsDoc.blocks : [];
+  if (!blocks.length) {
+    const text = (newsDoc.text || '').trim() || '(пусто)';
+    await replySafe(ctx, text);
+    return;
+  }
+
+  // Идём по блокам в порядке добавления.
+  // Последовательные изображения группируем в mediaGroup пачками по 10.
+  const flushMediaGroup = async (arr) => {
+    if (!arr.length) return;
+    if (arr.length === 1) {
+      await replyWithPhotoSafe(ctx, arr[0].media);
+    } else {
+      await telegramCallWithRetry(ctx, () =>
+        ctx.replyWithMediaGroup(arr.map(m => ({ type: 'photo', media: m.media })))
+      );
+    }
+  };
+
+  let acc = [];
+  for (const b of blocks) {
+    if (b.type === 'text') {
+      // Сначала выгрузим накопленные фото
+      await flushMediaGroup(acc); acc = [];
+      await replySafe(ctx, String(b.text || '').trim());
+    } else if (b.type === 'image' && b.image) {
+      const media = b.image.tgFileId
+        ? b.image.tgFileId
+        : { source: fs.createReadStream(path.join(SCREENSHOTS_DIR, b.image.relPath)) };
+      acc.push({ media });
+      if (acc.length === 10) { await flushMediaGroup(acc); acc = []; }
+    }
+  }
+  await flushMediaGroup(acc);
+}
+
+
 // --- Safe outbound send helpers (rate-limit aware) ---
 
 // Минимальный интервал между исходящими сообщениями в один и тот же чат (мс).
@@ -402,6 +477,8 @@ async function requireAdminGuard(ctx) {
 
 // Chat settings
 // ПОЛНАЯ ЗАМЕНА getChatSettings (добавлено поле tournamentNewsChannel)
+// Chat settings
+// ПОЛНАЯ ЗАМЕНА getChatSettings (добавлено: tournamentStatsUrl, tournamentStatsEnabled)
 async function getChatSettings(chatId) {
   const doc = await colChats.findOne({ chatId });
   const baseMax = doc?.maxPlayers || DEFAULT_MAX_PLAYERS;
@@ -430,8 +507,12 @@ async function getChatSettings(chatId) {
     tournamentPack: doc?.tournamentPack || null,
     tournamentStreams: Array.isArray(doc?.tournamentStreams) ? doc.tournamentStreams : [],
 
-    // Новый параметр: привязанный новостной канал
+    // Привязанный новостной канал
     tournamentNewsChannel: doc?.tournamentNewsChannel || null,
+
+    // Новые поля: персональная статистика (хранятся в БД, не в .env)
+    tournamentStatsUrl: doc?.tournamentStatsUrl || null,           // строка или null (пусто по умолчанию)
+    tournamentStatsEnabled: Boolean(doc?.tournamentStatsEnabled)    // false по умолчанию
   };
 }
 
@@ -501,19 +582,35 @@ function formatNewsForChannel(settings, scope, newsDoc) {
 }
 
 // Отправка одной новости указанного scope в канал (если канал задан)
-async function postOneNewsToChannel(chatId, scope, newsDoc) {
-  const target = await getNewsChannelTarget(chatId);
-  if (!target) return { skipped: true, reason: 'no-channel' };
-  const settings = await getChatSettings(chatId);
-  const text = formatNewsForChannel(settings, scope, newsDoc);
+async function postOneNewsToChannel(chatId, scope, doc) {
   try {
-    await bot.telegram.sendMessage(target, text, { disable_web_page_preview: false });
-    return { ok: true };
+    const target = await getNewsChannelTarget(chatId);
+    if (!target) return { posted: 0, error: 'Канал не задан' };
+
+    const text = (doc?.text || '').trim();
+    const hasImg = !!doc?.news_img_file_name;
+
+    if (hasImg) {
+      // путь до сохранённой картинки новости
+      const abs = path.join(SCREENSHOTS_DIR, String(chatId), 'news', doc.news_img_file_name);
+      // отправляем фото с подписью
+      await bot.telegram.sendPhoto(
+        target,
+        { source: fs.createReadStream(abs) },
+        text ? { caption: text } : {}
+      );
+      return { posted: 1 };
+    } else {
+      // обычная текстовая новость
+      await bot.telegram.sendMessage(target, text || '(пустая новость)');
+      return { posted: 1 };
+    }
   } catch (e) {
-    console.error('postOneNewsToChannel error:', e);
-    return { ok: false, error: e?.message || String(e) };
+    console.error('postOneNewsToChannel error', e);
+    return { posted: 0, error: String(e?.message || e) };
   }
 }
+
 
 // Опубликовать все новости всех стадий в канал (tournament, group, final, superfinal)
 async function postAllNewsToChannel(chatId) {
@@ -2249,65 +2346,85 @@ bot.on('text', async (ctx, next) => {
 
   // 2) Сессия редактирования (name/desc), в т.ч. цепочка 'all'
   const edit = achvEditSessions.get(key);
-  if (!edit) return next();
+  if (edit) {
+    const txt = (ctx.message.text || '').trim();
+    if (!txt || txt.startsWith('/')) return next(); // команды обрабатываются отдельными хэндлерами
 
-  const txt = (ctx.message.text || '').trim();
-  if (!txt || txt.startsWith('/')) return next(); // команды обрабатываются отдельными хэндлерами
-
-  try {
-    const ach = await getAchievement(chatId, edit.idx);
-    if (!ach) {
-      achvEditSessions.delete(key);
-      await ctx.reply(`Achievement ${edit.idx} not found.`);
-      return;
-    }
-
-    if (edit.mode === 'name') {
-      await colAchievements.updateOne(
-        { chatId, idx: Number(edit.idx) },
-        { $set: { name: txt, updatedAt: new Date() } }
-      );
-      await ctx.reply(`Название ачивки ${edit.idx} обновлено: ${txt}`);
-      achvEditSessions.delete(key);
-
-      if (edit.chain) {
-        // стартуем этап загрузки логотипа
-        const sKey = ssKey(chatId, userId);
-        screenshotSessions.set(sKey, {
-          chatId,
-          userId,
-          mode: 'achv_logo',
-          achvIdx: Number(edit.idx),
-          chain: true,
-          startedAt: Date.now(),
-          expiresAt: Date.now() + 10 * 60 * 1000,
-          count: 0,
-          tempImage: null,
-        });
-        await ctx.reply(
-          `Шаг 2/3. Пришлите новую картинку для ачивки ${edit.idx} (JPG/PNG/WEBP/GIF). ` +
-          `Когда закончите — отправьте /done. Для отмены — /cancel.`
-        );
+    try {
+      const ach = await getAchievement(chatId, edit.idx);
+      if (!ach) {
+        achvEditSessions.delete(key);
+        await ctx.reply(`Achievement ${edit.idx} not found.`);
+        return;
       }
-      return;
-    }
 
-    if (edit.mode === 'desc') {
-      await colAchievements.updateOne(
-        { chatId, idx: Number(edit.idx) },
-        { $set: { desc: txt, updatedAt: new Date() } }
-      );
+      if (edit.mode === 'name') {
+        await colAchievements.updateOne(
+          { chatId, idx: Number(edit.idx) },
+          { $set: { name: txt, updatedAt: new Date() } }
+        );
+        await ctx.reply(`Название ачивки ${edit.idx} обновлено: ${txt}`);
+        achvEditSessions.delete(key);
+
+        if (edit.chain) {
+          // стартуем этап загрузки логотипа
+          const sKey = ssKey(chatId, userId);
+          screenshotSessions.set(sKey, {
+            chatId,
+            userId,
+            mode: 'achv_logo',
+            achvIdx: Number(edit.idx),
+            chain: true,
+            startedAt: Date.now(),
+            expiresAt: Date.now() + 10 * 60 * 1000,
+            count: 0,
+            tempImage: null,
+          });
+          await ctx.reply(
+            `Шаг 2/3. Пришлите новую картинку для ачивки ${edit.idx} (JPG/PNG/WEBP/GIF). ` +
+            `Когда закончите — отправьте /done. Для отмены — /cancel.`
+          );
+        }
+        return;
+      }
+
+      if (edit.mode === 'desc') {
+        await colAchievements.updateOne(
+          { chatId, idx: Number(edit.idx) },
+          { $set: { desc: txt, updatedAt: new Date() } }
+        );
+        achvEditSessions.delete(key);
+        await ctx.reply(`Описание ачивки ${edit.idx} обновлено.`);
+        return;
+      }
+
+      // fallback
       achvEditSessions.delete(key);
-      await ctx.reply(`Описание ачивки ${edit.idx} обновлено.`);
-      return;
+    } catch (e) {
+      console.error('achv edit text handler error', e);
+      await ctx.reply('Ошибка. Попробуйте ещё раз.');
     }
-
-    // fallback
-    achvEditSessions.delete(key);
-  } catch (e) {
-    console.error('achv edit text handler error', e);
-    await ctx.reply('Ошибка. Попробуйте ещё раз.');
+    return;
   }
+
+  // 3) --- NEW: ввод текста внутри конструктора новости (/t news2 add -> /text) ---
+  purgeExpiredNews2Sessions();
+  const nkey = n2Key(chatId, userId);
+  const n2 = news2Sessions.get(nkey);
+  if (n2 && n2.waiting === 'text') {
+    const txt = (ctx.message.text || '').trim();
+    if (!txt || txt.startsWith('/')) return next(); // команды пропускаем дальше
+    n2.blocks.push({ type: 'text', text: txt, createdAt: new Date() });
+    n2.waiting = null;
+    n2.expiresAt = Date.now() + 30 * 60 * 1000;
+    news2Sessions.set(nkey, n2);
+    await ctx.reply('Текст добавлен.');
+    await promptNews2Next(ctx);
+    return; // текст обработан
+  }
+
+  // иначе — дальше по остальным обработчикам
+  return next();
 });
 
 
@@ -2353,6 +2470,8 @@ bot.command(['chatid', 'cid'], async ctx => {
 // ПОЛНАЯ ЗАМЕНА helpText() — добавлены /t newschannel и пояснения
 // ПОЛНАЯ ЗАМЕНА helpText() — обновлено описание: /t newschannel makenews публикует ВСЕ новости всех стадий,
 // а добавление новостей в /g, /f, /s тоже дублируется в канал при наличии привязки
+// HELP
+// ПОЛНАЯ ЗАМЕНА helpText() — добавлены команды по персональной статистике и /setid
 async function helpText() {
   return [
     'Команды (публичные):',
@@ -2388,6 +2507,8 @@ async function helpText() {
     '/tournament (/t) news — показать новости турнира (с ID)',
     '/tournament (/t) news add <text> — добавить новость (только админы; при привязанном канале пост автоматически публикуется в канале)',
     '/tournament (/t) news edit <id> <text> — изменить новость по ID (только админы)',
+    '/tournament (/t) news2 add — добавить новость одним сообщением: картинка + подпись. (только админы)',
+    '/tournament (/t) news <id> — показать новость по ID',
     '/tournament (/t) news delall — удалить все новости турнира (только админы)',
     '/tournament (/t) newschannel — показать текущий привязанный канал новостей (публично)',
     '/tournament (/t) newschannel add @tgchannel — привязать канал новостей (бот должен быть админом в канале) (только админы)',
@@ -2399,6 +2520,9 @@ async function helpText() {
     '/tournament (/t) streams <url1,url2,...> — задать список стримов (перезапись, только админы)',
     '/tournament (/t) demos — сводный список ссылок на демо по всем стадиям (группы, финалы, суперфиналы)',
     '/tournament (/t) delall — сброс настроек турнира (name/site/desc/logo/servers/pack/streams/channel) и удаление новостей турнира (только админы)',
+    // Новые команды персональной статистики
+    '/tournament (/t) stats_url [url] — показать/задать URL персональной статистики турнира (по умолчанию пусто)',
+    '/tournament (/t) stats_enabled [true|false] — включить/выключить персональную статистику (по умолчанию: false)',
     '',
     '--------------------------',
     '1) Скилл-группы:',
@@ -2542,6 +2666,7 @@ async function helpText() {
     'Диагностика:',
     '/whoami — показать ваш ID и username',
     '/chatid — показать ID текущего чата и ID темы (если есть)',
+    '/setid — установить/посмотреть/сбросить целевой chatId (переключение контекста данных). Примеры: /setid -1001234567890, /setid clear',
     '',
     'Сброс:',
     '/delall — удалить все SG, игровые группы, карты, финалы, суперфиналы, РЕЙТИНГИ, ОЧКИ, ЛОГОТИП, СКРИНШОТЫ и НОВОСТИ (только текущего чата) (только админы)',
@@ -3005,6 +3130,10 @@ bot.command(['map', 'm'], mapsHandler);
 // ПОЛНАЯ ЗАМЕНА tournamentHandler(ctx) — добавлена ветка /t newschannel и авто-постинг новостей в канал
 // ПОЛНАЯ ЗАМЕНА tournamentHandler(ctx) — /t newschannel makenews теперь публикует ВСЕ новости (tournament/group/final/superfinal)
 // и news add больше не дублирует вручную (это делает addNews)
+// REPLACE the entire tournamentHandler(ctx) function with the version below
+// ПОЛНАЯ ЗАМЕНА tournamentHandler(ctx) — добавлены ветки /t stats_url и /t stats_enabled
+// и показ их значений в /t info
+
 async function tournamentHandler(ctx) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
@@ -3044,7 +3173,10 @@ async function tournamentHandler(ctx) {
     lines.push(`- name: ${settings.tournamentName || '(not set)'}`);
     lines.push(`- site: ${settings.tournamentSite || '(not set)'}`);
     lines.push(`- desc: ${settings.tournamentDesc || '(not set)'}`);
-    lines.push(`- news channel: ${settings.tournamentNewsChannel || '(not set)'}\n`);
+    lines.push(`- news channel: ${settings.tournamentNewsChannel || '(not set)'}`);
+    // Новые строки персональной статистики
+    lines.push(`- player stats enabled: ${settings.tournamentStatsEnabled ? 'true' : 'false'}`);
+    lines.push(`- player stats url: ${settings.tournamentStatsUrl || '(not set)'}\n`);
 
     // Новые поля турнира
     lines.push(`- servers:`);
@@ -3112,6 +3244,13 @@ async function tournamentHandler(ctx) {
 
   function stripQuotes(s = '') {
     return s.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim();
+  }
+
+  function parseBoolStrict(s = '') {
+    const v = String(s).trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(v)) return { ok: true, value: true };
+    if (['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(v)) return { ok: true, value: false };
+    return { ok: false };
   }
 
   if (sub === 'name') {
@@ -3235,6 +3374,40 @@ async function tournamentHandler(ctx) {
     return;
   }
 
+  // Новые команды: персональная статистика турнира
+  if (sub === 'stats_url') {
+    if (!tail) {
+      const s = await getChatSettings(chatId);
+      await ctx.reply(`Tournament player stats URL: ${s.tournamentStatsUrl || '(not set)'}`);
+      return;
+    }
+    if (!(await requireAdminGuard(ctx))) return;
+    const value = stripQuotes(tail);
+    // Поддержим очистку по ключевым словам
+    const cleared = ['clear', 'none', 'null', 'off'].includes(value.toLowerCase());
+    await setChatSettings(chatId, { tournamentStatsUrl: cleared ? null : value });
+    await ctx.reply(`Tournament player stats URL is set: ${cleared ? '(cleared)' : value}`);
+    return;
+  }
+
+  if (sub === 'stats_enabled') {
+    const valRaw = tail.trim();
+    if (!valRaw) {
+      const s = await getChatSettings(chatId);
+      await ctx.reply(`Tournament player stats enabled: ${s.tournamentStatsEnabled ? 'true' : 'false'}`);
+      return;
+    }
+    if (!(await requireAdminGuard(ctx))) return;
+    const parsed = parseBoolStrict(valRaw);
+    if (!parsed.ok) {
+      await ctx.reply('Использование: /t stats_enabled <true|false>');
+      return;
+    }
+    await setChatSettings(chatId, { tournamentStatsEnabled: parsed.value });
+    await ctx.reply(`Tournament player stats enabled set to: ${parsed.value ? 'true' : 'false'}`);
+    return;
+  }
+
   if (sub === 'news') {
     const op = (tokens[1] || '').toLowerCase();
 
@@ -3247,16 +3420,60 @@ async function tournamentHandler(ctx) {
       return;
     }
 
+    // --- ПОЛНАЯ ЗАМЕНА ветки edit ---
     if (op === 'edit') {
       if (!(await requireAdminGuard(ctx))) return;
-      const idStr = tokens[2];
-      const text = tokens.slice(3).join(' ').trim();
-      if (!idStr || !text) { await ctx.reply('Использование: /tournament news edit <id> <текст новости>'); return; }
-      const res = await editNewsById(chatId, 'tournament', idStr, text);
-      if (res.error) { await ctx.reply(res.error); return; }
-      await ctx.reply('Новость турнира обновлена.');
+
+      const idStr = tokens[1];
+      const newText = tokens.slice(2).join(' ').trim();
+      if (!idStr || !newText) {
+        await ctx.reply('Использование: /news edit <id> <новый текст>');
+        return;
+      }
+
+      const chatId = getEffectiveChatId(ctx);
+      let _id;
+      try { _id = new ObjectId(idStr); } catch (_) {
+        await ctx.reply('Некорректный ID новости.');
+        return;
+      }
+
+      const doc = await colNews.findOne({ _id, chatId });
+      if (!doc) {
+        await ctx.reply('Новость с таким ID не найдена в текущем чате.');
+        return;
+      }
+
+      await colNews.updateOne(
+        { _id, chatId },
+        { $set: { text: newText, updatedAt: new Date() } }
+      );
+
+      // Если у новости есть картинка — предложим её заменить
+      if (doc.news_img_file_name) {
+        const sKey = ssKey(chatId, ctx.from.id);
+        screenshotSessions.set(sKey, {
+          chatId,
+          userId: ctx.from.id,
+          mode: 'news_edit_img',
+          newsId: String(_id),
+          oldImgFileName: doc.news_img_file_name,
+          startedAt: Date.now(),
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          count: 0,
+        });
+
+        await ctx.reply(
+          'Текст новости обновлён.\n' +
+          'Хотите заменить картинку? Пришлите новую (JPG/PNG/WEBP/GIF) одним сообщением.\n' +
+          'Чтобы оставить старую — отправьте /skip. Отмена — /cancel.'
+        );
+      } else {
+        await ctx.reply('Текст новости обновлён. У этой новости нет картинки.');
+      }
       return;
     }
+    // --- конец ветки edit ---
 
     if (op === 'delall') {
       if (!(await requireAdminGuard(ctx))) return;
@@ -3269,6 +3486,37 @@ async function tournamentHandler(ctx) {
     await replyChunked(ctx, formatNewsList(news));
     return;
   }
+
+  // --- NEW: упрощённый news2 ---
+  if (sub === 'news2') {
+    const op = (tokens[1] || '').toLowerCase();
+    if (op === 'add') {
+      if (!(await requireAdminGuard(ctx))) return;
+      const userId = ctx.from.id;
+
+      const keyS = ssKey(chatId, userId);
+      screenshotSessions.set(keyS, {
+        chatId,
+        userId,
+        mode: 'news2_one',       // <--- упрощённый режим «одно сообщение: фото+подпись»
+        groupId: 0,
+        runId: 'news2_one',
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        count: 0,
+      });
+
+      await ctx.reply(
+        'Отправьте ОДНО сообщение: картинка (фото или документ-изображение) + подпись (текст).\n' +
+        'Форматы: JPG / PNG / WEBP / GIF.\n' +
+        'Новость сохранится сразу после получения. Отмена — /cancel.'
+      );
+      return;
+    }
+    await ctx.reply('Использование: /t news2 add');
+    return;
+  }
+
 
   // servers / pack / streams / demos — без изменений
   if (sub === 'servers') {
@@ -3364,6 +3612,7 @@ async function tournamentHandler(ctx) {
     await setChatSettings(chatId, {
       tournamentName: null, tournamentSite: null, tournamentDesc: null, tournamentLogo: null,
       tournamentServers: [], tournamentPack: null, tournamentStreams: [], tournamentNewsChannel: null,
+      tournamentStatsUrl: null, tournamentStatsEnabled: false,
     });
     if (existing?.relPath) {
       try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, existing.relPath)); } catch (_) { }
@@ -3373,8 +3622,9 @@ async function tournamentHandler(ctx) {
     return;
   }
 
-  await ctx.reply('Неизвестная опция /tournament. Используйте: name, site, desc, logo, news, info, servers, pack, streams, demos, newschannel или delall.');
+  await ctx.reply('Неизвестная опция /tournament. Используйте: name, site, desc, logo, news, info, servers, pack, streams, demos, newschannel, stats_url, stats_enabled или delall.');
 }
+
 
 // ДОБАВИТЬ ГЛОБАЛЬНО (рядом с другими runtime-состояниями)
 /**
@@ -3384,14 +3634,23 @@ async function tournamentHandler(ctx) {
  */
 const userTargetChat = new Map(); // key = Number(userId) -> Number(chatId)
 
-/** Возвращает целевой chatId для операций (переключённый через /setid) или текущий ctx.chat.id */
-function getEffectiveChatId(ctx) {
-  const uid = Number(ctx.from?.id);
-  const override = userTargetChat.get(uid);
-  if (Number.isInteger(override)) return override;
-  return ctx.chat?.id;
+// Ключ переопределения контекста: <sourceChatId>:<userId>
+function makeOverrideKey(ctx) {
+  const srcChatId = Number(ctx.chat?.id);
+  const userId = Number(ctx.from?.id);
+  if (!Number.isInteger(srcChatId) || !Number.isInteger(userId)) return null;
+  return `${srcChatId}:${userId}`;
 }
 
+/** Возвращает целевой chatId для операций (переключённый через /setid) или текущий ctx.chat.id */
+function getEffectiveChatId(ctx) {
+  const key = makeOverrideKey(ctx);
+  if (key) {
+    const override = userTargetChat.get(key);
+    if (Number.isInteger(override)) return override;
+  }
+  return ctx.chat?.id;
+}
 
 
 // --------- Screenshots helpers and runtime state ---------
@@ -3646,9 +3905,11 @@ async function showFinalScreenshots(ctx, chatId, groupId) {
 // Приём изображений в активной сессии
 // ПОЛНАЯ ЗАМЕНА функции handleIncomingScreenshot на версию с поддержкой scope 'custom'
 // ПОЛНАЯ ЗАМЕНА функции handleIncomingScreenshot — добавлена поддержка режима 'achv_logo'
+// ПОЛНАЯ ЗАМЕНА функции handleIncomingScreenshot
 async function handleIncomingScreenshot(ctx) {
   purgeExpiredSessions();
-  const chatId = ctx.chat?.id;
+  purgeExpiredNews2Sessions();
+  const chatId = getEffectiveChatId(ctx); // <-- было ctx.chat?.id
   const userId = ctx.from?.id;
   if (!chatId || !userId) return;
 
@@ -3716,6 +3977,8 @@ async function handleIncomingScreenshot(ctx) {
   } else if (sess.mode === 'custom') {
     scope = 'custom';
     relDir = path.join(String(chatId), 'custom', sess.runId, `custom_${sess.groupId}`);
+  } else if (sess.mode === 'news2_one' || sess.mode === 'news_edit_img') {
+    scope = 'news'; relDir = path.join(String(chatId), 'news');
   } else {
     scope = 'group';
     relDir = path.join(String(chatId), 'groups', sess.runId, `group_${sess.groupId}`);
@@ -3729,6 +3992,9 @@ async function handleIncomingScreenshot(ctx) {
     mime,
     origName,
   });
+
+  // <<< ВАЖНО: имя файла нужно во всех режимах ниже
+  const fileNameOnly = path.basename(saved.relPath);
 
   // Обработка по scope
   if (scope === 'tlogo') {
@@ -3778,6 +4044,63 @@ async function handleIncomingScreenshot(ctx) {
     return;
   }
 
+  if (sess.mode === 'news2_one') {
+    // Одно сообщение: берем подпись из caption
+    const caption = (ctx.message.caption || '').trim();
+    const fileNameOnly = path.basename(saved.relPath);
+
+    const doc = {
+      chatId,
+      scope: 'tournament',
+      text: caption,
+      news_img_file_name: fileNameOnly, // <--- ИМЯ ФАЙЛА
+      author: { id: userId, username: ctx.from?.username || null },
+      createdAt: new Date(),
+    };
+
+    try {
+      const ins = await colNews.insertOne(doc);
+      doc._id = ins.insertedId;
+
+      // Автопост в привязанный канал: фото + подпись
+      try { await postOneNewsToChannel(chatId, 'tournament', doc); } catch (e) { console.error('postOneNewsToChannel news2_one', e); }
+
+      screenshotSessions.delete(key);
+      await ctx.reply(`Новость сохранена. ID: ${ins.insertedId}`);
+    } catch (e) {
+      console.error('news2_one insert error', e);
+      await ctx.reply('Ошибка сохранения новости.');
+    }
+    return;
+  }
+
+  // --- НОВОЕ: замена картинки у существующей новости после /news edit ---
+  if (sess.mode === 'news_edit_img') {
+    let _id;
+    try { _id = new ObjectId(sess.newsId); } catch (_) { _id = null; }
+    if (!_id) {
+      screenshotSessions.delete(key);
+      await ctx.reply('Не удалось распознать ID новости. Сессия завершена.');
+      return;
+    }
+
+    // Обновляем новость на новый файл
+    await colNews.updateOne(
+      { _id, chatId },
+      { $set: { news_img_file_name: fileNameOnly, updatedAt: new Date() } }
+    );
+
+    // Удалим старый файл, если отличается
+    if (sess.oldImgFileName && sess.oldImgFileName !== fileNameOnly) {
+      const oldAbs = path.join(SCREENSHOTS_DIR, String(chatId), 'news', sess.oldImgFileName);
+      fs.promises.unlink(oldAbs).catch(() => { });
+    }
+
+    screenshotSessions.delete(key);
+    await ctx.reply('Картинка новости заменена.');
+    return;
+  }
+
   // Основные сценарии: group | final | superfinal | custom — пишем метаданные в БД
   await addScreenshotMeta({
     chatId,
@@ -3788,10 +4111,10 @@ async function handleIncomingScreenshot(ctx) {
       type: kind,
       tgFileId: fileId,
       tgUniqueId: fileUniqueId,
-      mime,
-      size: size || saved.size,
-      width,
-      height,
+      mime: mime || null,
+      size: size || saved.size || null,
+      width: width || null,
+      height: height || null,
       relPath: saved.relPath,
       uploaderId: userId,
       uploaderUsername: ctx.from?.username || null,
@@ -5378,6 +5701,17 @@ async function achievementsHandler(ctx) {
     const name = tokens.slice(1).join(' ').trim();
     if (!name) { await ctx.reply('Использование: /achievements add <name>'); return; }
 
+    // >>> NEW: создаём ЧЕРНОВИК до старта сессии приёма изображений <<<
+    const dKey = achvKey(chatId, ctx.from.id);
+    achvDrafts.set(dKey, {
+      chatId,
+      userId: ctx.from.id,
+      name,          // важно: имя попадёт в addAchievement() из bot.on('text')
+      image: null,   // сюда /done положит sess.tempImage
+      startedAt: Date.now(),
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
     // стартуем приём изображения
     const key = ssKey(chatId, ctx.from.id);
     screenshotSessions.set(key, {
@@ -5389,8 +5723,8 @@ async function achievementsHandler(ctx) {
       startedAt: Date.now(),
       expiresAt: Date.now() + 10 * 60 * 1000,
       count: 0,
-      achvName: name,
-      tempImage: null,
+      achvName: name,        // опционально; основной источник — achvDrafts
+      tempImage: null,       // сюда handleIncomingScreenshot положит последнюю картинку
     });
 
     await ctx.reply(
@@ -5528,7 +5862,6 @@ async function achievementsHandler(ctx) {
   await ctx.reply('Неизвестная опция /achievements. Используйте: add | delall | <N> | <N> type <type> | <N> edit <kind> | <N> addp <player> | <N> del | (пусто для списка)');
 }
 
-
 bot.command(['achievements', 'ac'], achievementsHandler);
 
 
@@ -5582,53 +5915,59 @@ bot.command('delall', async ctx => {
 });
 
 // Завершить приём скриншотов
+// ПОЛНАЯ ЗАМЕНА: /done
 bot.command('done', async ctx => {
   purgeExpiredSessions();
+  purgeExpiredNews2Sessions();
   if (!requireGroupContext(ctx)) return;
+
   const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
-
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
+
   if (!sess) {
-    await ctx.reply('Нет активной сессии приёма скриншотов.');
+    await ctx.reply('Нет активной операции. Нечего завершать.');
     return;
   }
 
-  // Новая ачивка: после done — ждём описание
-  if (sess.mode === 'achv') {
-    if (!sess.tempImage) {
-      screenshotSessions.delete(sKey);
-      await ctx.reply('Изображение не получено. Сессия завершена.');
-      return;
-    }
-    screenshotSessions.delete(sKey);
-    achvDrafts.set(achvKey(chatId, userId), {
-      chatId,
-      userId,
-      name: sess.achvName,
-      image: sess.tempImage,
-      startedAt: Date.now(),
-    });
-    await ctx.reply('Теперь отправьте текст описания для ачивки одним сообщением (или /cancel для отмены).');
-    return;
-  }
+  try {
+    const count = sess.count || 0;
 
-  // Редактирование логотипа существующей ачивки
-  if (sess.mode === 'achv_logo') {
-    const idx = Number(sess.achvIdx);
-    if (!idx) {
+    // 1) Новая ачивка: переносим временное изображение в черновик и просим описание
+    if (sess.mode === 'achv') {
+      const dKey = achvKey(chatId, userId);
+      const draft = achvDrafts.get(dKey);
+      if (!draft) {
+        screenshotSessions.delete(sKey);
+        await ctx.reply('Черновик ачивки не найден. Начните заново командой /ac add <название>.');
+        return;
+      }
+      if (!sess.tempImage) {
+        await ctx.reply('Изображение не получено. Пришлите картинку или /cancel.');
+        return;
+      }
+      draft.image = sess.tempImage;
+      achvDrafts.set(dKey, draft);
+
       screenshotSessions.delete(sKey);
-      await ctx.reply('Неизвестная ачивка. Сессия завершена.');
-      return;
-    }
-    if (!sess.tempImage) {
-      screenshotSessions.delete(sKey);
-      await ctx.reply('Изображение не получено. Сессия завершена.');
+      await ctx.reply('Картинка сохранена. Отправьте описание ачивки одним сообщением (или /cancel).');
       return;
     }
 
-    try {
+    // 2) Редактирование логотипа существующей ачивки
+    if (sess.mode === 'achv_logo') {
+      const idx = Number(sess.achvIdx);
+      if (!Number.isInteger(idx) || idx <= 0) {
+        screenshotSessions.delete(sKey);
+        await ctx.reply('Индекс ачивки не распознан. Сессия завершена.');
+        return;
+      }
+      if (!sess.tempImage) {
+        await ctx.reply('Изображение не получено. Пришлите картинку или /cancel.');
+        return;
+      }
+
       const ach = await getAchievement(chatId, idx);
       if (!ach) {
         screenshotSessions.delete(sKey);
@@ -5636,9 +5975,9 @@ bot.command('done', async ctx => {
         return;
       }
 
-      // удалить старый файл (если был)
+      // удалить старый файл, если был
       if (ach.image?.relPath) {
-        try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, ach.image.relPath)); } catch (_) { }
+        try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, ach.image.relPath)); } catch (_) {}
       }
 
       await colAchievements.updateOne(
@@ -5649,35 +5988,52 @@ bot.command('done', async ctx => {
       screenshotSessions.delete(sKey);
 
       if (sess.chain) {
-        // Переход к завершающему шагу — описание
         const eKey = achvKey(chatId, userId);
-        achvEditSessions.set(eKey, {
-          chatId,
-          userId,
-          idx,
-          mode: 'desc',
-          chain: true,
-        });
-        await ctx.reply('Шаг 3/3. Отправьте новое описание ачивки одним сообщением (или /cancel для отмены).');
+        achvEditSessions.set(eKey, { chatId, userId, idx, mode: 'desc', chain: true });
+        await ctx.reply('Шаг 3/3. Отправьте новое описание ачивки одним сообщением (или /cancel).');
       } else {
         await ctx.reply('Картинка ачивки обновлена.');
       }
-    } catch (e) {
-      console.error('achv_logo /done error', e);
-      await ctx.reply('Ошибка сохранения картинки. Попробуйте ещё раз.');
+      return;
     }
-    return;
-  }
 
-  // Остальные режимы (группы/финалы/суперфиналы/турлоготип) — старое поведение
-  screenshotSessions.delete(sKey);
-  await ctx.reply(`Готово. Принято файлов: ${sess.count || 0}.`);
+    // 3) Замена картинки у новости после /news edit
+    if (sess.mode === 'news_edit_img') {
+      screenshotSessions.delete(sKey);
+      await ctx.reply('Сессия замены картинки закрыта без изменений. Если нужно заменить — отправьте новое изображение после /news edit.');
+      return;
+    }
+
+    // 4) Упрощённая новость (/t news2 add) — новость сохраняется при отправке изображения
+    if (sess.mode === 'news2_one') {
+      screenshotSessions.delete(sKey);
+      await ctx.reply('Сессия закрыта. Новость создаётся в момент отправки изображения (картинка + подпись).');
+      return;
+    }
+
+    // 5) Обычные сценарии: группы/финалы/кастомы/логотип турнира — просто закрываем сессию
+    if (['group', 'final', 'superfinal', 'custom', 'tlogo'].includes(sess.mode)) {
+      screenshotSessions.delete(sKey);
+      await ctx.reply(`Готово. Принято файлов: ${count}.`);
+      return;
+    }
+
+    // 6) Фолбэк — завершить любую другую сессию
+    screenshotSessions.delete(sKey);
+    await ctx.reply('Сессия завершена.');
+  } catch (e) {
+    console.error('/done error', e);
+    try { await ctx.reply('Ошибка завершения. Попробуйте ещё раз.'); } catch (_) {}
+  }
 });
+
+
 
 
 // Отмена приёма
 bot.command('cancel', async ctx => {
   purgeExpiredSessions();
+  purgeExpiredNews2Sessions();
   if (!requireGroupContext(ctx)) return;
   const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
@@ -5729,15 +6085,17 @@ bot.command('news', async ctx => {
   }
   const chatId = getEffectiveChatId(ctx);
   const args = parseCommandArgs(ctx.message.text || '');
-  const [sub, idStr, ...rest] = args.split(' ').filter(Boolean);
-  const text = rest.join(' ').trim();
+  const [subRaw, idStr, ...rest] = args.split(' ').filter(Boolean);
+  const sub = (subRaw || '').toLowerCase();
+  const newText = rest.join(' ').trim();
 
   if (!sub) {
     await ctx.reply('Использование:\n/news del <id>\n/news edit <id> <текст>');
     return;
   }
 
-  if (sub.toLowerCase() === 'del') {
+  // Удаление новости (как было)
+  if (sub === 'del') {
     if (!(await requireAdminGuard(ctx))) return;
     if (!idStr) { await ctx.reply('Использование: /news del <id>'); return; }
     const res = await deleteNewsById(chatId, idStr);
@@ -5746,34 +6104,78 @@ bot.command('news', async ctx => {
     return;
   }
 
-  if (sub.toLowerCase() === 'edit') {
+  // Редактирование текста + предложение заменить картинку
+  if (sub === 'edit') {
     if (!(await requireAdminGuard(ctx))) return;
-    if (!idStr || !text) { await ctx.reply('Использование: /news edit <id> <текст>'); return; }
-    const res = await editNewsAnyScope(chatId, idStr, text);
-    if (res.error) { await ctx.reply(res.error); return; }
-    await ctx.reply('Новость обновлена.');
+    if (!idStr || !newText) { await ctx.reply('Использование: /news edit <id> <текст>'); return; }
+
+    let _id;
+    try { _id = new ObjectId(idStr); } catch (_) {
+      await ctx.reply('Некорректный ID новости.');
+      return;
+    }
+
+    // Ищем новость именно в текущем чате
+    const doc = await colNews.findOne({ _id, chatId });
+    if (!doc) {
+      await ctx.reply('Новость с таким ID не найдена в текущем чате.');
+      return;
+    }
+
+    // Обновляем текст
+    await colNews.updateOne(
+      { _id, chatId },
+      { $set: { text: newText, updatedAt: new Date() } }
+    );
+
+    // Если есть картинка — предлагаем заменить её
+    if (doc.news_img_file_name) {
+      const sKey = ssKey(chatId, ctx.from.id);
+      screenshotSessions.set(sKey, {
+        chatId,
+        userId: ctx.from.id,
+        mode: 'news_edit_img',          // <<< ключевой режим
+        newsId: String(_id),
+        oldImgFileName: doc.news_img_file_name,
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        count: 0,
+      });
+
+      await ctx.reply(
+        'Текст новости обновлён.\n' +
+        'Хотите заменить картинку? Пришлите новое изображение (JPG/PNG/WEBP/GIF) ОДНИМ сообщением.\n' +
+        'Чтобы оставить текущую — отправьте /skip. Отмена — /cancel.'
+      );
+    } else {
+      await ctx.reply('Текст новости обновлён. У этой новости нет картинки.');
+    }
     return;
   }
 
   await ctx.reply('Неизвестная опция /news. Используйте: del | edit');
 });
 
+
 // НОВАЯ КОМАНДА: /setid <ID> — установить/показать/сбросить целевой chatId для текущего пользователя
+// /setid <ID> — установить/показать/сбросить целевой chatId для ТЕКУЩЕГО чата (контекст чата+пользователь)
 bot.command('setid', async ctx => {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
     return;
   }
-  const args = parseCommandArgs(ctx.message.text || '').trim();
 
-  // /setid — показать текущие настройки
+  const args = parseCommandArgs(ctx.message.text || '').trim();
+  const srcChatId = Number(ctx.chat?.id);
+  const key = makeOverrideKey(ctx);
+
+  // Показываем текущее состояние
   if (!args) {
-    const uid = Number(ctx.from.id);
-    const cur = userTargetChat.get(uid);
+    const cur = key ? userTargetChat.get(key) : null;
     const effective = getEffectiveChatId(ctx);
     await ctx.reply(
-      `Текущий чат: #${ctx.chat.id}\n` +
-      `Установленный целевой chatId: ${Number.isInteger(cur) ? '#' + cur : '(не задан)'}\n` +
+      `Текущий чат: #${srcChatId}\n` +
+      `Целевой для ЭТОГО чата и вашего пользователя: ${Number.isInteger(cur) ? ('#' + cur) : '(не задан)'}\n` +
       `Фактически используемый для данных: #${effective}\n\n` +
       `Подсказки:\n` +
       `- Установить: /setid <числовой_id>\n` +
@@ -5782,40 +6184,99 @@ bot.command('setid', async ctx => {
     return;
   }
 
-  // /setid clear — сбросить
+  // /setid clear — сбросить переопределение для ТЕКУЩЕГО чата (только ваш ключ)
   if (args.toLowerCase() === 'clear' || args.toLowerCase() === 'reset') {
-    const uid = Number(ctx.from.id);
-    userTargetChat.delete(uid);
-    await ctx.reply('Целевой chatId сброшен. Теперь используются данные текущего чата.');
+    if (key) userTargetChat.delete(key);
+    await ctx.reply('Целевой chatId для ЭТОГО чата сброшен. Теперь используются данные текущего чата.');
     return;
   }
 
-  // /setid <ID> — установить
+  // /setid <ID> — установить переопределение для ТЕКУЩЕГО чата (только для вашего ключа)
   const idStr = args.replace(/\s+/g, '');
   if (!/^-?\d+$/.test(idStr)) {
     await ctx.reply('Укажите числовой ID чата/канала. Пример: /setid -1001234567890');
     return;
   }
-  const tgt = Number(idStr);
-  const uid = Number(ctx.from.id);
-  userTargetChat.set(uid, tgt);
 
-  // Попытаемся прочитать настройки, чтобы подсказать, что данные доступны
+  const tgt = Number(idStr);
+  if (key) userTargetChat.set(key, tgt);
+
   try {
     const s = await getChatSettings(tgt);
     await ctx.reply(
-      `Целевой chatId установлен: #${tgt}.\n` +
+      `Целевой chatId установлен для чата #${srcChatId}: #${tgt}.\n` +
       `Будут использоваться права и данные чата #${tgt}.\n` +
       `Турнир (в целевом чате): ${s.tournamentName || '(not set)'}`
     );
   } catch (_) {
     await ctx.reply(
-      `Целевой chatId установлен: #${tgt}.\n` +
+      `Целевой chatId установлен для чата #${srcChatId}: #${tgt}.\n` +
       `Внимание: данных по этому чату может не быть до первого сохранения настроек.`
     );
   }
 });
 
+bot.command('text', async ctx => {
+  purgeExpiredNews2Sessions();
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+  const userId = ctx.from.id;
+
+  const key = n2Key(chatId, userId);
+  const draft = news2Sessions.get(key);
+  if (!draft) {
+    await ctx.reply('Эта команда используется внутри конструктора новости. Запустите: /t news2 add');
+    return;
+  }
+
+  draft.waiting = 'text';
+  draft.expiresAt = Date.now() + 30 * 60 * 1000;
+  news2Sessions.set(key, draft);
+  await ctx.reply('Отправьте текст одним сообщением (или /cancel для отмены).');
+});
+
+bot.command('image', async ctx => {
+  purgeExpiredSessions();
+  purgeExpiredNews2Sessions();
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+  const userId = ctx.from.id;
+
+  const key = n2Key(chatId, userId);
+  const draft = news2Sessions.get(key);
+  if (!draft) {
+    await ctx.reply('Эта команда используется внутри конструктора новости. Запустите: /t news2 add');
+    return;
+  }
+
+  const sKey = ssKey(chatId, userId);
+  screenshotSessions.set(sKey, {
+    chatId,
+    userId,
+    mode: 'news2',
+    startedAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60 * 1000,
+    count: 0,
+    n2key: key,
+  });
+
+  await ctx.reply('Пришлите картинку (JPG/PNG/WEBP/GIF). Когда закончите — /done. Для отмены — /cancel.');
+});
+
+bot.command('skip', async ctx => {
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+  const sKey = ssKey(chatId, ctx.from.id);
+  const sess = screenshotSessions.get(sKey);
+
+  if (sess && sess.mode === 'news_edit_img') {
+    screenshotSessions.delete(sKey);
+    await ctx.reply('Ок, оставляем старую картинку новости.');
+    return;
+  }
+
+  await ctx.reply('Нечего пропускать.');
+});
 
 // SetMyCommands (basic)
 bot.telegram.setMyCommands([
