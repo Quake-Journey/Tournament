@@ -59,6 +59,8 @@ let colGroupPoints, colFinalPoints, colScreenshots, colFinalRatings, colSuperFin
 let colCustomGroups, colCustomPoints;
 let colAchievements; // NEW
 let colRoles; // NEW: roles per user per chat
+// NEW: результаты по картам
+let colGroupResults, colFinalResults, colSuperFinalResults;
 
 
 const MAX_MSG_LEN = 4096;
@@ -210,6 +212,17 @@ async function showNews(ctx, newsDoc) {
     }
   }
   await flushMediaGroup(acc);
+}
+
+// --- Time helpers (Moscow TZ) ---
+function toMoscowIso(datePart /* YYYY-MM-DD */, timePart /* HH:MM */) {
+  // Москва круглый год UTC+3
+  return `${datePart}T${timePart}:00+03:00`;
+}
+function toUnixTsFromMoscow(datePart, timePart) {
+  const iso = toMoscowIso(datePart, timePart);
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.getTime() : null;
 }
 
 
@@ -734,6 +747,69 @@ function parsePointsList(tail) {
   }
   return dedup;
 }
+
+// --- Map results parsing helpers ---
+
+function splitTopLevelByComma(s = '') {
+  const parts = [];
+  let buf = '';
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '[') depth++;
+    if (ch === ']') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      const trimmed = buf.trim();
+      if (trimmed) parts.push(trimmed);
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  const last = buf.trim();
+  if (last) parts.push(last);
+  return parts;
+}
+
+// str: "pp[41,25,62,360,5370,3963],slonik[29,21,58,254,3408,3449]"
+function parseMapResultPlayers(str) {
+  if (!str || !str.trim()) {
+    return { error: 'Не указан список игроков. Формат: name[frags,kills,eff,fph,dgiv,drec],...' };
+  }
+  const rawItems = splitTopLevelByComma(str);
+  if (!rawItems.length) {
+    return { error: 'Не удалось разобрать список игроков. Проверьте формат.' };
+  }
+
+  const players = [];
+  for (const item of rawItems) {
+    const m = item.match(/^(.+?)\[(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\]$/);
+    if (!m) {
+      return { error: `Некорректный формат "${item}". Ожидается name[frags,kills,eff,fph,dgiv,drec]` };
+    }
+    const nameOrig = m[1].trim();
+    if (!nameOrig) {
+      return { error: `Пустое имя игрока в фрагменте "${item}".` };
+    }
+    const nums = m.slice(2).map(x => Number(x));
+    if (nums.some(n => !Number.isFinite(n))) {
+      return { error: `Некорректные числовые значения в "${item}".` };
+    }
+    const [frags, kills, eff, fph, dgiv, drec] = nums;
+    players.push({
+      nameOrig,
+      nameNorm: norm(nameOrig),
+      frags,
+      kills,
+      eff,
+      fph,
+      dgiv,
+      drec,
+    });
+  }
+
+  return { players };
+}
+
 
 // -------- Achievements (ачивки) --------
 
@@ -1355,6 +1431,77 @@ function formatFinalGroupsList(groups, finalPtsMap = new Map(), opts = {}) {
 }
 
 
+// --- Map results formatting ---
+
+function formatMapResultsTable(kindLabel, groupId, results = []) {
+  const headerTitle = `${kindLabel} ${groupId} map results:`;
+
+  if (!results.length) {
+    return `${headerTitle}\n(none)`;
+  }
+
+  const lines = [headerTitle, ''];
+
+  for (const r of results) {
+    const players = Array.isArray(r.players) ? r.players : [];
+    const mapName = r.map || '(unknown map)';
+    const dt = r.matchDateTime || '(no date/time)';
+    const play = r.matchPlaytime || '(no duration)';
+
+    lines.push(`Map: ${mapName}`);
+    lines.push(`Finished: ${dt}   Duration: ${play}`);
+
+    if (!players.length) {
+      lines.push('(no players)');
+      lines.push('');
+      continue;
+    }
+
+    const nameHeader = 'Player';
+    const cols = ['frags', 'kills', 'eff', 'fph', 'dgiv', 'drec'];
+
+    let nameWidth = nameHeader.length;
+    const colWidths = cols.map(c => c.length);
+
+    for (const p of players) {
+      const nm = p.nameOrig || '';
+      if (nm.length > nameWidth) nameWidth = nm.length;
+      const vals = [p.frags, p.kills, p.eff, p.fph, p.dgiv, p.drec];
+      vals.forEach((v, idx) => {
+        const s = String(v ?? '');
+        if (s.length > colWidths[idx]) colWidths[idx] = s.length;
+      });
+    }
+
+    const headerLine =
+      nameHeader.padEnd(nameWidth + 1) +
+      cols
+        .map((c, idx) => c.padStart(colWidths[idx] + 1))
+        .join('');
+    lines.push(headerLine);
+
+    const sepLine =
+      ''.padEnd(nameWidth + 1, '-') +
+      cols.map((_, idx) => ''.padStart(colWidths[idx] + 1, '-')).join('');
+    lines.push(sepLine);
+
+    for (const p of players) {
+      const vals = [p.frags, p.kills, p.eff, p.fph, p.dgiv, p.drec];
+      const row =
+        (p.nameOrig || '').padEnd(nameWidth + 1) +
+        vals
+          .map((v, idx) => String(v ?? '').padStart(colWidths[idx] + 1))
+          .join('');
+      lines.push(row);
+    }
+
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
+
 // Distribution helpers
 
 // capacities: массив длиной groupCount — цель/ёмкость каждой группы
@@ -1588,6 +1735,127 @@ async function makeSuperFinals(chatId, C) {
   return { groups };
 }
 
+// --- Map results storage (groups / finals / superfinals) ---
+
+// GROUPS
+async function upsertGroupMapResult(chatId, groupId, mapOrig, data) {
+  const mapNorm = norm(mapOrig);
+  await colGroupResults.updateOne(
+    { chatId, groupId: Number(groupId), mapNorm },
+    {
+      $set: {
+        chatId,
+        groupId: Number(groupId),
+        map: mapOrig,
+        mapNorm,
+        matchDateTime: data.matchDateTime,         // "YYYY-MM-DD HH:MM" (для отображения)
+        matchDateTimeIso: data.matchDateTimeIso,   // "YYYY-MM-DDTHH:MM:00+03:00"
+        matchTs: data.matchTs,                     // Number (UTC ms)
+        matchPlaytime: data.matchPlaytime,         // "MM:SS"
+        players: data.players,                     // [{...}]
+        updatedAt: new Date(),
+      },
+      $setOnInsert: { createdAt: new Date() },
+    },
+    { upsert: true }
+  );
+}
+
+async function listGroupMapResults(chatId, groupId) {
+  return colGroupResults
+    .find({ chatId, groupId: Number(groupId) })
+    .sort({ matchTs: 1, map: 1 })
+    .toArray();
+}
+
+async function deleteGroupMapResultsForGroup(chatId, groupId) {
+  await colGroupResults.deleteMany({ chatId, groupId: Number(groupId) });
+}
+
+async function deleteGroupMapResultsForChat(chatId) {
+  await colGroupResults.deleteMany({ chatId });
+}
+
+// FINALS
+async function upsertFinalMapResult(chatId, groupId, mapOrig, data) {
+  const mapNorm = norm(mapOrig);
+  await colFinalResults.updateOne(
+    { chatId, groupId: Number(groupId), mapNorm },
+    {
+      $set: {
+        chatId,
+        groupId: Number(groupId),
+        map: mapOrig,
+        mapNorm,
+        matchDateTime: data.matchDateTime,
+        matchDateTimeIso: data.matchDateTimeIso,
+        matchTs: data.matchTs,
+        matchPlaytime: data.matchPlaytime,
+        players: data.players,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: { createdAt: new Date() },
+    },
+    { upsert: true }
+  );
+}
+
+async function listFinalMapResults(chatId, groupId) {
+  return colFinalResults
+    .find({ chatId, groupId: Number(groupId) })
+    .sort({ matchTs: 1, map: 1 })
+    .toArray();
+}
+
+
+async function deleteFinalMapResultsForGroup(chatId, groupId) {
+  await colFinalResults.deleteMany({ chatId, groupId: Number(groupId) });
+}
+
+async function deleteFinalMapResultsForChat(chatId) {
+  await colFinalResults.deleteMany({ chatId });
+}
+
+// SUPERFINALS
+async function upsertSuperFinalMapResult(chatId, groupId, mapOrig, data) {
+  const mapNorm = norm(mapOrig);
+  await colSuperFinalResults.updateOne(
+    { chatId, groupId: Number(groupId), mapNorm },
+    {
+      $set: {
+        chatId,
+        groupId: Number(groupId),
+        map: mapOrig,
+        mapNorm,
+        matchDateTime: data.matchDateTime,
+        matchDateTimeIso: data.matchDateTimeIso,
+        matchTs: data.matchTs,
+        matchPlaytime: data.matchPlaytime,
+        players: data.players,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: { createdAt: new Date() },
+    },
+    { upsert: true }
+  );
+}
+
+async function listSuperFinalMapResults(chatId, groupId) {
+  return colSuperFinalResults
+    .find({ chatId, groupId: Number(groupId) })
+    .sort({ matchTs: 1, map: 1 })
+    .toArray();
+}
+
+
+async function deleteSuperFinalMapResultsForGroup(chatId, groupId) {
+  await colSuperFinalResults.deleteMany({ chatId, groupId: Number(groupId) });
+}
+
+async function deleteSuperFinalMapResultsForChat(chatId) {
+  await colSuperFinalResults.deleteMany({ chatId });
+}
+
 
 // Algo 1: классический — maxPlayers, равномерно по SG послойно
 async function makeGameGroupsAlgo1(chatId, C, settings) {
@@ -1621,6 +1889,7 @@ async function makeGameGroupsAlgo1(chatId, C, settings) {
   }));
 
   await deleteAllGameGroups(chatId);
+  await deleteGroupMapResultsForChat(chatId);
   await clearWaitingPlayers(chatId);
   for (const g of groups) {
     // eslint-disable-next-line no-await-in-loop
@@ -1708,6 +1977,7 @@ async function makeGameGroupsAlgo2(chatId, C, settings) {
   }));
 
   await deleteAllGameGroups(chatId);
+  await deleteGroupMapResultsForChat(chatId);
   for (const g of groups) {
     // eslint-disable-next-line no-await-in-loop
     await upsertGameGroup(chatId, g.groupId, { players: g.players, maps: g.maps, createdAt: new Date() });
@@ -1760,6 +2030,7 @@ async function makeGameGroupsAlgo3(chatId, C, settings) {
   }));
 
   await deleteAllGameGroups(chatId);
+  await deleteGroupMapResultsForChat(chatId);
   for (const g of groups) {
     // eslint-disable-next-line no-await-in-loop
     await upsertGameGroup(chatId, g.groupId, { players: g.players, maps: g.maps, createdAt: new Date() });
@@ -2548,6 +2819,9 @@ async function helpText() {
     '/groups (/g) N addp name1,name2,... — добавить игроков (только админы)',
     '/groups (/g) N delp name1,name2,... — удалить игроков (только админы)',
     '/groups (/g) N result name1,name2,... — записать места (только админы)',
+    '/groups (/g) N mapres — показать результаты игр на картах для группы N (публично)',
+    '/groups (/g) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать группе)',
+    '/groups (/g) N mapres delall — удалить все результаты карт для группы N (только админы)',
     '/groups (/g) points — показать очки группового этапа',
     '/groups (/g) points name1[p],name2[p],... — задать очки (только админы)',
     '/groups (/g) rating — показать рейтинг',
@@ -2583,6 +2857,9 @@ async function helpText() {
     '/finals (/f) N — показать финальную группу N',
     '/finals (/f) move <from> <to> <player> — перенос игрока (только админы)',
     '/finals (/f) delall — удалить финальные группы (только админы)',
+    '/finals (/f) N mapres — показать результаты игр на картах для финала N (публично)',
+    '/finals (/f) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать финалу)',
+    '/finals (/f) N mapres delall — удалить все результаты карт для финала N (только админы)',
     '/finals (/f) points — показать очки финалов',
     '/finals (/f) points name1[p],name2[p],... — задать очки финалов (только админы)',
     '/finals (/f) rating — показать рейтинг финалов',
@@ -2616,6 +2893,9 @@ async function helpText() {
     '/superfinal (/s) algo <1|2> — выбрать алгоритм (только админы)',
     '/superfinal (/s) maxplayers <N> — максимальный размер суперфинала (только админы)',
     '/superfinal (/s) totalplayers <N|all|auto|0> — ограничение общего числа участников (algo=2 игнорирует) (только админы)',
+    '/superfinal (/s) N mapres — показать результаты игр на картах для суперфинала N (публично)',
+    '/superfinal (/s) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать суперфиналу)',
+    '/superfinal (/s) N mapres delall — удалить все результаты карт для суперфинала N (только админы)',
     '/superfinal (/s) points — показать очки суперфинала',
     '/superfinal (/s) points name1[p],name2[p],... — задать очки суперфинала (только админы)',
     '/superfinal (/s) news — показать новости текущего суперфинала (с ID)',
@@ -4635,6 +4915,7 @@ async function groupsHandler(ctx) {
     if (cmd === 'delall') {
       if (!(await requireAdminGuard(ctx))) return;
       await deleteAllGameGroups(chatId);
+      await deleteGroupMapResultsForChat(chatId);
       await clearWaitingPlayers(chatId);
       await ctx.reply('All game groups are deleted.');
       return;
@@ -4647,6 +4928,7 @@ async function groupsHandler(ctx) {
       const g = await getGameGroup(chatId, N);
       if (!g) { await ctx.reply(`Group ${N} not found.`); return; }
       await deleteGameGroup(chatId, N);
+      await deleteGroupMapResultsForGroup(chatId, N);
       await ctx.reply(`Group ${N} deleted.`);
       return;
     }
@@ -4683,6 +4965,131 @@ async function groupsHandler(ctx) {
 
     const action = tokens[1].toLowerCase();
     const tail = tokens.slice(2).join(' ');
+
+    // --- NEW: результаты игр на картах для групп ---
+    if (action === 'mapres') {
+      // /g N mapres       -> показать результаты (публично)
+      // /g N mapres delall -> удалить все результаты (админ)
+      // /g N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> <players...>  -> записать (админ)
+
+      // Только номер группы проверяем сразу
+      const g = await getGameGroup(chatId, N);
+      if (!g) {
+        await ctx.reply(`Group ${N} not found.`);
+        return;
+      }
+
+      // Без доп. параметров: показать (публично)
+      if (!tokens[2]) {
+        const results = await listGroupMapResults(chatId, N);
+        const text = formatMapResultsTable('Group', N, results);
+        await replyPre(ctx, text);
+        return;
+      }
+
+      const sub = (tokens[2] || '').toLowerCase();
+
+      // delall
+      if (sub === 'delall') {
+        if (!(await requireAdminGuard(ctx))) return;
+        const existed = await listGroupMapResults(chatId, N);
+        if (!existed.length) {
+          await ctx.reply('Результаты по картам для этой группы не найдены.');
+          return;
+        }
+        await deleteGroupMapResultsForGroup(chatId, N);
+        await ctx.reply(`Все результаты по картам для Group ${N} удалены.`);
+        return;
+      }
+
+      // Запись результата: требуется админ
+      if (!(await requireAdminGuard(ctx))) return;
+
+      // Ожидаем: map date time playtime players...
+      // tokens: [N, 'mapres', map, 'YYYY-MM-DD', 'HH:MM', 'MM:SS', players...]
+      if (tokens.length < 7) {
+        await ctx.reply(
+          'Некорректный формат.\n' +
+          'Использование:\n' +
+          '/g <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+        );
+        return;
+      }
+
+      const mapInput = tokens[2];
+      const datePart = tokens[3];
+      const timePart = tokens[4];
+      const playtime = tokens[5];
+      const playersStr = tokens.slice(6).join(' ').trim();
+
+      const dtStr = `${datePart} ${timePart}`;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
+        await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM (например, 2025-10-20 23:09).');
+        return;
+      }
+      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
+        await ctx.reply('Время игры должно быть в формате MM:SS (например, 6:50).');
+        return;
+      }
+
+      const mapsArr = Array.isArray(g.maps) ? g.maps : [];
+      const foundMapOrig = mapsArr.find(m => norm(m) === norm(mapInput));
+      if (!foundMapOrig) {
+        await ctx.reply(`Карта "${mapInput}" не назначена для Group ${N}.`);
+        return;
+      }
+
+      const parsed = parseMapResultPlayers(playersStr);
+      if (parsed.error) {
+        await ctx.reply(parsed.error);
+        return;
+      }
+      const players = parsed.players || [];
+
+      if (!players.length) {
+        await ctx.reply('Список игроков пуст.');
+        return;
+      }
+
+      const groupPlayersMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = players.filter(p => !groupPlayersMap.has(p.nameNorm)).map(p => p.nameOrig);
+
+      if (missing.length) {
+        await ctx.reply(
+          'Ошибка: следующие игроки отсутствуют в данной группе и результат не будет сохранён:\n' +
+          missing.join(', ')
+        );
+        return;
+      }
+
+      // Нормализуем оригинальные имена по группе
+      const storedPlayers = players.map(p => ({
+        ...p,
+        nameOrig: groupPlayersMap.get(p.nameNorm) || p.nameOrig,
+      }));
+
+      const matchDateTimeIso = toMoscowIso(datePart, timePart);
+      const matchTs = toUnixTsFromMoscow(datePart, timePart);
+      if (matchTs == null) {
+        await ctx.reply('Не удалось распарсить дату/время (MSK). Проверьте формат YYYY-MM-DD HH:MM.');
+        return;
+      }
+
+      await upsertGroupMapResult(chatId, N, foundMapOrig, {
+        matchDateTime: dtStr,
+        matchDateTimeIso,
+        matchTs,
+        matchPlaytime: playtime,
+        players: storedPlayers,
+      });
+
+      await ctx.reply(
+        `Результат по карте "${foundMapOrig}" для Group ${N} записан/обновлён.\n` +
+        'Проверить: /g ' + N + ' mapres'
+      );
+      return;
+    }
+
 
     // /groups N demos [add]
     if (action === 'demos') {
@@ -4850,7 +5257,6 @@ async function groupsHandler(ctx) {
       }
       return;
     }
-
 
 
     await ctx.reply('Неизвестная опция. Используйте: demos | screenshots | result | addp | delp или без параметров.');
@@ -5168,6 +5574,122 @@ async function finalsHandler(ctx) {
     }
     const action = tokens[1].toLowerCase();
 
+    // --- NEW: результаты игр на картах для финалов ---
+    if (action === 'mapres') {
+      const g = await getFinalGroup(chatId, N);
+      if (!g) {
+        await ctx.reply(`Final ${N} not found.`);
+        return;
+      }
+
+      // /f N mapres — показать (публично)
+      if (!tokens[2]) {
+        const results = await listFinalMapResults(chatId, N);
+        const text = formatMapResultsTable('Final', N, results);
+        await replyPre(ctx, text);
+        return;
+      }
+
+      const sub = (tokens[2] || '').toLowerCase();
+
+      // /f N mapres delall — удалить результаты
+      if (sub === 'delall') {
+        if (!(await requireAdminGuard(ctx))) return;
+        const existed = await listFinalMapResults(chatId, N);
+        if (!existed.length) {
+          await ctx.reply('Результаты по картам для этого финала не найдены.');
+          return;
+        }
+        await deleteFinalMapResultsForGroup(chatId, N);
+        await ctx.reply(`Все результаты по картам для Final ${N} удалены.`);
+        return;
+      }
+
+      // Запись — только админы
+      if (!(await requireAdminGuard(ctx))) return;
+
+      if (tokens.length < 7) {
+        await ctx.reply(
+          'Некорректный формат.\n' +
+          'Использование:\n' +
+          '/f <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+        );
+        return;
+      }
+
+      const mapInput = tokens[2];
+      const datePart = tokens[3];
+      const timePart = tokens[4];
+      const playtime = tokens[5];
+      const playersStr = tokens.slice(6).join(' ').trim();
+
+      const dtStr = `${datePart} ${timePart}`;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
+        await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM.');
+        return;
+      }
+      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
+        await ctx.reply('Время игры должно быть в формате MM:SS.');
+        return;
+      }
+
+      const mapsArr = Array.isArray(g.maps) ? g.maps : [];
+      const foundMapOrig = mapsArr.find(m => norm(m) === norm(mapInput));
+      if (!foundMapOrig) {
+        await ctx.reply(`Карта "${mapInput}" не назначена для Final ${N}.`);
+        return;
+      }
+
+      const parsed = parseMapResultPlayers(playersStr);
+      if (parsed.error) {
+        await ctx.reply(parsed.error);
+        return;
+      }
+      const players = parsed.players || [];
+      if (!players.length) {
+        await ctx.reply('Список игроков пуст.');
+        return;
+      }
+
+      const finalPlayersMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = players.filter(p => !finalPlayersMap.has(p.nameNorm)).map(p => p.nameOrig);
+      if (missing.length) {
+        await ctx.reply(
+          'Ошибка: следующие игроки отсутствуют в данном финале и результат не будет сохранён:\n' +
+          missing.join(', ')
+        );
+        return;
+      }
+
+      const storedPlayers = players.map(p => ({
+        ...p,
+        nameOrig: finalPlayersMap.get(p.nameNorm) || p.nameOrig,
+      }));
+
+      const matchDateTimeIso = toMoscowIso(datePart, timePart);
+      const matchTs = toUnixTsFromMoscow(datePart, timePart);
+      if (matchTs == null) {
+        await ctx.reply('Не удалось распарсить дату/время (MSK). Проверьте формат YYYY-MM-DD HH:MM.');
+        return;
+      }
+
+      await upsertFinalMapResult(chatId, N, foundMapOrig, {
+        matchDateTime: dtStr,
+        matchDateTimeIso,
+        matchTs,
+        matchPlaytime: playtime,
+        players: storedPlayers,
+      });
+
+
+      await ctx.reply(
+        `Результат по карте "${foundMapOrig}" для Final ${N} записан/обновлён.\n` +
+        'Проверить: /f ' + N + ' mapres'
+      );
+      return;
+    }
+
+
     // /finals N demos [add]
     if (action === 'demos') {
       const sub2 = (tokens[2] || '').toLowerCase();
@@ -5369,6 +5891,122 @@ async function superfinalHandler(ctx) {
       return;
     }
     const action = tokens[1].toLowerCase();
+
+    // --- NEW: результаты игр на картах для суперфиналов ---
+    if (action === 'mapres') {
+      const g = await getSuperFinalGroup(chatId, N);
+      if (!g) {
+        await ctx.reply(`Superfinal ${N} not found.`);
+        return;
+      }
+
+      // /s N mapres — показать (публично)
+      if (!tokens[2]) {
+        const results = await listSuperFinalMapResults(chatId, N);
+        const text = formatMapResultsTable('Superfinal', N, results);
+        await replyPre(ctx, text);
+        return;
+      }
+
+      const sub = (tokens[2] || '').toLowerCase();
+
+      // /s N mapres delall
+      if (sub === 'delall') {
+        if (!(await requireAdminGuard(ctx))) return;
+        const existed = await listSuperFinalMapResults(chatId, N);
+        if (!existed.length) {
+          await ctx.reply('Результаты по картам для этого суперфинала не найдены.');
+          return;
+        }
+        await deleteSuperFinalMapResultsForGroup(chatId, N);
+        await ctx.reply(`Все результаты по картам для Superfinal ${N} удалены.`);
+        return;
+      }
+
+      // Запись — только админы
+      if (!(await requireAdminGuard(ctx))) return;
+
+      if (tokens.length < 7) {
+        await ctx.reply(
+          'Некорректный формат.\n' +
+          'Использование:\n' +
+          '/s <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+        );
+        return;
+      }
+
+      const mapInput = tokens[2];
+      const datePart = tokens[3];
+      const timePart = tokens[4];
+      const playtime = tokens[5];
+      const playersStr = tokens.slice(6).join(' ').trim();
+
+      const dtStr = `${datePart} ${timePart}`;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
+        await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM.');
+        return;
+      }
+      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
+        await ctx.reply('Время игры должно быть в формате MM:SS.');
+        return;
+      }
+
+      const mapsArr = Array.isArray(g.maps) ? g.maps : [];
+      const foundMapOrig = mapsArr.find(m => norm(m) === norm(mapInput));
+      if (!foundMapOrig) {
+        await ctx.reply(`Карта "${mapInput}" не назначена для Superfinal ${N}.`);
+        return;
+      }
+
+      const parsed = parseMapResultPlayers(playersStr);
+      if (parsed.error) {
+        await ctx.reply(parsed.error);
+        return;
+      }
+      const players = parsed.players || [];
+      if (!players.length) {
+        await ctx.reply('Список игроков пуст.');
+        return;
+      }
+
+      const sfPlayersMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = players.filter(p => !sfPlayersMap.has(p.nameNorm)).map(p => p.nameOrig);
+      if (missing.length) {
+        await ctx.reply(
+          'Ошибка: следующие игроки отсутствуют в данном суперфинале и результат не будет сохранён:\n' +
+          missing.join(', ')
+        );
+        return;
+      }
+
+      const storedPlayers = players.map(p => ({
+        ...p,
+        nameOrig: sfPlayersMap.get(p.nameNorm) || p.nameOrig,
+      }));
+
+      const matchDateTimeIso = toMoscowIso(datePart, timePart);
+      const matchTs = toUnixTsFromMoscow(datePart, timePart);
+      if (matchTs == null) {
+        await ctx.reply('Не удалось распарсить дату/время (MSK). Проверьте формат YYYY-MM-DD HH:MM.');
+        return;
+      }
+
+      await upsertSuperFinalMapResult(chatId, N, foundMapOrig, {
+        matchDateTime: dtStr,
+        matchDateTimeIso,
+        matchTs,
+        matchPlaytime: playtime,
+        players: storedPlayers,
+      });
+
+
+      await ctx.reply(
+        `Результат по карте "${foundMapOrig}" для Superfinal ${N} записан/обновлён.\n` +
+        'Проверить: /s ' + N + ' mapres'
+      );
+      return;
+    }
+
 
     // /superfinal N demos [add]
     if (action === 'demos') {
@@ -5885,6 +6523,7 @@ bot.command('delall', async ctx => {
     await Promise.all([
       delAllSkillGroups(chatId),
       deleteAllGameGroups(chatId),
+      deleteGroupMapResultsForChat(chatId),
       delAllMaps(chatId),
       deleteAllFinalGroups(chatId),
       deleteAllSuperFinalGroups(chatId),
@@ -5977,7 +6616,7 @@ bot.command('done', async ctx => {
 
       // удалить старый файл, если был
       if (ach.image?.relPath) {
-        try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, ach.image.relPath)); } catch (_) {}
+        try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, ach.image.relPath)); } catch (_) { }
       }
 
       await colAchievements.updateOne(
@@ -6023,7 +6662,7 @@ bot.command('done', async ctx => {
     await ctx.reply('Сессия завершена.');
   } catch (e) {
     console.error('/done error', e);
-    try { await ctx.reply('Ошибка завершения. Попробуйте ещё раз.'); } catch (_) {}
+    try { await ctx.reply('Ошибка завершения. Попробуйте ещё раз.'); } catch (_) { }
   }
 });
 
@@ -6326,6 +6965,9 @@ bot.telegram.setMyCommands([
   colCustomPoints = db.collection('custom_points');       // NEW
   colAchievements = db.collection('achievements'); // NEW
   colRoles = db.collection('roles'); // NEW
+  colGroupResults = db.collection('group_results');
+  colFinalResults = db.collection('final_results');
+  colSuperFinalResults = db.collection('superfinal_results');
 
 
   // Indexes
@@ -6350,6 +6992,9 @@ bot.telegram.setMyCommands([
     colCustomPoints.createIndex({ chatId: 1, groupId: 1 }, { unique: true }), // NEW
     colAchievements.createIndex({ chatId: 1, idx: 1 }, { unique: true }),
     colRoles.createIndex({ chatId: 1, userId: 1 }, { unique: true }),
+    colGroupResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
+    colFinalResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
+    colSuperFinalResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
   ]);
 
   console.log('Connected to MongoDB. Starting bot...');

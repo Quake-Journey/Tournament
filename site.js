@@ -264,6 +264,10 @@ let colPlayerRatings, colFinalRatings;
 let colCustomGroups, colCustomPoints;   // NEW: кастомные группы/очки
 let colAchievements;                    // NEW: ачивки
 let colMaps;                            // NEW: карты
+// НОВОЕ: результаты карт по стадиям
+let colGroupResults;       // коллекция group_results
+let colFinalResults;       // коллекция final_results
+let colSuperFinalResults;  // коллекция superfinal_results
 
 function escapeHtml(s = '') {
   return String(s)
@@ -1219,6 +1223,99 @@ async function getSuperFinalPointsMap(chatId) {
   return m;
 }
 
+// Вспомогательный: переводим документ в числовое "время матча" для сортировки
+function getMatchTimeValue(r = {}) {
+  // Пытаемся сначала по ISO-дате
+  if (r.matchDateTimeIso) {
+    const t = Date.parse(r.matchDateTimeIso);
+    if (!Number.isNaN(t)) return t;
+  }
+  // потом по числовому ts
+  if (typeof r.matchTs === 'number' && Number.isFinite(r.matchTs)) {
+    return r.matchTs;
+  }
+  // потом по строковому matchDateTime / createdAt
+  if (r.matchDateTime) {
+    const t = Date.parse(r.matchDateTime);
+    if (!Number.isNaN(t)) return t;
+  }
+  if (r.createdAt) {
+    const t = Date.parse(r.createdAt);
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+
+// форматируем дату завершения матча (matchDateTimeIso) в МСК
+function formatMatchFinishedRuMsk(r = {}) {
+  if (!r.matchDateTimeIso) return '';
+  const d = new Date(r.matchDateTimeIso);
+  return formatRuMskDateTime(d); // использует уже существующий dtfRU_MSK
+}
+
+// форматируем длительность матча
+function formatMatchDuration(r = {}) {
+  // 1) если matchPlaytime уже есть в виде "6:50" — используем его
+  if (typeof r.matchPlaytime === 'string' && r.matchPlaytime.trim()) {
+    return r.matchPlaytime.trim();
+  }
+
+  // 2) иначе пытаемся вычислить из matchTs
+  const raw = Number(r.matchTs);
+  if (!Number.isFinite(raw) || raw <= 0) return '';
+
+  let seconds = null;
+
+  // если значение похоже на "секунды" (меньше суток)
+  if (raw < 24 * 60 * 60) {
+    seconds = raw;
+  }
+  // если похоже на миллисекунды (меньше суток)
+  else if (raw < 24 * 60 * 60 * 1000) {
+    seconds = Math.round(raw / 1000);
+  }
+
+  if (seconds == null) return '';
+
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return String(m) + ':' + String(s).padStart(2, '0');
+}
+
+// общая функция получения результатов по стадии
+async function getStageResultsMap(chatId, scope) {
+  let col = null;
+  if (scope === 'group') col = colGroupResults;
+  else if (scope === 'final') col = colFinalResults;
+  else if (scope === 'superfinal') col = colSuperFinalResults;
+  else return new Map();
+
+  const docs = await col
+    .find({ chatId })
+    .sort({ matchDateTimeIso: 1, matchTs: 1, createdAt: 1 })
+    .toArray();
+
+  const map = new Map(); // Map<groupId, Array<result>>
+  for (const r of docs) {
+    const gid = Number(r.groupId);
+    if (!Number.isFinite(gid)) continue;
+    if (!map.has(gid)) map.set(gid, []);
+    map.get(gid).push(r);
+  }
+  return map;
+}
+
+async function getGroupResultsMap(chatId) {
+  return getStageResultsMap(chatId, 'group');
+}
+async function getFinalResultsMap(chatId) {
+  return getStageResultsMap(chatId, 'final');
+}
+async function getSuperFinalResultsMap(chatId) {
+  return getStageResultsMap(chatId, 'superfinal');
+}
+
+
 async function getDefinedGroupRating(chatId) {
   const doc = await colPlayerRatings.findOne({ chatId });
   const players = Array.isArray(doc?.players) ? doc.players.slice() : [];
@@ -1834,6 +1931,103 @@ function renderDemos(demos = []) {
   `;
 }
 
+// Результаты игровых карт для одной группы/финала/суперфинала
+function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
+  const gid = Number(group.groupId);
+  if (!Number.isFinite(gid) || !resultsByGroup || !resultsByGroup.size) return '';
+
+  const list = resultsByGroup.get(gid);
+  if (!list || !list.length) return '';
+
+  // id для якоря секции "Подробнее" у конкретной группы
+  const detailsId = `${scope}-${gid}-details`;
+
+  // сортировка по времени матча (на всякий случай ещё раз)
+  const items = list.slice().sort((a, b) => getMatchTimeValue(a) - getMatchTimeValue(b));
+
+  const blocks = items.map(r => {
+    const mapName = r.map || r.mapNorm || '';
+    const finishedStr = formatMatchFinishedRuMsk(r);
+    const durationStr = formatMatchDuration(r);
+    const players = Array.isArray(r.players) ? r.players.slice() : [];
+
+    // сортируем игроков по фрагам (по убыванию), как в примере
+    players.sort((a, b) => {
+      const fa = Number(a.frags) || 0;
+      const fb = Number(b.frags) || 0;
+      if (fb !== fa) return fb - fa;
+      return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
+    });
+
+    const rowsHtml = players.map(p => `
+      <tr>
+        <td class="small">${escapeHtml(p.nameOrig || p.nameNorm || '')}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.frags)) ? Number(p.frags) : ''}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.kills)) ? Number(p.kills) : ''}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.eff)) ? Number(p.eff) : ''}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.fph)) ? Number(p.fph) : ''}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.dgiv)) ? Number(p.dgiv) : ''}</td>
+        <td class="text-end small">${Number.isFinite(Number(p.drec)) ? Number(p.drec) : ''}</td>
+      </tr>
+    `).join('');
+
+    const finishedLine = finishedStr
+      ? `Завершена: ${escapeHtml(finishedStr)}`
+      : '';
+    const durationLine = durationStr
+      ? `Длительность: ${escapeHtml(durationStr)}`
+      : '';
+
+    const metaLine = finishedLine || durationLine
+      ? `<div class="small text-muted mb-2">${finishedLine}${finishedLine && durationLine ? ' · ' : ''}${durationLine}</div>`
+      : '';
+
+    return `
+      <div class="mb-3">
+        <div class="small text-secondary mb-1">
+          <span class="fw-semibold">Карта:</span>
+          <span class="qj-tag qj-map-tag ms-1">${escapeHtml(mapName)}</span>
+        </div>
+        ${metaLine}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle qj-table mb-0 js-sortable-table">
+            <thead>
+              <tr>
+                <th class="small text-secondary" data-sort-type="string">Игрок</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Frags</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Kills</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Eff</th>
+                <th class="small text-secondary text-end" data-sort-type="number">FPH</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Dgiv</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Drec</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+  }).join('');
+
+  // ВАЖНО: по умолчанию секция "Подробнее" всегда свёрнута (open не ставим)
+  return `
+    <details id="${escapeHtml(detailsId)}" class="sub-collapse mt-3">
+      <summary class="qj-toggle">
+        <span class="section-title">Подробнее</span>
+        <a href="#${escapeHtml(detailsId)}" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел Подробнее">#</a>
+      </summary>
+      <div class="mt-2">
+        <div class="small text-secondary mb-2">
+          Результаты карт группы №${escapeHtml(String(group.groupId))}
+        </div>
+        ${blocks}
+      </div>
+    </details>
+  `;
+}
+
+
 function renderDefinedRating(title, data, sectionId, collapsedByDefault = false, achIndex = null) {
   const players = Array.isArray(data?.players) ? data.players : [];
   if (!players.length) return '';
@@ -2364,7 +2558,7 @@ function renderTournamentStatsSection(statsUrl, containerClass, collapsedByDefau
 }
 
 
-function renderSection(title, items, scope, screensMap, ptsMap = null, collapsedByDefault = false, achIndex = null) {
+function renderSection(title, items, scope, screensMap, ptsMap = null, collapsedByDefault = false, achIndex = null, resultsByGroup = new Map()) {
   if (!items?.length) return '<div class="text-muted">Нет данных</div>';
 
   const label = (scope === 'group') ? 'Квалификация' : (scope === 'final') ? 'Финал' : 'Суперфинал';
@@ -2378,6 +2572,9 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
     const files = screensMap.get(Number(g.groupId)) || [];
     const shots = renderScreenshots(files);
     const timeLine = renderTimeStr(g.time);
+
+    // НОВОЕ: секция "Подробнее" с результатами карт для этой группы
+    const detailsHtml = renderGroupResultsDetails(scope, g, resultsByGroup);
 
     return `
       <div>
@@ -2394,6 +2591,7 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
                 ${maps}
                 ${demos}
                 <div class="mt-auto">${shots}</div>
+                ${detailsHtml} <!-- "Подробнее" идёт сразу после области со скриншотами -->
               </div>
             </div>
           </div>
@@ -2402,7 +2600,7 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
     `;
   }).join('');
 
-  return `<div class="cards-grid">${cells}</div>`;
+  return `<div class="cards-grid cards-grid--stage">${cells}</div>`;
 }
 
 function renderStageRating(title, items, ptsMap, sectionId, collapsedByDefault = false, achIndex = null) {
@@ -2490,6 +2688,10 @@ function renderPage({
   // НОВОЕ:
   tournamentsMeta = [],           // [{id, name}], для селектора
   selectedChatId = null,          // текущий выбранный chatId
+  // НОВОЕ: результаты карт по стадиям (Map<groupId, Array<result>>)
+  groupResultsByGroup = new Map(),
+  finalResultsByGroup = new Map(),
+  superResultsByGroup = new Map(),
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -2540,9 +2742,9 @@ function renderPage({
 
   const descSection = renderTournamentDescSection(tournament, containerClass, collapseAll);
 
-  const groupsCards = renderSection('Квалификации', groups, 'group', groupScreens, groupPtsMap, collapseAll, achievementsIndex);
-  const finalsCards = renderSection('Финальный раунд', finals, 'final', finalScreens, finalPtsMap, collapseAll, achievementsIndex);
-  const superCards = renderSection('Суперфинал', superfinals, 'superfinal', superScreens, superFinalPtsMap, collapseAll, achievementsIndex);
+  const groupsCards = renderSection('Квалификации', groups, 'group', groupScreens, groupPtsMap, collapseAll, achievementsIndex, groupResultsByGroup);
+  const finalsCards = renderSection('Финальный раунд', finals, 'final', finalScreens, finalPtsMap, collapseAll, achievementsIndex, finalResultsByGroup);
+  const superCards = renderSection('Суперфинал', superfinals, 'superfinal', superScreens, superFinalPtsMap, collapseAll, achievementsIndex, superResultsByGroup);
 
   const groupsMapsRatingSec = renderMapsPopularityTable('maps-groups', groups, collapseAll);
   const finalsMapsRatingSec = renderMapsPopularityTable('maps-finals', finals, collapseAll);
@@ -2773,8 +2975,44 @@ function renderPage({
     @media (min-width: 1200px) { .cards-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
     @media (min-width: 1920px) { .cards-grid { gap: 1.5rem; } }
 
+    /* Для стадий (квалификации/финалы/суперфинал): не больше двух карточек в ряд на десктопе */
+    .cards-grid--stage {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    @media (min-width: 992px) {
+      .cards-grid--stage {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
     .cards-grid.cards-grid--ach { grid-template-columns: 1fr; }
     @media (min-width: 768px) { .cards-grid.cards-grid--ach { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+        /* Сортируемые таблицы в секции "Подробнее" */
+    .js-sortable-table th {
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      white-space: nowrap;
+    }
+
+    .js-sortable-table th::after {
+      content: '';
+      margin-left: .25rem;
+      font-size: .7em;
+      opacity: .4;
+    }
+
+    .js-sortable-table th[data-sort-dir="asc"]::after {
+      content: '▲';
+      opacity: .8;
+    }
+
+    .js-sortable-table th[data-sort-dir="desc"]::after {
+      content: '▼';
+      opacity: .8;
+    }
 
     .maps { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
     .demos { border-top: 1px dashed rgba(0,0,0,0.06); padding-top: .5rem; }
@@ -3241,6 +3479,60 @@ function renderPage({
         });
       })();
 
+      // --- СОРТИРОВКА ТАБЛИЦ В "ПОДРОБНЕЕ" (group/final/superfinal) ---
+      function initSortableTables() {
+        const tables = document.querySelectorAll('table.js-sortable-table');
+        if (!tables.length) return;
+
+        tables.forEach(table => {
+          const thead = table.tHead;
+          if (!thead) return;
+
+          const headers = Array.from(thead.querySelectorAll('th'));
+          const tbody = table.tBodies[0];
+          if (!tbody) return;
+
+          headers.forEach((th, colIndex) => {
+            th.addEventListener('click', function () {
+              const type = th.getAttribute('data-sort-type') || 'string';
+
+              // текущий порядок для этой колонки
+              const currentDir = th.getAttribute('data-sort-dir');
+              const nextDir = currentDir === 'asc' ? 'desc' : 'asc';
+
+              // сбрасываем индикаторы на других колонках
+              headers.forEach(h => h.removeAttribute('data-sort-dir'));
+              th.setAttribute('data-sort-dir', nextDir);
+
+              const rows = Array.from(tbody.rows);
+
+              rows.sort((rowA, rowB) => {
+                const cellA = rowA.cells[colIndex];
+                const cellB = rowB.cells[colIndex];
+                const aText = (cellA ? cellA.textContent : '').trim();
+                const bText = (cellB ? cellB.textContent : '').trim();
+
+                let cmp = 0;
+
+                if (type === 'number') {
+                  const a = parseFloat(aText.replace(',', '.')) || 0;
+                  const b = parseFloat(bText.replace(',', '.')) || 0;
+                  cmp = a - b;
+                } else {
+                  // строковая сортировка по имени игрока
+                  cmp = aText.localeCompare(bText, 'ru', { sensitivity: 'base' });
+                }
+
+                return nextDir === 'asc' ? cmp : -cmp;
+              });
+
+              // перекидываем строки в новом порядке
+              rows.forEach(row => tbody.appendChild(row));
+            });
+          });
+        });
+      }
+      
       // Обновление CSS-переменной для отступа якорей под липкую шапку
       // Обновление CSS-переменной для отступа якорей под липкую шапку (UPDATED)
       function updateStickyOffset() {
@@ -3765,6 +4057,10 @@ function renderPage({
           if (modal?.classList.contains('is-open') && (e.key === 'Escape' || e.key === 'Esc')) closeMenu();
         });
       })();
+
+      // Инициализация сортируемых таблиц
+      try { initSortableTables(); } catch (_) {}
+
       // === FIX: превью миниатюр вне потока, чтобы их не обрезали таблицы (v2) ===
       // В ЭТОЙ ВЕРСИИ:
       // - превью-«портал» работает ТОЛЬКО внутри .table-responsive (группы/финалы/суперфинал);
@@ -3905,6 +4201,9 @@ async function main() {
   colCustomPoints = db.collection('custom_points');     // NEW
   colAchievements = db.collection('achievements');      // NEW
   colMaps = db.collection('maps');                      // NEW
+  colGroupResults = db.collection('group_results');
+  colFinalResults = db.collection('final_results');
+  colSuperFinalResults = db.collection('superfinal_results');
 
   const app = express();
 
@@ -3966,7 +4265,11 @@ async function main() {
       // 5) Загружаем данные по выбранному турниру
       const [
         tournament, groups, finals, superfinals,
-        groupPtsMap, finalPtsMap, superFinalPtsMap
+        groupPtsMap, finalPtsMap, superFinalPtsMap,
+        // НОВОЕ:
+        groupResultsByGroup,
+        finalResultsByGroup,
+        superResultsByGroup,
       ] = await Promise.all([
         getTournament(selectedChatId),
         getGroups(selectedChatId),
@@ -3975,6 +4278,10 @@ async function main() {
         getGroupPointsMap(selectedChatId),
         getFinalPointsMap(selectedChatId),
         getSuperFinalPointsMap(selectedChatId),
+        // НОВОЕ:
+        getGroupResultsMap(selectedChatId),
+        getFinalResultsMap(selectedChatId),
+        getSuperFinalResultsMap(selectedChatId),
       ]);
 
       PLAYER_STATS_ENABLED = tournament.tournamentStatsEnabled;
@@ -4035,10 +4342,13 @@ async function main() {
         statsBaseUrl: PLAYER_STATS_URL,
         mapsList,
         sectionOrder: sectionsOrder,
-
         // НОВОЕ:
         tournamentsMeta,
         selectedChatId,
+        // НОВОЕ:
+        groupResultsByGroup,
+        finalResultsByGroup,
+        superResultsByGroup,
       });
 
       if (cookiesToSet.length) {
