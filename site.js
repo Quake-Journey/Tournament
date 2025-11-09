@@ -496,7 +496,7 @@ function renderTopMenu({
 
   if (tournament?.desc) raw.push({ label: 'Информация', href: '#section-desc' });
   if (Array.isArray(groups) && groups.length > 0) raw.push({ label: 'Квалификации', href: '#section-groups' });
-  if (Array.isArray(finals) && finals.length > 0) raw.push({ label: 'Финалы', href: '#section-finals' });
+  if (Array.isArray(finals) && finals.length > 0) raw.push({ label: 'Финал', href: '#section-finals' });
   if (Array.isArray(superfinals) && superfinals.length > 0) raw.push({ label: 'Суперфинал', href: '#section-superfinals' });
   if (showStats) raw.push({ label: 'Статистика', href: '#section-stats' });
   if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: 'Ачивки', href: '#section-achievements' });
@@ -1995,7 +1995,7 @@ function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
               <tr>
                 <th class="small text-secondary" data-sort-type="string">Игрок</th>
                 <th class="small text-secondary text-end" data-sort-type="number">Frags</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Kills</th>
+                <th class="small text-secondary text-end" data-sort-type="number">Deaths</th>
                 <th class="small text-secondary text-end" data-sort-type="number">Eff</th>
                 <th class="small text-secondary text-end" data-sort-type="number">FPH</th>
                 <th class="small text-secondary text-end" data-sort-type="number">Dgiv</th>
@@ -2603,22 +2603,116 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
   return `<div class="cards-grid cards-grid--stage">${cells}</div>`;
 }
 
-function renderStageRating(title, items, ptsMap, sectionId, collapsedByDefault = false, achIndex = null) {
+function renderStageRating(
+  title,
+  items,
+  ptsMap,
+  sectionId,
+  collapsedByDefault = false,
+  achIndex = null,
+  resultsByGroup = new Map()
+) {
   if (!items?.length || !ptsMap || ptsMap.size === 0) return '';
 
+  // --- 1) Считаем суммарную статистику по игрокам по результатам карт ---
+  const stageStats = new Map(); // key = nameNorm
+
+  if (resultsByGroup && resultsByGroup.size) {
+    for (const g of items) {
+      const gid = Number(g.groupId);
+      if (!Number.isFinite(gid)) continue;
+      const matches = resultsByGroup.get(gid);
+      if (!matches || !matches.length) continue;
+
+      for (const m of matches) {
+        const players = Array.isArray(m.players) ? m.players : [];
+        for (const p of players) {
+          const nameNorm = p?.nameNorm;
+          if (!nameNorm) continue;
+
+          let s = stageStats.get(nameNorm);
+          if (!s) {
+            s = {
+              frags: 0,
+              kills: 0,
+              dgiv: 0,
+              drec: 0,
+              effSum: 0,
+              effCount: 0,
+              fphSum: 0,
+              fphCount: 0,
+              nameOrigLast: p.nameOrig || p.nameNorm || '',
+            };
+            stageStats.set(nameNorm, s);
+          }
+
+          const fr = Number(p.frags);
+          const kl = Number(p.kills);
+          const ef = Number(p.eff);
+          const fp = Number(p.fph);
+          const dg = Number(p.dgiv);
+          const dr = Number(p.drec);
+
+          if (Number.isFinite(fr)) s.frags += fr;
+          if (Number.isFinite(kl)) s.kills += kl;
+          if (Number.isFinite(dg)) s.dgiv += dg;
+          if (Number.isFinite(dr)) s.drec += dr;
+          if (Number.isFinite(ef)) { s.effSum += ef; s.effCount++; }
+          if (Number.isFinite(fp)) { s.fphSum += fp; s.fphCount++; }
+
+          if (p.nameOrig) s.nameOrigLast = p.nameOrig;
+        }
+      }
+    }
+  }
+
+  // --- 2) Собираем строки рейтинга (по pts) ---
   const seen = new Set();
   const rows = [];
+
   for (const g of items) {
     for (const p of (g.players || [])) {
       if (!p?.nameNorm) continue;
       if (seen.has(p.nameNorm)) continue;
       if (!ptsMap.has(p.nameNorm)) continue;
+
       seen.add(p.nameNorm);
-      rows.push({ nameOrig: p.nameOrig, nameNorm: p.nameNorm, pts: Number(ptsMap.get(p.nameNorm)) });
+      const pts = Number(ptsMap.get(p.nameNorm));
+      const stats = stageStats.get(p.nameNorm) || null;
+
+      let effAvg = '';
+      let fphAvg = '';
+      let frags = '';
+      let kills = '';
+      let dgiv = '';
+      let drec = '';
+
+      if (stats) {
+        if (stats.effCount > 0) effAvg = (stats.effSum / stats.effCount).toFixed(1);
+        if (stats.fphCount > 0) fphAvg = (stats.fphSum / stats.fphCount).toFixed(1);
+        if (stats.frags !== 0) frags = String(stats.frags);
+        if (stats.kills !== 0) kills = String(stats.kills);
+        if (stats.dgiv !== 0) dgiv = String(stats.dgiv);
+        if (stats.drec !== 0) drec = String(stats.drec);
+      }
+
+      rows.push({
+        nameOrig: p.nameOrig || (stats && stats.nameOrigLast) || p.nameNorm,
+        nameNorm: p.nameNorm,
+        pts,
+        frags,
+        kills,
+        effAvg,
+        fphAvg,
+        dgiv,
+        drec,
+      });
     }
   }
+
   if (!rows.length) return '';
 
+  // сортировка по очкам (по возрастанию), как и было
   rows.sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
 
   const tr = rows.map((r, i) => {
@@ -2627,11 +2721,18 @@ function renderStageRating(title, items, ptsMap, sectionId, collapsedByDefault =
       ? `<a href="#" class="player-link qj-accent fw-semibold js-player-stat"
              data-player="${escapeAttr(r.nameOrig)}">${escapeHtml(r.nameOrig)}</a>`
       : `<span class="qj-accent fw-semibold">${escapeHtml(r.nameOrig)}</span>`;
+
     return `
       <tr>
         <td class="pos text-muted">${i + 1}</td>
         <td class="pname">${pnameHtml}${badges}</td>
-        <td class="pts qj-pts fw-semibold">${r.pts}</td>
+        <td class="pts qj-pts fw-semibold text-end">${r.pts}</td>
+        <td class="text-end small">${r.frags}</td>
+        <td class="text-end small">${r.kills}</td>
+        <td class="text-end small">${r.effAvg}</td>
+        <td class="text-end small">${r.fphAvg}</td>
+        <td class="text-end small">${r.dgiv}</td>
+        <td class="text-end small">${r.drec}</td>
       </tr>
     `;
   }).join('');
@@ -2648,12 +2749,18 @@ function renderStageRating(title, items, ptsMap, sectionId, collapsedByDefault =
         </summary>
         <div class="mt-2">
           <div class="table-responsive">
-            <table class="table table-hover align-middle rating-table qj-table">
+            <table class="table table-hover align-middle rating-table qj-table js-sortable-table">
               <thead>
                 <tr>
                   <th class="pos small text-secondary" style="width:64px;">№</th>
-                  <th class="small text-secondary">Игрок</th>
-                  <th class="small text-secondary text-end" style="width:120px;">Количество очков</th>
+                  <th class="small text-secondary" data-sort-type="string">Игрок</th>
+                  <th class="small text-secondary text-end" style="width:120px;" data-sort-type="number">Очки</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Frags</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Deaths</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Eff (avg)</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">FPH (avg)</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Dgiv</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Drec</th>
                 </tr>
               </thead>
               <tbody>${tr}</tbody>
@@ -2664,6 +2771,7 @@ function renderStageRating(title, items, ptsMap, sectionId, collapsedByDefault =
     </section>
   `;
 }
+
 
 // UPDATED: современный визуал (градиентные заголовки по типам секций, «стекло»-карточки, улучшенные акценты)
 // ВАЖНО: эта версия рассчитана на обычный режим (без forceQuake2ComRuCSS=1); ретро‑тема не затрагивается.
@@ -2755,24 +2863,24 @@ function renderPage({
   const superNewsSec = renderNewsList('Новости суперфинала', superNews, collapseAll, 'section-news-super');
 
   const groupsRatingSec = renderStageRating(
-    'Общий рейтинг квалификации (по количеству очков, по возрастанию)',
-    groups, groupPtsMap, 'rating-groups', collapseAll, achievementsIndex
+    'Общий рейтинг квалификации',
+    groups, groupPtsMap, 'rating-groups', collapseAll, achievementsIndex, groupResultsByGroup
   );
   const finalsRatingSec = renderStageRating(
-    'Рейтинг финального раунда (по количеству очков, по возрастанию)',
-    finals, finalPtsMap, 'rating-finals', collapseAll, achievementsIndex
+    'Общий рейтинг финального раунда',
+    finals, finalPtsMap, 'rating-finals', collapseAll, achievementsIndex, finalResultsByGroup
   );
   const superRatingSec = renderStageRating(
-    'Рейтинг суперфинала (по количеству очков, по возрастанию)',
-    superfinals, superFinalPtsMap, 'rating-superfinals', collapseAll, achievementsIndex
+    'Рейтинг суперфинала',
+    superfinals, superFinalPtsMap, 'rating-superfinals', collapseAll, achievementsIndex, superResultsByGroup
   );
 
   const groupsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг для выхода в финалы (установленный)',
+    'Рейтинг для выхода в финалы',
     definedGroupRating, 'rating-groups-defined', collapseAll, achievementsIndex
   );
   const finalsDefinedRatingSec = renderDefinedRating(
-    'Установленный рейтинг финального раунда',
+    'Рейтинг для выхода в суперфинал',
     definedFinalRating, 'rating-finals-defined', collapseAll, achievementsIndex
   );
 
@@ -3493,14 +3601,16 @@ function renderPage({
           if (!tbody) return;
 
           headers.forEach((th, colIndex) => {
-            th.addEventListener('click', function () {
-              const type = th.getAttribute('data-sort-type') || 'string';
+            const sortType = th.getAttribute('data-sort-type');
+            // если тип сортировки не задан или явно "none" — не делаем этот столбец кликабельным
+            if (!sortType || sortType === 'none') return;
 
-              // текущий порядок для этой колонки
+            th.addEventListener('click', function () {
+              const type = sortType; // "string" | "number"
+
               const currentDir = th.getAttribute('data-sort-dir');
               const nextDir = currentDir === 'asc' ? 'desc' : 'asc';
 
-              // сбрасываем индикаторы на других колонках
               headers.forEach(h => h.removeAttribute('data-sort-dir'));
               th.setAttribute('data-sort-dir', nextDir);
 
@@ -3519,19 +3629,18 @@ function renderPage({
                   const b = parseFloat(bText.replace(',', '.')) || 0;
                   cmp = a - b;
                 } else {
-                  // строковая сортировка по имени игрока
                   cmp = aText.localeCompare(bText, 'ru', { sensitivity: 'base' });
                 }
 
                 return nextDir === 'asc' ? cmp : -cmp;
               });
 
-              // перекидываем строки в новом порядке
               rows.forEach(row => tbody.appendChild(row));
             });
           });
         });
       }
+
       
       // Обновление CSS-переменной для отступа якорей под липкую шапку
       // Обновление CSS-переменной для отступа якорей под липкую шапку (UPDATED)
