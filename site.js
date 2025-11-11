@@ -260,7 +260,7 @@ let db;
 let colChats, colGameGroups, colFinalGroups, colSuperFinalGroups, colScreenshots;
 let colGroupPoints, colFinalPoints, colSuperFinalPoints;
 let colNews;
-let colPlayerRatings, colFinalRatings;
+let colPlayerRatings, colFinalRatings, colSuperFinalRatings;
 let colCustomGroups, colCustomPoints;   // NEW: кастомные группы/очки
 let colAchievements;                    // NEW: ачивки
 let colMaps;                            // NEW: карты
@@ -484,6 +484,7 @@ function renderTopMenu({
   achievementsAch = [],
   achievementsPerc = [],
   showStats = false,
+  showFeedback = false,
 }) {
   const raw = [];
 
@@ -503,6 +504,7 @@ function renderTopMenu({
   if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: 'Перки', href: '#section-perks' });
   if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: 'Сервера', href: '#section-servers' });
   if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
+  if (showFeedback) raw.push({ label: 'Отзывы', href: '#section-feedback' });
 
   if (!raw.length) return '';
 
@@ -974,6 +976,65 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
   `;
 }
 
+function renderFeedbackSection(feedbackEntries = [], containerClass, collapsedByDefault = false) {
+  const hasFeedback = Array.isArray(feedbackEntries) && feedbackEntries.length > 0;
+  if (!hasFeedback) return '';
+
+  const openAttr = collapsedByDefault ? '' : ' open';
+  // Функция для рендеринга одного отзыва
+  function renderFeedbackItem(f) {
+    const ts = f.createdAtMSK; //? formatRuMskDateTime(f.createdAtMSK) : '';
+    // Формируем id отзыва и ссылку-якорь
+    const fid = f._id?.toString ? f._id.toString() : String(f._id || '');
+    const idAttr = fid ? ` id="feedback-${escapeHtml(fid)}"` : '';
+    const selfLink = fid ? `<a href="#feedback-${escapeHtml(fid)}" class="ms-2 text-decoration-none" aria-label="Ссылка на отзыв">#</a>` : '';
+    // Имя и username автора
+    const name = String(f.name || '').trim();
+    const username = String(f.username || '').trim();
+    let whoText = '';
+    if (name) {
+      whoText = name;
+      //if (username) whoText += ` (${username})`;
+    } else if (username) {
+      whoText = `${username}`;
+    }
+
+    whoText = whoText.replace(/@/g, '');
+
+    // Комбинируем мета-информацию: Имя (@user), Дата
+    let metaText = whoText;
+    if (ts) {
+      metaText += (metaText ? ' - ' : '') + ts;
+    }
+    const metaHtml = linkify(metaText);
+    // Текст отзыва с поддержкой BB-кодов и медиа
+    const textHtml = renderAchievementRichText(f.text || '').trim();
+    return `
+      <li class="list-group-item qj-feedback-item"${idAttr} style="margin-bottom: 1.25rem;">
+        <div class="small text-muted">${metaHtml}${selfLink}</div>
+        <div class="news-text" style="white-space: pre-wrap;">${textHtml}</div>
+      </li>`;
+  }
+
+  const itemsHtml = feedbackEntries.map(renderFeedbackItem).join('');
+  return `
+    <section class="mb-5">
+      <details id="section-feedback" class="stage-collapse"${openAttr}>
+        <summary class="qj-toggle">
+          <span class="section-title">Отзывы</span>
+          <a href="#section-feedback" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
+          <span class="qj-badge ms-auto">${feedbackEntries.length}</span>
+        </summary>
+        <div class="mt-2">
+          <ul class="list-group qj-feedback-list mt-2">
+            ${itemsHtml}
+          </ul>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
 
 // Формат даты/времени для России (МСК, 24 часа)
 const dtfRU_MSK = new Intl.DateTimeFormat('ru-RU', {
@@ -1330,6 +1391,13 @@ async function getDefinedFinalRating(chatId) {
   return { players, updatedAt: doc?.updatedAt || null };
 }
 
+async function getDefinedSuperFinalRating(chatId) {
+  const doc = await colSuperFinalRatings.findOne({ chatId });
+  const players = Array.isArray(doc?.players) ? doc.players.slice() : [];
+  players.sort((a, b) => Number(a.rank) - Number(b.rank) || (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' }));
+  return { players, updatedAt: doc?.updatedAt || null };
+}
+
 async function getAchievements(chatId) {
   // сортируем по idx (если есть), затем по createdAt
   const list = await colAchievements.find({ chatId }).sort({ idx: 1, createdAt: 1 }).toArray();
@@ -1473,6 +1541,11 @@ function renderAchievementsSection(achievements = [], collapsedByDefault = false
       </details>
     </section>
   `;
+}
+
+async function getFeedback(chatId) {
+  const list = await colFeedback.find({ chatId }).sort({ createdAtMSK: -1 }).toArray();
+  return list || [];
 }
 
 
@@ -2784,6 +2857,7 @@ function renderPage({
   collapseAll = false,
   definedGroupRating = null,
   definedFinalRating = null,
+  definedSuperFinalRating = null,  // новый параметр с дефолтом
   customGroups = [],
   customPointsByGroup = new Map(),
   customScreens = new Map(),
@@ -2800,6 +2874,7 @@ function renderPage({
   groupResultsByGroup = new Map(),
   finalResultsByGroup = new Map(),
   superResultsByGroup = new Map(),
+  feedbackEntries = [],
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -2863,25 +2938,31 @@ function renderPage({
   const superNewsSec = renderNewsList('Новости суперфинала', superNews, collapseAll, 'section-news-super');
 
   const groupsRatingSec = renderStageRating(
-    'Общий рейтинг квалификации',
+    'Результаты квалификации',
     groups, groupPtsMap, 'rating-groups', collapseAll, achievementsIndex, groupResultsByGroup
   );
   const finalsRatingSec = renderStageRating(
-    'Общий рейтинг финального раунда',
+    'Результаты финального раунда',
     finals, finalPtsMap, 'rating-finals', collapseAll, achievementsIndex, finalResultsByGroup
   );
   const superRatingSec = renderStageRating(
-    'Рейтинг суперфинала',
+    'Результаты суперфинала',
     superfinals, superFinalPtsMap, 'rating-superfinals', collapseAll, achievementsIndex, superResultsByGroup
   );
 
   const groupsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг для выхода в финалы',
+    'Рейтинг квалификации',
     definedGroupRating, 'rating-groups-defined', collapseAll, achievementsIndex
   );
   const finalsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг для выхода в суперфинал',
+    'Рейтинг финального раунда',
     definedFinalRating, 'rating-finals-defined', collapseAll, achievementsIndex
+  );
+
+  // Новый блок: окончательный рейтинг суперфинала
+  const superfinalsDefinedRatingSec = renderDefinedRating(
+    'Рейтинг суперфинала',
+    definedSuperFinalRating, 'rating-superfinals-defined', collapseAll, achievementsIndex
   );
 
   const customCards = renderCustomSection(customGroups, customPointsByGroup, customScreens, collapseAll, achievementsIndex);
@@ -2913,6 +2994,8 @@ function renderPage({
   // Стримеры
   const streamsSec = renderStreamsSection(tournament, containerClass, collapseAll);
 
+  const feedbackSec = renderFeedbackSection(feedbackEntries, containerClass, true);
+
   // Карта секций
   const sectionsMap = new Map([
     ['news-tournament', tournamentNewsSecHtml],
@@ -2929,6 +3012,7 @@ function renderPage({
             ${superMapsRatingSec}
             ${superNewsSec}
             ${superRatingSec}
+            ${superfinalsDefinedRatingSec}  <!-- новый блок рейтинга суперфинала -->
           </div>
         </details>
       </section>
@@ -2978,6 +3062,7 @@ function renderPage({
     ['achievements', achievementsAchSec],
     ['perks', perksSec],
     ['streams', streamsSec],
+    ['feedback', feedbackSec],
   ]);
 
   // Порядок секций
@@ -2994,7 +3079,7 @@ function renderPage({
   if (hasGroups && !hasFinals) defaultOrder.push('groups');
   if (hasStats) defaultOrder.push('stats');
   if (hasGroups && hasFinals) defaultOrder.push('groups');
-  defaultOrder.push('custom', 'servers', 'pack', 'maps-list', 'desc', 'achievements', 'perks', 'streams');
+  defaultOrder.push('custom', 'servers', 'pack', 'maps-list', 'desc', 'achievements', 'perks', 'streams', 'feedback');
 
   const seen = new Set();
   const order = [];
@@ -3024,6 +3109,8 @@ function renderPage({
     `;
   }).join('');
 
+  const hasFeedback = !!(feedbackEntries?.length);
+
   // Меню (для десктопа — чипы; для мобилок — скрываем чипы и даём компактную кнопку)
   const topMenuHtml = renderTopMenu({
     tournament,
@@ -3034,6 +3121,7 @@ function renderPage({
     achievementsAch,
     achievementsPerc,
     showStats: Boolean(statsBaseNorm),
+    showFeedback: hasFeedback,
   });
 
   // Стили
@@ -3552,7 +3640,11 @@ function renderPage({
 
   <footer class="py-4">
     <div class="${containerClass} text-center text-muted small">
-      Работает на QuakeJourney Bot — ${new Date().getFullYear()}
+      Работает на QuakeJourney Tournament Bot — ${new Date().getFullYear()}
+      <br>
+      Developed by ly
+      <br>
+      https://github.com/Quake-Journey/Tournament
     </div>
   </footer>
 
@@ -4135,6 +4227,7 @@ function renderPage({
             { id: 'section-perks', label: 'Перки' },
             { id: 'section-servers', label: 'Сервера' },
             { id: 'section-streams', label: 'Стримы' },
+            { id: 'section-feedback', label: 'Отзывы' }, 
           ];
           candidates.forEach(c => {
             if (document.getElementById(c.id)) {
@@ -4312,7 +4405,9 @@ async function main() {
   colMaps = db.collection('maps');                      // NEW
   colGroupResults = db.collection('group_results');
   colFinalResults = db.collection('final_results');
+  colSuperFinalRatings = db.collection('super_final_ratings');   // NEW
   colSuperFinalResults = db.collection('superfinal_results');
+  colFeedback = db.collection('feedback');    // NEW: коллекция отзывов
 
   const app = express();
 
@@ -4415,9 +4510,10 @@ async function main() {
         superRunId ? listNews(selectedChatId, 'superfinal', superRunId) : Promise.resolve([]),
       ]);
 
-      const [definedGroupRating, definedFinalRating] = await Promise.all([
+      const [definedGroupRating, definedFinalRating, definedSuperFinalRating] = await Promise.all([
         getDefinedGroupRating(selectedChatId),
         getDefinedFinalRating(selectedChatId),
+        getDefinedSuperFinalRating(selectedChatId),  // Новый вызов для рейтинга суперфинала
       ]);
 
       const [customGroups, customPointsByGroup] = await Promise.all([
@@ -4432,6 +4528,7 @@ async function main() {
       const achievementsIndex = buildAchievementsIndex(achievements);
 
       const mapsList = await getMaps(selectedChatId);
+      const feedbackEntries = await getFeedback(selectedChatId);
 
       const html = renderPage({
         tournament, groups, finals, superfinals,
@@ -4442,6 +4539,7 @@ async function main() {
         collapseAll,
         definedGroupRating,
         definedFinalRating,
+        definedSuperFinalRating, // передаем данные рейтинга суперфинала
         customGroups,
         customPointsByGroup,
         customScreens,
@@ -4451,6 +4549,8 @@ async function main() {
         statsBaseUrl: PLAYER_STATS_URL,
         mapsList,
         sectionOrder: sectionsOrder,
+        // Новое поле отзывов:
+        feedbackEntries,
         // НОВОЕ:
         tournamentsMeta,
         selectedChatId,

@@ -55,7 +55,8 @@ const bot = new Telegraf(BOT_TOKEN, {
 
 let db;
 let colChats, colAdmins, colSkillGroups, colMaps, colGameGroups, colCounters, colUserIndex, colFinalGroups, colWaitingPlayers, colRatings;
-let colGroupPoints, colFinalPoints, colScreenshots, colFinalRatings, colSuperFinalGroups, colNews;
+let colGroupPoints, colFinalPoints, colScreenshots, colFinalRatings, colSuperFinalGroups, colSuperFinalRatings, colNews, colFeedback;
+
 let colCustomGroups, colCustomPoints;
 let colAchievements; // NEW
 let colRoles; // NEW: roles per user per chat
@@ -81,6 +82,32 @@ function rateLimit(ctx, limit = 8, intervalMs = 5000) {
   rateBuckets.set(key, bucket);
   return bucket.count <= limit;
 }
+
+// Utility:
+function extractCommandArgText(ctx, aliasList) {
+  // пример: "/feedback add какой-то текст" -> вернёт "какой-то текст"
+  // aliasList: ["feedback", "fb"]
+  const raw = (ctx.message?.text || '').trim();
+  const lowered = raw.toLowerCase();
+  // найдём первый совпадающий префикс
+  for (const alias of aliasList) {
+    const p1 = `/${alias} add`;
+    const p2 = `/${alias} edit`;
+    if (lowered.startsWith(p1)) return raw.slice(p1.length).trim();
+    if (lowered.startsWith(p2)) return raw.slice(p2.length).trim();
+  }
+  return '';
+}
+
+function getUserIdentity(ctx) {
+  const from = ctx.from || {};
+  const userId = from.id;
+  const username = from.username ? `@${from.username}` : null;
+  const name = [from.first_name, from.last_name].filter(Boolean).join(' ').trim() || 'Unknown';
+  const display = username || name;
+  return { userId, username, name, display };
+}
+
 
 // Utility: chunked replies
 async function replyChunked(ctx, text, extra = {}) {
@@ -225,6 +252,18 @@ function toUnixTsFromMoscow(datePart, timePart) {
   return Number.isFinite(d.getTime()) ? d.getTime() : null;
 }
 
+function formatMoscowDateTime(date = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  // Получаем время в МСК без смены системной TZ
+  const dt = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }));
+  const Y = dt.getFullYear();
+  const M = pad(dt.getMonth() + 1);
+  const D = pad(dt.getDate());
+  const h = pad(dt.getHours());
+  const m = pad(dt.getMinutes());
+  const s = pad(dt.getSeconds());
+  return `${D}.${M}.${Y}, ${h}:${m}:${s} (МСК)`;
+}
 
 // --- Safe outbound send helpers (rate-limit aware) ---
 
@@ -808,6 +847,16 @@ function parseMapResultPlayers(str) {
   }
 
   return { players };
+}
+
+// -----------
+
+// Ключ: `${chatId}:${userId}`; значение: { mode: 'add'|'edit', buffer: string[] }
+const feedbackSessions = new Map();
+const fbKey = (chatId, userId) => `${chatId}:${userId}`;
+
+function feedbackSessionKey(chatId, userId) {
+  return `${chatId}:${userId}`;
 }
 
 
@@ -2591,6 +2640,22 @@ bot.on('text', async (ctx, next) => {
 
   const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
+
+
+  // 0) --- NEW: сбор текста для активной feedback-сессии (add/edit) ---
+  // используем общую in-memory Map feedbackSessions с ключом `${chatId}:${userId}`
+  // --- Feedback session handling ---
+  const fKey = fbKey(chatId, userId);
+  const fSess = feedbackSessions.get(fKey);
+  if (fSess) {
+    const txt = (ctx.message.text || '').trim();
+    if (!txt || txt.startsWith('/')) {
+      return next(); // **Важно**: пропускаем команды (/done, /cancel) к их обработчикам
+    }
+    (fSess.buffer ||= []).push(txt);
+    return; // для обычного текста остаёмся в режиме ввода фидбэка и не передаём дальше
+  }
+
   const key = achvKey(chatId, userId);
 
   // 1) Черновик новой ачивки (после /done — ждём ТЕКСТ описания)
@@ -2898,6 +2963,8 @@ async function helpText() {
     '/superfinal (/s) N mapres delall — удалить все результаты карт для суперфинала N (только админы)',
     '/superfinal (/s) points — показать очки суперфинала',
     '/superfinal (/s) points name1[p],name2[p],... — задать очки суперфинала (только админы)',
+    '/superfinal (/s) rating — показать рейтинг суперфинала',
+    '/superfinal (/s) rating name1,name2,... — задать рейтинг суперфинала (только админы)',
     '/superfinal (/s) news — показать новости текущего суперфинала (с ID)',
     '/superfinal (/s) news add <text> — добавить новость (только админы; при привязанном канале пост автоматически публикуется в канале)',
     '/superfinal (/s) news edit <id> <текст> — изменить новость по ID (только админы)',
@@ -2937,6 +3004,11 @@ async function helpText() {
     '/achievements (/ac) N addp <player> — назначить владельца ачивки N (админы/роль Achievements)',
     '/achievements (/ac) N del — удалить ачивку N с перенумерацией (админы/роль Achievements)',
     '/achievements (/ac) delall — удалить все ачивки (админы/роль Achievements)',
+    '',
+    '8) Отзывы',
+    '/feedback (/fb) add <текст> — оставить отзыв (можно в несколько сообщений, завершить /done)',
+    '/feedback (/fb) edit <текст> — отредактировать ранее оставленный отзыв (если был)',
+    '/feedback (/fb) del — удалить свой отзыв (если был)',
     '',
     '--------------------------',
     'Управление приёмом изображений:',
@@ -5871,6 +5943,43 @@ function formatSuperFinalGroupsList(groups) {
   return lines.join('\n');
 }
 
+// ---- Superfinal stage rating (аналогично финальным рейтингам)
+async function getSuperFinalRating(chatId) {
+  const doc = await colSuperFinalRatings.findOne({ chatId });
+  if (doc?.players?.length) {
+    return doc.players;
+  }
+  if (doc?.rating?.length) {
+    // Если сохранён старый формат, конвертируем его в новый
+    const uniqueList = dedupByNorm(doc.rating);
+    const rated = uniqueList.map((p, i) => ({ ...p, rank: i + 1 }));
+    // Сохраняем конвертированный формат для будущего
+    await colSuperFinalRatings.updateOne(
+      { chatId },
+      { $set: { chatId, players: rated, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    return rated;
+  }
+  return [];
+}
+
+async function setSuperFinalRating(chatId, players) {
+  const rated = players.map((p, i) => ({ ...p, rank: i + 1 }));
+  await colSuperFinalRatings.updateOne(
+    { chatId },
+    { $set: { chatId, players: rated, updatedAt: new Date() } },
+    { upsert: true }
+  );
+}
+
+function formatSuperFinalRatingList(players = []) {
+  if (!players.length) return 'Superfinal rating: (none)';
+  const sorted = players.slice().sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+  const lines = sorted.map(p => `${p.rank}) ${p.nameOrig}`);
+  return `Superfinal rating:\n${lines.join('\n')}`;
+}
+
 
 async function superfinalHandler(ctx) {
   if (!requireGroupContext(ctx)) {
@@ -5881,7 +5990,7 @@ async function superfinalHandler(ctx) {
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
-  // Ветка: /superfinal N ...
+  // Ветка: /superfinal N ... ------------>>>>>>>
   const N = Number(tokens[0]);
   if (Number.isInteger(N) && N > 0) {
     if (tokens.length === 1) {
@@ -6088,11 +6197,11 @@ async function superfinalHandler(ctx) {
       return;
     }
 
-
-
     await ctx.reply('Неизвестная опция. Используйте: demos | screenshots | addp | delp или без параметров для просмотра группы.');
     return;
   }
+
+  // Ветка: /superfinal N ... <<<<<<<<<<<<<<<<<<< КОНЕЦ
 
   // /superfinal — показать все суперфиналы
   if (!tokens.length) {
@@ -6102,6 +6211,27 @@ async function superfinalHandler(ctx) {
   }
 
   const sub = tokens[0].toLowerCase();
+
+  // /superfinal rating или /superfinal rating name1,name2,...
+  if (sub === 'rating') {
+    const rest = tokens.slice(1).join(' ').trim();
+    if (!rest) {
+      const rating = await getSuperFinalRating(chatId);
+      await replyChunked(ctx, formatSuperFinalRatingList(rating));
+      return;
+    }
+    if (!(await requireAdminGuard(ctx))) return;
+    const list = dedupByNorm(cleanListParam(rest));
+    if (!list.length) {
+      await ctx.reply('Укажите игроков через запятую. Пример: /superfinal rating player1,player2');
+      return;
+    }
+    await setSuperFinalRating(chatId, list);
+    const rating = await getSuperFinalRating(chatId);
+    await replyChunked(ctx, 'Superfinal rating is set (previous cleared).\n' + formatSuperFinalRatingList(rating));
+    return;
+  }
+
 
   // superfinal demos — по всем суперфиналам
   if (sub === 'demos') {
@@ -6561,7 +6691,72 @@ bot.command('done', async ctx => {
   if (!requireGroupContext(ctx)) return;
 
   const chatId = getEffectiveChatId(ctx);
-  const userId = ctx.from.id;
+  const { userId, username, name, display } = getUserIdentity(ctx);
+
+  // === FEEDBACK: приоритетная обработка, если есть активная фидбэк-сессия ===
+  {
+    const fKey = fbKey(chatId, userId);
+    const fSess = feedbackSessions.get(fKey);
+    if (fSess) {
+      try {
+        const textCombined = (fSess.buffer || []).join('\n\n').trim();
+        feedbackSessions.delete(fKey);
+
+        if (!textCombined) {
+          await ctx.reply('Пустой фидбэк не сохранён.');
+          return;
+        }
+
+        const now = new Date();
+        const msk = formatMoscowDateTime(now);
+
+        if (fSess.mode === 'add') {
+          await colFeedback.insertOne({
+            chatId,
+            userId,
+            username,
+            name,
+            displayName: display,
+            text: textCombined,
+            createdAt: now,
+            createdAtMSK: msk,
+            updatedAt: now,
+            updatedAtMSK: msk,
+          });
+          await ctx.reply('Ваш фидбэк сохранён. Спасибо!');
+          return; // НЕ продолжаем к screenshotSessions
+        } else if (fSess.mode === 'edit') {
+          const upd = await colFeedback.updateOne(
+            { chatId, userId },
+            {
+              $set: {
+                username,
+                name,
+                displayName: display,
+                text: textCombined,
+                updatedAt: now,
+                updatedAtMSK: msk,
+              }
+            }
+          );
+          if (upd.matchedCount === 0) {
+            await ctx.reply('Ранее сохранённый фидбэк не найден. Используйте /feedback add.');
+          } else {
+            await ctx.reply('Ваш фидбэк обновлён.');
+          }
+          return; // НЕ продолжаем к screenshotSessions
+        } else {
+          await ctx.reply('Неизвестный режим фидбэка. Попробуйте /feedback add.');
+          return;
+        }
+      } catch (e) {
+        console.error('/done feedback error', e);
+        try { await ctx.reply('Ошибка сохранения фидбэка. Попробуйте ещё раз.'); } catch (_) { }
+        return;
+      }
+    }
+  }
+
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
 
@@ -6667,8 +6862,6 @@ bot.command('done', async ctx => {
 });
 
 
-
-
 // Отмена приёма
 bot.command('cancel', async ctx => {
   purgeExpiredSessions();
@@ -6676,6 +6869,16 @@ bot.command('cancel', async ctx => {
   if (!requireGroupContext(ctx)) return;
   const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
+
+  // === FEEDBACK: если есть активная фидбэк-сессия, отменяем её и выходим ===
+  {
+    const fKey = fbKey(chatId, userId);
+    if (feedbackSessions.has(fKey)) {
+      feedbackSessions.delete(fKey);
+      await ctx.reply('Ввод фидбэка отменён.');
+      return;
+    }
+  }
 
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
@@ -6917,6 +7120,69 @@ bot.command('skip', async ctx => {
   await ctx.reply('Нечего пропускать.');
 });
 
+// === FEEDBACK COMMANDS ===
+bot.command(['feedback', 'fb'], async (ctx) => {
+  const text = (ctx.message?.text || '').trim();
+  const chatId = getEffectiveChatId(ctx); // учитывает targetChatId
+  const { userId, username, name, display } = getUserIdentity(ctx);
+
+  const lower = text.toLowerCase();
+  const isAdd = lower.startsWith('/feedback add') || lower.startsWith('/fb add');
+  const isEdit = lower.startsWith('/feedback edit') || lower.startsWith('/fb edit');
+  const isDel = lower === '/feedback del' || lower === '/fb del';
+
+  if (!isAdd && !isEdit && !isDel) {
+    await ctx.reply([
+      'Использование:',
+      '/feedback (/fb) add , далее ввод нового фидбэка в поле с сообщением в Телеграм (поддерживаются длинные тексты с авторазбивкой на несколько сообщений (лимиты Телеграм), после завершения ввода нужно ввести команду /done для подтверждения или сделать отмену командой /cancel)',
+      '/feedback (/fb) edit — отредактировать ваш фидбэк',
+      '/feedback (/fb) del — удалить ваш фидбэк',
+      '',
+      'Алиас: /fb ...',
+    ].join('\n'));
+    return;
+  }
+
+  if (isDel) {
+    const existing = await colFeedback.findOne({ chatId, userId });
+    if (!existing) {
+      await ctx.reply('У вас ещё нет фидбэка в этом чате. Используйте /feedback add <текст> чтобы добавить.');
+      return;
+    }
+    await colFeedback.deleteOne({ chatId, userId });
+    await ctx.reply('Ваш фидбэк удалён.');
+    return;
+  }
+
+  // add / edit
+  const argText = extractCommandArgText(ctx, ['feedback', 'fb']);
+  const key = feedbackSessionKey(chatId, userId);
+
+  if (isAdd) {
+    // запретить повторное добавление если уже есть
+    const exists = await colFeedback.findOne({ chatId, userId });
+    if (exists) {
+      await ctx.reply('Вы уже оставляли фидбэк в этом чате. Используйте /feedback edit <текст> для редактирования или /feedback del для удаления.');
+      return;
+    }
+    feedbackSessions.set(key, { mode: 'add', buffer: argText ? [argText] : [] });
+    await ctx.reply('Режим ввода фидбэка запущен. Отправляйте текст сообщениями. Когда закончите — отправьте /done. Для отмены — /cancel.');
+    return;
+  }
+
+  if (isEdit) {
+    const existing = await colFeedback.findOne({ chatId, userId });
+    if (!existing) {
+      await ctx.reply('У вас ещё нет фидбэка в этом чате. Используйте /feedback add <текст> чтобы добавить.');
+      return;
+    }
+    feedbackSessions.set(key, { mode: 'edit', buffer: argText ? [argText] : [] });
+    await ctx.reply('Режим редактирования фидбэка запущен. Отправляйте текст сообщениями. Когда закончите — отправьте /done. Для отмены — /cancel.');
+    return;
+  }
+});
+
+
 // SetMyCommands (basic)
 bot.telegram.setMyCommands([
   { command: 'help', description: 'Справка' },
@@ -6967,8 +7233,9 @@ bot.telegram.setMyCommands([
   colRoles = db.collection('roles'); // NEW
   colGroupResults = db.collection('group_results');
   colFinalResults = db.collection('final_results');
+  colSuperFinalRatings = db.collection('super_final_ratings');
   colSuperFinalResults = db.collection('superfinal_results');
-
+  colFeedback = db.collection('feedback');
 
   // Indexes
   await Promise.all([
@@ -6995,6 +7262,8 @@ bot.telegram.setMyCommands([
     colGroupResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
     colFinalResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
     colSuperFinalResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
+    colFeedback.createIndex({ chatId: 1, userId: 1 }, { unique: true }), // у каждого пользователя по одному фидбэку на чат
+    colFeedback.createIndex({ chatId: 1, createdAt: -1 }),
   ]);
 
   console.log('Connected to MongoDB. Starting bot...');
