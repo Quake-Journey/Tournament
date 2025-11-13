@@ -8,6 +8,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 const SITE_CHAT_ID = process.env.SITE_CHAT_ID; // может быть один ID или несколько через запятую
 const PORT = Number(process.env.SITE_PORT || 3000);
 const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.resolve(process.cwd(), 'screenshots');
+const ANALYTICS_PORT = Number(process.env.SITE_ANALITICS_PORT || 3010);
 var PLAYER_STATS_URL = ""; // process.env.PLAYER_STATS_URL || ''; // https://q2.agly.eu/?lang=ru&r=r_6901e479cced6
 var PLAYER_STATS_ENABLED = false; // /^(1|true|yes)$/i.test(String(process.env.PLAYER_STATS_ENABLED || ''));
 
@@ -2673,7 +2674,12 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
     `;
   }).join('');
 
-  return `<div class="cards-grid cards-grid--stage">${cells}</div>`;
+  //return `<div class="cards-grid cards-grid--stage">${cells}</div>`;
+  // ВАЖНО: суперфинал получает модификатор .cards-grid--super (одна карточка в ряд на десктопе)
+  const gridClass = (scope === 'superfinal')
+    ? 'cards-grid cards-grid--stage cards-grid--super'
+    : 'cards-grid cards-grid--stage';
+  return `<div class="${gridClass}">${cells}</div>`;
 }
 
 function renderStageRating(
@@ -3179,6 +3185,16 @@ function renderPage({
     @media (min-width: 992px) {
       .cards-grid--stage {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    /* Суперфинал: одна карточка в ряд на десктопе */
+    .cards-grid--stage.cards-grid--super {
+        grid-template-columns: 1fr;
+      }
+    @media (min-width: 992px) {
+      .cards-grid--stage.cards-grid--super {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -3835,7 +3851,12 @@ function renderPage({
         const main = el.matches('.stage-collapse') ? el : el.closest('.stage-collapse');
         if (main) openAllInnerDetails(main);
 
-        setTimeout(() => { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 0);
+        setTimeout(() => { 
+            document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Убираем хеш из URL без перезагрузки:
+            history.replaceState(null, '', window.location.href.split('#')[0]);
+          }, 0
+        );
       }
       openDetailsForHash();
       window.addEventListener('hashchange', openDetailsForHash);
@@ -4410,6 +4431,10 @@ async function main() {
   colFeedback = db.collection('feedback');    // NEW: коллекция отзывов
 
   const app = express();
+
+  // <<< ВОТ ЗДЕСЬ ПОДКЛЮЧАЕМ АНАЛИТИКУ >>>
+  const { attachAnalyticsRoutes } = require('./analytics');
+  attachAnalyticsRoutes(app);
 
   // Медиа (скриншоты)
   app.use('/media', express.static(SCREENSHOTS_DIR, {
