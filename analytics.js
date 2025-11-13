@@ -7,102 +7,106 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tourna
 
 // SITE_CHAT_ID=-4961062249,350920766,-5094364912
 const SITE_CHAT_ID = (process.env.SITE_CHAT_ID || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean)
-  .map(v => Number(v))
-  .filter(v => !Number.isNaN(v));
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(v => Number(v))
+    .filter(v => !Number.isNaN(v));
 
 if (!SITE_CHAT_ID.length) {
-  console.warn('[analytics] WARNING: SITE_CHAT_ID is empty or invalid. No chats will be available for analytics.');
+    console.warn('[analytics] WARNING: SITE_CHAT_ID is empty or invalid. No chats will be available for analytics.');
 }
 
 let db;
 let client;
 
 // Инициализация подключения к MongoDB один раз на модуль
-const dbReady = (async () => {
-  try {
-    client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    db = client.db();
-    console.log('[analytics] Connected to MongoDB');
-  } catch (err) {
-    console.error('[analytics] Failed to connect to MongoDB:', err);
-    throw err;
-  }
+const dbReady = (async() => {
+    try {
+        client = new MongoClient(MONGODB_URI);
+        await client.connect();
+        db = client.db();
+        console.log('[analytics] Connected to MongoDB');
+    } catch (err) {
+        console.error('[analytics] Failed to connect to MongoDB:', err);
+        throw err;
+    }
 })();
 
 // Хелпер: HTML-экранирование < в JSON, чтобы не ломать <script>
 function safeJson(obj) {
-  return JSON.stringify(obj).replace(/</g, '\\u003c');
+    return JSON.stringify(obj).replace(/</g, '\\u003c');
 }
 
 // Основная функция: навешивает маршруты аналитики на существующий app
 function attachAnalyticsRoutes(app) {
-  console.log('[analytics] attachAnalyticsRoutes called');
+    console.log('[analytics] attachAnalyticsRoutes called');
 
-  // Страница аналитики: GET /analytics
-  app.get('/analytics', async (req, res) => {
-    console.log('[analytics] GET /analytics', req.query);
-    try {
-      await dbReady;
-      if (!db) {
-        res.status(500).send('DB not initialized');
-        return;
-      }
+    // Страница аналитики: GET /analytics
+    app.get('/analytics', async(req, res) => {
+                console.log('[analytics] GET /analytics', req.query);
+                try {
+                    await dbReady;
+                    if (!db) {
+                        res.status(500).send('DB not initialized');
+                        return;
+                    }
 
-      const chatsCol = db.collection('chats');
-      const groupResultsCol = db.collection('group_results');
-      const finalResultsCol = db.collection('final_results');
-      const superfinalResultsCol = db.collection('superfinal_results');
+                    const chatsCol = db.collection('chats');
+                    const groupResultsCol = db.collection('group_results');
+                    const finalResultsCol = db.collection('final_results');
+                    const superfinalResultsCol = db.collection('superfinal_results');
 
-      // Загружаем турниры по chatId из SITE_CHAT_ID
-      const chats = await chatsCol
-        .find({ chatId: { $in: SITE_CHAT_ID } })
-        .sort({ tournamentName: 1 })
-        .toArray();
+                    // Сначала загружаем турниры по chatId из SITE_CHAT_ID
+                    const chats = await chatsCol
+                        .find({ chatId: { $in: SITE_CHAT_ID } })
+                        .sort({ tournamentName: 1 })
+                        .toArray();
 
-      // Если вдруг в БД нет ни одного совпадения
-      if (!chats.length) {
-        res.status(200).send('<h1>No tournaments found for SITE_CHAT_ID</h1>');
-        return;
-      }
+                    // Если вдруг в БД нет ни одного совпадения
+                    if (!chats.length) {
+                        res.status(200).send('<h1>No tournaments found for SITE_CHAT_ID</h1>');
+                        return;
+                    }
 
-      // Основной параметр — tournamentId, но поддерживаем и старый chatId для совместимости
-      const rawParam = (req.query.tournamentId !== undefined)
-        ? req.query.tournamentId
-        : req.query.chatId;
+                    // Основной параметр — tournamentId, но поддерживаем и старый chatId для совместимости
+                    const rawParam = (req.query.tournamentId !== undefined) ?
+                        req.query.tournamentId :
+                        req.query.chatId;
 
-      const queryChatId = rawParam !== undefined ? Number(rawParam) : null;
+                    const queryChatId = rawParam !== undefined ? Number(rawParam) : null;
 
-      let currentChatId = queryChatId && SITE_CHAT_ID.includes(queryChatId)
-        ? queryChatId
-        : SITE_CHAT_ID[0];
+                    let currentChatId = null;
+                    if (Number.isFinite(queryChatId) && SITE_CHAT_ID.includes(queryChatId)) {
+                        currentChatId = queryChatId;
+                    } else {
+                        // если параметр невалиден / не разрешён — берём первый из SITE_CHAT_ID
+                        currentChatId = SITE_CHAT_ID[0];
+                    }
 
-      // Текущий турнир
-      const currentChat = chats.find(c => c.chatId === currentChatId) || chats[0];
-      currentChatId = currentChat.chatId;
+                    // Текущий турнир
+                    const currentChat = chats.find(c => c.chatId === currentChatId) || chats[0];
+                    currentChatId = currentChat.chatId;
 
-      // Данные по группам/финалам/суперфиналам для выбранного чата
-      const [groupResults, finalResults, superfinalResults] = await Promise.all([
-        groupResultsCol.find({ chatId: currentChatId }).toArray(),
-        finalResultsCol.find({ chatId: currentChatId }).toArray(),
-        superfinalResultsCol.find({ chatId: currentChatId }).toArray(),
-      ]);
+                    // Данные по группам/финалам/суперфиналам для выбранного чата
+                    const [groupResults, finalResults, superfinalResults] = await Promise.all([
+                        groupResultsCol.find({ chatId: currentChatId }).toArray(),
+                        finalResultsCol.find({ chatId: currentChatId }).toArray(),
+                        superfinalResultsCol.find({ chatId: currentChatId }).toArray(),
+                    ]);
 
-      const initialData = {
-        chats: chats.map(c => ({
-          chatId: c.chatId,
-          tournamentName: c.tournamentName,
-        })),
-        currentChatId,
-        groupResults,
-        finalResults,
-        superfinalResults,
-      };
+                    const initialData = {
+                        chats: chats.map(c => ({
+                            chatId: c.chatId,
+                            tournamentName: c.tournamentName,
+                        })),
+                        currentChatId,
+                        groupResults,
+                        finalResults,
+                        superfinalResults,
+                    };
 
-      const html = `<!DOCTYPE html>
+                    const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
@@ -256,6 +260,23 @@ function attachAnalyticsRoutes(app) {
       opacity: 0.8;
       font-style: italic;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background: rgba(255,255,255,0.05);
+    }
+    tbody tr:nth-child(odd) {
+      background: rgba(255,255,255,0.02);
+    }
   </style>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -287,6 +308,7 @@ function attachAnalyticsRoutes(app) {
       <a href="#section-final-results">Финалы</a>
       <a href="#section-superfinal-results">Суперфиналы</a>
       <a href="#section-overall">Общие графики</a>
+      <a href="#section-win-streaks">Серии побед</a>
     </nav>
   </header>
 
@@ -317,6 +339,22 @@ function attachAnalyticsRoutes(app) {
       </div>
       <div id="overall-content"></div>
     </section>
+
+    <section id="section-win-streaks">
+      <h2>Серии из 3+ побед подряд</h2>
+      <div class="metric-note">
+        Учитываются серии, где игрок в рамках одной группы и одной стадии (Квалификации / Финалы / Суперфинал)
+        занимает первое место на карте 3 и более раз подряд (по времени matchDateTime).
+      </div>
+      <div id="win-streaks-content"></div>
+
+      <h3>Серии из 3+ побед подряд (сквозные)</h3>
+      <div class="metric-note">
+        Сквозные серии: победы подряд, считая последовательно игры игрока от Квалификаций через Финалы до Суперфинала,
+        без обнуления на переходах стадий.
+      </div>
+      <div id="cross-win-streaks-content"></div>
+    </section>
   </main>
 
   <script>
@@ -343,8 +381,7 @@ function attachAnalyticsRoutes(app) {
 
         // основной параметр — tournamentId
         url.searchParams.set('tournamentId', chatId);
-
-        // на всякий случай убираем старый chatId, чтобы не путать
+        // на всякий случай убираем старый chatId
         url.searchParams.delete('chatId');
 
         window.location.href = url.toString();
@@ -594,13 +631,320 @@ function attachAnalyticsRoutes(app) {
       }
     }
 
+    // ---- Серии побед по стадиям ----
+
+    function computeWinStreaksForStage(docs, stageLabel) {
+      const streaks = [];
+      if (!docs || !docs.length) return streaks;
+
+      const groupIds = unique(docs.map(d => d.groupId).filter(v => v !== undefined));
+
+      for (const groupId of groupIds) {
+        const groupDocs = docs.filter(d => d.groupId === groupId);
+        if (!groupDocs.length) continue;
+
+        const players = unique(
+          groupDocs.flatMap(d => Array.isArray(d.players) ? d.players.map(p => p.nameOrig) : [])
+        );
+        if (!players.length) continue;
+
+        for (const playerName of players) {
+          const matches = groupDocs
+            .filter(d => Array.isArray(d.players) && d.players.some(p => p.nameOrig === playerName))
+            .slice()
+            .sort((a, b) => {
+              const aTime = String(a.matchDateTime || '');
+              const bTime = String(b.matchDateTime || '');
+              return aTime.localeCompare(bTime);
+            });
+
+          if (!matches.length) continue;
+
+          let currentCount = 0;
+          let currentMaps = [];
+
+          function commitIfStreak() {
+            if (currentCount >= 3) {
+              streaks.push({
+                playerName,
+                stageLabel,
+                groupId,
+                count: currentCount,
+                maps: currentMaps.slice(),
+              });
+            }
+          }
+
+          for (const m of matches) {
+            const playersArr = Array.isArray(m.players) ? m.players : [];
+            if (!playersArr.length) continue;
+
+            const maxFrags = playersArr.reduce((max, p) => {
+              const val = Number(p.frags) || 0;
+              return val > max ? val : max;
+            }, -Infinity);
+
+            const isWin = playersArr.some(p =>
+              p.nameOrig === playerName && Number(p.frags) === maxFrags
+            );
+
+            if (isWin) {
+              currentCount += 1;
+              currentMaps.push(m.map || '');
+            } else {
+              commitIfStreak();
+              currentCount = 0;
+              currentMaps = [];
+            }
+          }
+
+          commitIfStreak();
+        }
+      }
+
+      return streaks;
+    }
+
+    function buildWinStreaksSection(containerId, groupResults, finalResults, superfinalResults) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      const streaks = []
+        .concat(computeWinStreaksForStage(groupResults, 'Квалификации'))
+        .concat(computeWinStreaksForStage(finalResults, 'Финалы'))
+        .concat(computeWinStreaksForStage(superfinalResults, 'Суперфинал'));
+
+      if (!streaks.length) {
+        const note = document.createElement('div');
+        note.className = 'empty-note';
+        note.textContent = 'Не найдено ни одной серии из 3+ побед подряд.';
+        container.appendChild(note);
+        return;
+      }
+
+      streaks.sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        if (a.playerName !== b.playerName) return a.playerName.localeCompare(b.playerName);
+        if (a.stageLabel !== b.stageLabel) return a.stageLabel.localeCompare(b.stageLabel);
+        return Number(a.groupId || 0) - Number(b.groupId || 0);
+      });
+
+      const table = document.createElement('table');
+
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr>' +
+        '<th>Игрок</th>' +
+        '<th>Стадия</th>' +
+        '<th>Группа</th>' +
+        '<th>Длина серии</th>' +
+        '<th>Карты в серии</th>' +
+        '</tr>';
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      for (const s of streaks) {
+        const tr = document.createElement('tr');
+
+        const tdPlayer = document.createElement('td');
+        tdPlayer.textContent = s.playerName;
+        tr.appendChild(tdPlayer);
+
+        const tdStage = document.createElement('td');
+        tdStage.textContent = s.stageLabel;
+        tr.appendChild(tdStage);
+
+        const tdGroup = document.createElement('td');
+        tdGroup.textContent = String(s.groupId);
+        tr.appendChild(tdGroup);
+
+        const tdCount = document.createElement('td');
+        tdCount.textContent = String(s.count);
+        tr.appendChild(tdCount);
+
+        const tdMaps = document.createElement('td');
+        tdMaps.textContent = s.maps.join(', ');
+        tr.appendChild(tdMaps);
+
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    // ---- Сквозные серии побед ----
+
+    function computeCrossStageWinStreaks(groupResults, finalResults, superfinalResults) {
+      const streaks = [];
+
+      const stages = [
+        { label: 'Квалификации', order: 1, docs: groupResults || [] },
+        { label: 'Финалы',       order: 2, docs: finalResults || [] },
+        { label: 'Суперфинал',   order: 3, docs: superfinalResults || [] },
+      ];
+
+      const allDocs = stages.flatMap(s =>
+        (s.docs || []).map(doc => ({ ...doc, __stageLabel: s.label, __stageOrder: s.order }))
+      );
+
+      if (!allDocs.length) return streaks;
+
+      const players = unique(
+        allDocs.flatMap(d => Array.isArray(d.players) ? d.players.map(p => p.nameOrig) : [])
+      );
+      if (!players.length) return streaks;
+
+      for (const playerName of players) {
+        const entries = [];
+
+        for (const doc of allDocs) {
+          if (!Array.isArray(doc.players)) continue;
+          const player = doc.players.find(p => p.nameOrig === playerName);
+          if (!player) continue;
+
+          const playersArr = doc.players;
+
+          const maxFrags = playersArr.reduce((max, p) => {
+            const val = Number(p.frags) || 0;
+            return val > max ? val : max;
+          }, -Infinity);
+
+          const isWin = Number(player.frags) === maxFrags;
+
+          entries.push({
+            stageLabel: doc.__stageLabel,
+            stageOrder: doc.__stageOrder,
+            groupId: doc.groupId,
+            map: doc.map || '',
+            matchDateTime: String(doc.matchDateTime || ''),
+            isWin,
+          });
+        }
+
+        if (!entries.length) continue;
+
+        entries.sort((a, b) => {
+          if (a.stageOrder !== b.stageOrder) return a.stageOrder - b.stageOrder;
+          return a.matchDateTime.localeCompare(b.matchDateTime);
+        });
+
+        let currentCount = 0;
+        let currentItems = [];
+
+        function commitIfStreak() {
+          if (currentCount >= 3) {
+            const maps = currentItems.map(it => ({
+              map: it.map,
+              stageLabel: it.stageLabel,
+              groupId: it.groupId,
+            }));
+            streaks.push({
+              playerName,
+              count: currentCount,
+              maps,
+            });
+          }
+        }
+
+        for (const e of entries) {
+          if (e.isWin) {
+            currentCount += 1;
+            currentItems.push(e);
+          } else {
+            commitIfStreak();
+            currentCount = 0;
+            currentItems = [];
+          }
+        }
+        commitIfStreak();
+      }
+
+      return streaks;
+    }
+
+    function buildCrossWinStreaksSection(containerId, groupResults, finalResults, superfinalResults) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      const streaks = computeCrossStageWinStreaks(groupResults, finalResults, superfinalResults);
+
+      if (!streaks.length) {
+        const note = document.createElement('div');
+        note.className = 'empty-note';
+        note.textContent = 'Не найдено ни одной сквозной серии из 3+ побед подряд.';
+        container.appendChild(note);
+        return;
+      }
+
+      // сортируем по длине серии (убывание), потом по имени
+      streaks.sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.playerName.localeCompare(b.playerName);
+      });
+
+      const table = document.createElement('table');
+
+      const thead = document.createElement('thead');
+      thead.innerHTML =
+        '<tr>' +
+          '<th>Игрок</th>' +
+          '<th>Длина серии</th>' +
+          '<th>Стадии/группы</th>' +
+          '<th>Карты в серии</th>' +
+        '</tr>';
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      for (const s of streaks) {
+        const tr = document.createElement('tr');
+
+        const tdPlayer = document.createElement('td');
+        tdPlayer.textContent = s.playerName;
+        tr.appendChild(tdPlayer);
+
+        const tdCount = document.createElement('td');
+        tdCount.textContent = String(s.count);
+        tr.appendChild(tdCount);
+
+        const tdStages = document.createElement('td');
+        const stageGroups = [];
+        for (const m of s.maps) {
+          const key = m.stageLabel + '|' + m.groupId;
+          if (!stageGroups.some(x => x.key === key)) {
+            stageGroups.push({ key: key, label: m.stageLabel, groupId: m.groupId });
+          }
+        }
+        tdStages.textContent = stageGroups
+          .map(function (sg) {
+            return sg.label + ' (группа ' + sg.groupId + ')';
+          })
+          .join(', ');
+        tr.appendChild(tdStages);
+
+        const tdMaps = document.createElement('td');
+        tdMaps.textContent = s.maps
+          .map(function (m) {
+            return m.map + ' [' + m.stageLabel + ', группа ' + m.groupId + ']';
+          })
+          .join(', ');
+        tr.appendChild(tdMaps);
+
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+
     function setupFullwidthToggle() {
       const checkbox = document.getElementById('fullwidth-toggle');
       if (!checkbox) return;
 
       const STORAGE_KEY = 'qjAnalyticsFullwidth';
 
-      // Восстановление состояния из localStorage
       try {
         const saved = window.localStorage ? localStorage.getItem(STORAGE_KEY) : null;
         if (saved === '1') {
@@ -645,7 +989,7 @@ function attachAnalyticsRoutes(app) {
       if (!sections.length) return;
 
       function onScroll() {
-        const offset = 120; // запас под высоту шапки
+        const offset = 120;
         const fromTop = window.scrollY + offset;
 
         let current = null;
@@ -665,7 +1009,7 @@ function attachAnalyticsRoutes(app) {
 
       window.addEventListener('scroll', onScroll);
       window.addEventListener('resize', onScroll);
-      onScroll(); // первая отрисовка
+      onScroll();
     }
 
     // Стартовая инициализация
@@ -682,7 +1026,11 @@ function attachAnalyticsRoutes(app) {
       const allDocs = groupResults.concat(finalResults, superfinalResults);
       buildOverallSection('overall-content', allDocs);
 
-      // новые фичи
+      // Серии побед в разрезе стадий
+      buildWinStreaksSection('win-streaks-content', groupResults, finalResults, superfinalResults);
+      // Сквозные серии
+      buildCrossWinStreaksSection('cross-win-streaks-content', groupResults, finalResults, superfinalResults);
+
       setupFullwidthToggle();
       setupScrollSpy();
     })();
