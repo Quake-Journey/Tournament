@@ -1679,11 +1679,53 @@ function renderNewsList(title, news = [], collapsedByDefault = false, sectionId 
 }
 
 
-function renderPlayers(players = [], ptsMap = null, achIndex = null) {
+function renderPlayers(
+  players = [],
+  ptsMap = null,
+  achIndex = null,
+  resultsByGroup = null,
+  groupId = null,
+  isSuperfinal = false
+) {
   if (!players?.length) return '<div class="text-muted small">(пусто)</div>';
 
   const arr = players.slice();
   const hasPtsFlag = ptsMap && arr.some(p => ptsMap.has(p.nameNorm));
+
+  // Предрасчёт средней эффективности по результатам карт для этой группы (если есть)
+  let effAvgByPlayer = null;
+  if (resultsByGroup && typeof resultsByGroup.get === 'function' && groupId != null) {
+    const gid = Number(groupId);
+    if (Number.isFinite(gid)) {
+      const matches = resultsByGroup.get(gid) || [];
+      if (matches && matches.length) {
+        effAvgByPlayer = new Map(); // nameNorm -> { sum, count }
+        for (const m of matches) {
+          const resPlayers = Array.isArray(m.players) ? m.players : [];
+          for (const p of resPlayers) {
+            const nameNorm = p?.nameNorm;
+            if (!nameNorm) continue;
+            const eff = Number(p.eff);
+            if (!Number.isFinite(eff)) continue;
+            let s = effAvgByPlayer.get(nameNorm);
+            if (!s) {
+              s = { sum: 0, count: 0 };
+              effAvgByPlayer.set(nameNorm, s);
+            }
+            s.sum += eff;
+            s.count++;
+          }
+        }
+      }
+    }
+  }
+
+  function getEffAvgForPlayer(nameNorm) {
+    if (!effAvgByPlayer) return Number.NEGATIVE_INFINITY;
+    const s = effAvgByPlayer.get(nameNorm);
+    if (!s || !s.count) return Number.NEGATIVE_INFINITY;
+    return s.sum / s.count;
+  }
 
   if (hasPtsFlag) {
     arr.sort((a, b) => {
@@ -1692,7 +1734,14 @@ function renderPlayers(players = [], ptsMap = null, achIndex = null) {
       if (aHas && bHas) {
         const ap = Number(ptsMap.get(a.nameNorm));
         const bp = Number(ptsMap.get(b.nameNorm));
+
         if (ap !== bp) return ap - bp;
+
+        // Тайбрейк: при равных очках — по средней эффективности (убывание)
+        const ea = getEffAvgForPlayer(a.nameNorm);
+        const eb = getEffAvgForPlayer(b.nameNorm);
+        if (eb !== ea) return eb - ea;
+
         return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
       }
       if (aHas !== bHas) return aHas ? -1 : 1;
@@ -1702,38 +1751,48 @@ function renderPlayers(players = [], ptsMap = null, achIndex = null) {
     arr.sort((a, b) => (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' }));
   }
 
+  function getHaloClassByIndex(idx) {
+    if (!isSuperfinal || !hasPtsFlag) return '';
+    if (idx === 0) return ' qj-halo qj-halo-gold';
+    if (idx === 1) return ' qj-halo qj-halo-silver';
+    if (idx === 2) return ' qj-halo qj-halo-bronze';
+    return '';
+  }
+
   return `<ul class="players list-unstyled mb-2">
     ${arr.map((p, i) => {
-    const pts = ptsMap?.get(p.nameNorm);
-    const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
+      const pts = ptsMap?.get(p.nameNorm);
+      const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
 
-    const posHtml = hasPtsFlag
-      ? `<span class="player-pos text-muted">${i + 1}.</span>`
-      : '';
+      const posHtml = hasPtsFlag
+        ? `<span class="player-pos text-muted">${i + 1}.</span>`
+        : '';
 
-    const ptsHtml = (pts !== undefined && pts !== null)
-      ? `<span class="player-pts qj-pts">${pts}</span>`
-      : '';
+      const ptsHtml = (pts !== undefined && pts !== null)
+        ? `<span class="player-pts qj-pts">${pts}</span>`
+        : '';
 
-    const metaHtml = (ptsHtml || badges)
-      ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
-      : '';
+      const metaHtml = (ptsHtml || badges)
+        ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
+        : '';
 
-    const displayName = p.nameOrig || p.nameNorm || '';
+      const displayName = p.nameOrig || p.nameNorm || '';
+      const haloClass = getHaloClassByIndex(i);
 
-    const pnameHtml = PLAYER_STATS_ENABLED
-      ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat"
-              data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
-      : `<span class="player-name qj-accent fw-semibold">${escapeHtml(displayName)}</span>`;
+      const pnameHtml = PLAYER_STATS_ENABLED
+        ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat${haloClass}"
+                data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
+        : `<span class="player-name qj-accent fw-semibold${haloClass}">${escapeHtml(displayName)}</span>`;
 
-    return `<li>
-        ${posHtml}
-        ${pnameHtml}
-        ${metaHtml}
-      </li>`;
-  }).join('')}
+      return `<li>
+          ${posHtml}
+          ${pnameHtml}
+          ${metaHtml}
+        </li>`;
+    }).join('')}
   </ul>`;
 }
+
 
 function renderScreenshots(files = [], groupKey = '') {
   if (!files?.length) {
@@ -2025,11 +2084,20 @@ function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
     const durationStr = formatMatchDuration(r);
     const players = Array.isArray(r.players) ? r.players.slice() : [];
 
-    // сортируем игроков по фрагам (по убыванию), как в примере
+     // сортируем игроков: сначала по фрагам (по убыванию),
+    // при равных фрагах — по эффективности (eff, по убыванию),
+    // и только потом по имени
     players.sort((a, b) => {
       const fa = Number(a.frags) || 0;
       const fb = Number(b.frags) || 0;
       if (fb !== fa) return fb - fa;
+
+      const eaRaw = Number(a.eff);
+      const ebRaw = Number(b.eff);
+      const ea = Number.isFinite(eaRaw) ? eaRaw : Number.NEGATIVE_INFINITY;
+      const eb = Number.isFinite(ebRaw) ? ebRaw : Number.NEGATIVE_INFINITY;
+      if (eb !== ea) return eb - ea;
+
       return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
     });
 
@@ -2640,7 +2708,15 @@ function renderSection(title, items, scope, screensMap, ptsMap = null, collapsed
 
   const cells = items.map(g => {
     const id = `${scope}-${g.groupId}`;
-    const players = renderPlayers(g.players || [], ptsMap, achIndex);
+    //const players = renderPlayers(g.players || [], ptsMap, achIndex);
+    const players = renderPlayers(
+      g.players || [],
+      ptsMap,
+      achIndex,
+      resultsByGroup,
+      g.groupId,
+      scope === 'superfinal'
+    );
     const maps = renderMaps(g.maps || []);
     const demos = renderDemos(Array.isArray(g.demos) ? g.demos : []);
     const files = screensMap.get(Number(g.groupId)) || [];
@@ -2760,6 +2836,7 @@ function renderStageRating(
       const stats = stageStats.get(p.nameNorm) || null;
 
       let effAvg = '';
+      let effAvgNum = Number.NEGATIVE_INFINITY;
       let fphAvg = '';
       let frags = '';
       let kills = '';
@@ -2767,7 +2844,11 @@ function renderStageRating(
       let drec = '';
 
       if (stats) {
-        if (stats.effCount > 0) effAvg = (stats.effSum / stats.effCount).toFixed(1);
+        if (stats.effCount > 0) {
+          const val = stats.effSum / stats.effCount;
+          effAvgNum = val;
+          effAvg = val.toFixed(1);
+        }
         if (stats.fphCount > 0) fphAvg = (stats.fphSum / stats.fphCount).toFixed(1);
         if (stats.frags !== 0) frags = String(stats.frags);
         if (stats.kills !== 0) kills = String(stats.kills);
@@ -2782,6 +2863,7 @@ function renderStageRating(
         frags,
         kills,
         effAvg,
+        effAvgNum,
         fphAvg,
         dgiv,
         drec,
@@ -2791,21 +2873,38 @@ function renderStageRating(
 
   if (!rows.length) return '';
 
-  // сортировка по очкам (по возрастанию), как и было
-  rows.sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+  // сортировка:
+  // 1) по очкам (как было, по возрастанию)
+  // 2) при равных очках — по средней эффективности (effAvgNum, по убыванию)
+  // 3) при полном равенстве — по имени
+  rows.sort((a, b) => {
+    if (a.pts !== b.pts) return a.pts - b.pts;
+
+    const ea = Number.isFinite(a.effAvgNum) ? a.effAvgNum : Number.NEGATIVE_INFINITY;
+    const eb = Number.isFinite(b.effAvgNum) ? b.effAvgNum : Number.NEGATIVE_INFINITY;
+    if (eb !== ea) return eb - ea;
+
+    return a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' });
+  });
 
   const tr = rows.map((r, i) => {
-    const badges = renderAchievementBadgesInline(r.nameNorm, achIndex);
+    const pos = i + 1;
+    const achBadges = renderAchievementBadgesInline(r.nameNorm, achIndex);
+    const displayName = r.nameOrig || r.nameNorm || '';
+
     const pnameHtml = PLAYER_STATS_ENABLED
-      ? `<a href="#" class="player-link qj-accent fw-semibold js-player-stat"
-             data-player="${escapeAttr(r.nameOrig)}">${escapeHtml(r.nameOrig)}</a>`
-      : `<span class="qj-accent fw-semibold">${escapeHtml(r.nameOrig)}</span>`;
+      ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat"
+              data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
+      : `<span class="player-name qj-accent fw-semibold">${escapeHtml(displayName)}</span>`;
 
     return `
       <tr>
-        <td class="pos text-muted">${i + 1}</td>
-        <td class="pname">${pnameHtml}${badges}</td>
-        <td class="pts qj-pts fw-semibold text-end">${r.pts}</td>
+        <td class="small text-muted">${pos}.</td>
+        <td>
+          ${pnameHtml}
+          ${achBadges ? `<span class="ms-2">${achBadges}</span>` : ''}
+        </td>
+        <td class="text-end small">${Number.isFinite(r.pts) ? r.pts : ''}</td>
         <td class="text-end small">${r.frags}</td>
         <td class="text-end small">${r.kills}</td>
         <td class="text-end small">${r.effAvg}</td>
@@ -2817,14 +2916,14 @@ function renderStageRating(
   }).join('');
 
   const openAttr = collapsedByDefault ? '' : ' open';
+  const idAttr = sectionId ? ` id="${escapeHtml(sectionId)}"` : '';
 
   return `
     <section class="mb-4">
-      <details id="${escapeHtml(sectionId)}" class="sub-collapse"${openAttr}>
+      <details class="stage-collapse"${openAttr}${idAttr}>
         <summary class="qj-toggle">
           <span class="section-title">${escapeHtml(title)}</span>
           <a href="#${escapeHtml(sectionId)}" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
-          <span class="qj-badge ms-auto">${rows.length}</span>
         </summary>
         <div class="mt-2">
           <div class="table-responsive">
@@ -2850,6 +2949,7 @@ function renderStageRating(
     </section>
   `;
 }
+
 
 
 // UPDATED: современный визуал (градиентные заголовки по типам секций, «стекло»-карточки, улучшенные акценты)
@@ -3133,7 +3233,11 @@ function renderPage({
   // Стили
   const baseUiCss = `
     html, body { max-width: 100%; }
-    body { background: #f8f9fa; overflow-x: hidden; }
+    body {
+      background: #f8f9fa;
+      overflow-x: hidden;
+      padding-top: var(--qj-mobile-header-offset, 0px);
+    }
     header.hero { background: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); }
     .hero .title { font-weight: 800; letter-spacing: .2px; }
 
@@ -3355,6 +3459,49 @@ function renderPage({
       box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
     }
 
+        /* Подсветка топ-3 игроков в суперфинале (анимированные ореолы вокруг ника) */
+    .player-name.qj-halo {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 .35rem;
+      border-radius: 999px;
+      isolation: isolate;
+    }
+
+    .qj-halo::before {
+      content: '';
+      position: absolute;
+      inset: -0.25rem;
+      border-radius: inherit;
+      opacity: .9;
+      filter: blur(.3px);
+      z-index: -1;
+      animation: qj-halo-pulse 1.8s ease-in-out infinite alternate;
+    }
+
+    .qj-halo-gold::before {
+      background: radial-gradient(circle at 50% 0%, rgba(255,215,0,.95), rgba(255,215,0,.28) 40%, transparent 70%);
+      box-shadow: 0 0 10px rgba(255,215,0,.7);
+    }
+
+    .qj-halo-silver::before {
+      background: radial-gradient(circle at 50% 0%, rgba(192,192,192,.95), rgba(192,192,192,.28) 40%, transparent 70%);
+      box-shadow: 0 0 9px rgba(192,192,192,.7);
+    }
+
+    .qj-halo-bronze::before {
+      background: radial-gradient(circle at 50% 0%, rgba(205,127,50,.95), rgba(205,127,50,.28) 40%, transparent 70%);
+      box-shadow: 0 0 9px rgba(205,127,50,.7);
+    }
+
+    @keyframes qj-halo-pulse {
+      0%   { transform: scale(1); opacity: .7; }
+      100% { transform: scale(1.06); opacity: 1; }
+    }
+
+
     .qj-section { margin-bottom: 2rem; }
     .qj-sections-root .qj-section.dragging { opacity: .6; }
 
@@ -3371,6 +3518,22 @@ function renderPage({
       .qj-menu { display: none; } /* скрываем чипы меню на мобильном */
       .hero-logo { max-width: 28vw; height: auto; }
       .news-text { overflow-wrap: anywhere; word-break: break-word; }
+    }
+
+    /* Авто-появление/скрытие шапки на мобильных при скролле */
+    @media (max-width: 767.98px) {
+      body:not(.q2css-active) header.hero.hero--sticky {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1050;
+        transform: translateY(0);
+        transition: transform .2s ease-in-out;
+      }
+      body:not(.q2css-active) header.hero.hero--sticky.hero--hidden-mobile {
+        transform: translateY(-100%);
+      }
     }
 
     /* Кнопка мобильного меню всегда видима в мобильной шапке */
@@ -3570,7 +3733,7 @@ function renderPage({
 <body class="${useQ2Css ? 'q2css-active' : ''}">
   <header class="hero py-3 ${useQ2Css ? 'head_image' : 'hero--sticky'}">
     <div class="${containerClass}">
-      <!-- Мобильная шапка: 1) логотип+название+ссылка 2) панель кнопок (включая ≡ Меню) -->
+      <!-- Мобильная шапка: логотип + название + ссылки + селектор турнира + кнопки -->
       <div class="d-flex d-md-none flex-column">
         <div class="d-flex align-items-start">
           ${logoBlock}
@@ -3579,18 +3742,24 @@ function renderPage({
               <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
               ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
               ${newsChannelLink ? `<div class="site-link mt-1">${newsChannelLink}</div>` : ''}
+
+              ${tournamentSelectHtml
+                ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
+                : ''}
             </div>
           </div>
         </div>
-        <div class="d-flex justify-content-start gap-2 mt-2 qj-controls">
-          <button type="button" class="mobile-menu-trigger btn btn-sm btn-secondary" title="Меню">≡ Меню</button>
-          ${tournamentSelectHtml}
-          <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
-          <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
-          <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
-          <button type="button" class="js-btn-toggle-dnd btn btn-sm btn-outline-warning" title="Включить/выключить редактирование разделов">Редактировать разделы</button>
+
+        <!-- Кнопки: Меню + Q2CSS + Свернуть все -->
+        <div class="qj-controls mt-2">
+          <div class="d-flex justify-content-start gap-2">
+            <button type="button" class="mobile-menu-trigger btn btn-sm btn-secondary" title="Меню">≡ Меню</button>
+            <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
+            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
+          </div>
         </div>
-        <!-- Чипы меню скрыты на мобильном через CSS (но остаются в DOM для заполнения мобильного меню) -->
+
+        <!-- Чипы меню (скрыты на мобиле визуально, но используются для заполнения мобильного меню) -->
         ${topMenuHtml || ''}
       </div>
 
@@ -4233,33 +4402,72 @@ function renderPage({
               item.addEventListener('click', () => closeMenu());
               list.appendChild(item);
             });
-            return;
           }
 
           // 2) Резервный вариант: формируем меню по наличию основных секций
-          const candidates = [
-            { id: 'section-news-tournament', label: 'Новости' },
-            { id: 'section-desc', label: 'Информация' },
-            { id: 'section-groups', label: 'Квалификации' },
-            { id: 'section-finals', label: 'Финалы' },
-            { id: 'section-superfinals', label: 'Суперфинал' },
-            { id: 'section-stats', label: 'Статистика' },
-            { id: 'section-achievements', label: 'Ачивки' },
-            { id: 'section-perks', label: 'Перки' },
-            { id: 'section-servers', label: 'Сервера' },
-            { id: 'section-streams', label: 'Стримы' },
-            { id: 'section-feedback', label: 'Отзывы' }, 
-          ];
-          candidates.forEach(c => {
-            if (document.getElementById(c.id)) {
-              const a = document.createElement('a');
-              a.href = '#' + c.id;
-              a.textContent = c.label;
-              a.addEventListener('click', () => closeMenu());
-              list.appendChild(a);
-            }
+          if (!chipLinks.length) {
+            const candidates = [
+              { id: 'section-news-tournament', label: 'Новости' },
+              { id: 'section-desc', label: 'Информация' },
+              { id: 'section-groups', label: 'Квалификации' },
+              { id: 'section-finals', label: 'Финалы' },
+              { id: 'section-superfinals', label: 'Суперфинал' },
+              { id: 'section-stats', label: 'Статистика' },
+              { id: 'section-achievements', label: 'Ачивки' },
+              { id: 'section-perks', label: 'Перки' },
+              { id: 'section-servers', label: 'Сервера' },
+              { id: 'section-streams', label: 'Стримы' },
+              { id: 'section-feedback', label: 'Отзывы' },
+            ];
+            candidates.forEach(c => {
+              if (document.getElementById(c.id)) {
+                const a = document.createElement('a');
+                a.href = '#' + c.id;
+                a.textContent = c.label;
+                a.addEventListener('click', () => closeMenu());
+                list.appendChild(a);
+              }
+            });
+          }
+
+          // 3) Дополнительные действия: Вернуть порядок / Редактировать разделы
+          const actionsRoot = document.createElement('div');
+          actionsRoot.className = 'mt-3 pt-2 border-top';
+
+          // Кнопка "Вернуть порядок"
+          const mainResetBtn = document.querySelector('header.hero .d-none.d-md-flex .js-btn-reset-sections');
+          const resetBtn = document.createElement('button');
+          resetBtn.type = 'button';
+          resetBtn.className = 'btn btn-sm btn-outline-secondary w-100';
+          resetBtn.textContent = mainResetBtn?.textContent?.trim() || 'Вернуть порядок разделов по умолчанию';
+          resetBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (mainResetBtn) mainResetBtn.click();
+            closeMenu();
           });
+          actionsRoot.appendChild(resetBtn);
+
+          // Кнопка "Редактировать разделы"
+          const mainDndBtn = document.querySelector('header.hero .d-none.d-md-flex .js-btn-toggle-dnd');
+          const dndBtn = document.createElement('button');
+          dndBtn.type = 'button';
+          dndBtn.className = 'btn btn-sm w-100 mt-2';
+          if (mainDndBtn?.classList.contains('btn-warning')) {
+            dndBtn.classList.add('btn-warning');
+          } else {
+            dndBtn.classList.add('btn-outline-warning');
+          }
+          dndBtn.textContent = mainDndBtn?.textContent?.trim() || 'Редактировать разделы';
+          dndBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (mainDndBtn) mainDndBtn.click();
+            closeMenu();
+          });
+          actionsRoot.appendChild(dndBtn);
+
+          list.appendChild(actionsRoot);
         }
+
 
         function openMenu() {
           fillMenu();
@@ -4280,6 +4488,116 @@ function renderPage({
           if (modal?.classList.contains('is-open') && (e.key === 'Escape' || e.key === 'Esc')) closeMenu();
         });
       })();
+
+      // Авто-скрытие/показ шапки на мобильных при скролле
+      (function initMobileHeaderAutoHide(){
+        const header = document.querySelector('header.hero.hero--sticky');
+        if (!header) return;
+        if (document.body.classList.contains('q2css-active')) return;
+
+        const mqMobile = window.matchMedia('(max-width: 767.98px)');
+        let lastY = window.scrollY || 0;
+        let isHidden = false;
+        let ticking = false;
+
+        // Направление скролла:
+        //  1  — вниз
+        // -1  — вверх
+        //  0  — неизвестно/нет движения
+        let lastDirection = 0;
+        // Точка, с которой начали скроллить вверх (для порога в высоту экрана)
+        let upStartY = lastY;
+
+        function isMobile() {
+          return mqMobile.matches;
+        }
+
+        function updateMobileHeaderOffset() {
+          if (!isMobile()) {
+            document.documentElement.style.setProperty('--qj-mobile-header-offset', '0px');
+            header.classList.remove('hero--hidden-mobile');
+            isHidden = false;
+            return;
+          }
+          const h = header.getBoundingClientRect().height || 0;
+          document.documentElement.style.setProperty('--qj-mobile-header-offset', h + 'px');
+        }
+
+        function handleScroll() {
+          if (!isMobile()) return;
+          const y = window.scrollY || 0;
+          const dy = y - lastY;
+
+          // лёгкий "дедзон", чтобы не дёргалось
+          if (Math.abs(dy) < 4) {
+            lastY = y;
+            return;
+          }
+
+          const dir = dy > 0 ? 1 : -1; // 1 вниз, -1 вверх
+
+          // смена направления: если только что начали скроллить вверх — запоминаем точку старта
+          if (dir !== lastDirection) {
+            if (dir < 0) {
+              upStartY = y; // отсюда считаем пройденное вверх расстояние
+            }
+            lastDirection = dir;
+          }
+
+          const viewportH = window.innerHeight || 400;
+          const scrolledUp = upStartY - y; // сколько пикселей реально проскроллили вверх
+
+          if (dir > 0 && y > 20) {
+            // Скролл вниз — прячем шапку
+            if (!isHidden) {
+              header.classList.add('hero--hidden-mobile');
+              isHidden = true;
+            }
+          } else if (dir < 0) {
+            // Скролл вверх — два варианта:
+            // 1) Если мы "возле верха" (не дальше двух экранов) — показываем шапку сразу.
+            // 2) Если далеко внизу — показываем только когда проскроллили вверх >= 1 экран.
+            const nearTopThreshold = viewportH * 2; // "в районе двух экранов" от верха
+            if (y <= nearTopThreshold) {
+              if (isHidden) {
+                header.classList.remove('hero--hidden-mobile');
+                isHidden = false;
+              }
+            } else {
+              if (scrolledUp >= viewportH) {
+                if (isHidden) {
+                  header.classList.remove('hero--hidden-mobile');
+                  isHidden = false;
+                }
+              }
+            }
+          }
+
+          lastY = y;
+        }
+
+        window.addEventListener('scroll', () => {
+          if (!ticking) {
+            window.requestAnimationFrame(() => {
+              handleScroll();
+              ticking = false;
+            });
+            ticking = true;
+          }
+        });
+
+        window.addEventListener('resize', () => {
+          updateMobileHeaderOffset();
+        });
+
+        window.addEventListener('load', () => {
+          updateMobileHeaderOffset();
+        });
+
+        updateMobileHeaderOffset();
+      })();
+
+
 
       // Инициализация сортируемых таблиц
       try { initSortableTables(); } catch (_) {}

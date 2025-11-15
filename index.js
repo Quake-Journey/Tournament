@@ -475,15 +475,30 @@ async function isAchievementsEditor(ctx) {
   return hasUserRole(chatId, ctx.from.id, ACHIEVEMENTS_ROLE);
 }
 
-async function requireAchievementsGuard(ctx) {
+async function requireAchievementsGuard(ctx, opts = {}) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в контексте чатов (группы или личные), не в каналах.');
     return false;
   }
-  if (await isAchievementsEditor(ctx)) return true;
-  await ctx.reply('Недостаточно прав. Требуется админ целевого чата или роль Achievements.');
-  return false;
+
+  const chatId = getEffectiveChatId(ctx);
+
+  if (!(await isAchievementsEditor(ctx))) {
+    await ctx.reply('Недостаточно прав. Требуется админ целевого чата или роль Achievements.');
+    return false;
+  }
+
+  // Блокируем изменения ачивок, если турнир залочен (если не ignoreLock)
+  if (!opts.ignoreLock) {
+    if (await isTournamentLocked(chatId)) {
+      await ctx.reply('Турнир заблокирован для изменений.');
+      return false;
+    }
+  }
+
+  return true;
 }
+
 
 function userMatchesAdmin(user, adminEntry) {
   // Match by userId if present; else by username (case-insensitive)
@@ -514,16 +529,52 @@ function requireGroupContext(ctx) {
   );
 }
 
-async function requireAdminGuard(ctx) {
+// --- NEW: helpers for tournament lock (Chats.locked) ---
+
+async function isTournamentLocked(chatId) {
+  const doc = await colChats.findOne(
+    { chatId },
+    { projection: { locked: 1 } }
+  );
+  return Boolean(doc?.locked);
+}
+
+async function setTournamentLocked(chatId, locked) {
+  await colChats.updateOne(
+    { chatId },
+    {
+      $set: {
+        chatId,
+        locked: !!locked,
+      },
+    },
+    { upsert: true }
+  );
+}
+
+// --- UPDATED: admin guard с учётом lock ---
+
+async function requireAdminGuard(ctx, opts = {}) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в контексте чатов (группы или личные), не в каналах.');
     return false;
   }
+
   const chatId = getEffectiveChatId(ctx);
+
   if (!(await isChatAdminOrOwner(ctx, chatId))) {
     await ctx.reply(`Недостаточно прав. Требуются владельцы или администраторы целевого чата #${chatId}.`);
     return false;
   }
+
+  // Если не указано ignoreLock:true — режем все изменения при locked = true
+  if (!opts.ignoreLock) {
+    if (await isTournamentLocked(chatId)) {
+      await ctx.reply('Турнир заблокирован для изменений.');
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -564,7 +615,10 @@ async function getChatSettings(chatId) {
 
     // Новые поля: персональная статистика (хранятся в БД, не в .env)
     tournamentStatsUrl: doc?.tournamentStatsUrl || null,           // строка или null (пусто по умолчанию)
-    tournamentStatsEnabled: Boolean(doc?.tournamentStatsEnabled)    // false по умолчанию
+    tournamentStatsEnabled: Boolean(doc?.tournamentStatsEnabled),    // false по умолчанию
+
+    // NEW: признак блокировки турнира
+    locked: Boolean(doc?.locked),
   };
 }
 
@@ -7180,6 +7234,53 @@ bot.command(['feedback', 'fb'], async (ctx) => {
     await ctx.reply('Режим редактирования фидбэка запущен. Отправляйте текст сообщениями. Когда закончите — отправьте /done. Для отмены — /cancel.');
     return;
   }
+});
+
+bot.command('lock', async (ctx) => {
+  if (!requireGroupContext(ctx)) {
+    await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
+    return;
+  }
+
+  const chatId = getEffectiveChatId(ctx);
+
+  // Админ-проверка, НО игнорируем глобальный lock (саму блокировку можно делать всегда)
+  if (!(await requireAdminGuard(ctx, { ignoreLock: true }))) return;
+
+  if (await isTournamentLocked(chatId)) {
+    await ctx.reply('Турнир уже заблокирован для изменений (locked = true).');
+    return;
+  }
+
+  await setTournamentLocked(chatId, true);
+  await ctx.reply(
+    'Турнир заблокирован для изменений.\n' +
+    'Любые команды, изменяющие данные турнира, теперь недоступны.\n' +
+    'Для разблокировки используйте /unlock.'
+  );
+});
+
+bot.command('unlock', async (ctx) => {
+  if (!requireGroupContext(ctx)) {
+    await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
+    return;
+  }
+
+  const chatId = getEffectiveChatId(ctx);
+
+  // Разблокировка тоже должна работать даже при locked = true
+  if (!(await requireAdminGuard(ctx, { ignoreLock: true }))) return;
+
+  if (!(await isTournamentLocked(chatId))) {
+    await ctx.reply('Турнир уже разблокирован (locked = false).');
+    return;
+  }
+
+  await setTournamentLocked(chatId, false);
+  await ctx.reply(
+    'Турнир разблокирован. Изменения снова разрешены.\n' +
+    'Чтобы снова запретить любые изменения, используйте /lock.'
+  );
 });
 
 
