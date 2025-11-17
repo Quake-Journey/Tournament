@@ -6,6 +6,7 @@ const path = require('path');
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const SITE_CHAT_ID = process.env.SITE_CHAT_ID; // может быть один ID или несколько через запятую
+const SITE_NAMES_RAW = process.env.SITE_NAMES || ''; // имена-алиасы турниров для URL (?T=OpenFFA2025)
 const PORT = Number(process.env.SITE_PORT || 3000);
 const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.resolve(process.cwd(), 'screenshots');
 const ANALYTICS_PORT = Number(process.env.SITE_ANALITICS_PORT || 3010);
@@ -19,6 +20,8 @@ const COLLAPSE_ALL_PARAM = 'CollapseAll';
 
 // Новый параметр для выбора турнира в URL
 const TOURNAMENT_QUERY_PARAM = 'tournamentId';
+// новый alias-параметр из SITE_NAMES
+const TOURNAMENT_NAME_PARAM = 'T';
 
 // Cookies для сохранения пользовательских предпочтений
 const Q2CSS_COOKIE = 'qj_q2css';
@@ -48,6 +51,35 @@ if (ALLOWED_CHAT_IDS.length === 0) {
   process.exit(1);
 }
 const DEFAULT_CHAT_ID = ALLOWED_CHAT_IDS[0];
+
+// Алиасы турниров из SITE_NAMES: порядок соответствует SITE_CHAT_ID
+const SITE_NAME_LIST = String(SITE_NAMES_RAW)
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const SITE_NAME_BY_ID = new Map();
+const ID_BY_SITE_NAME = new Map();
+
+ALLOWED_CHAT_IDS.forEach((id, index) => {
+  const alias = SITE_NAME_LIST[index];
+  if (alias) {
+    const normalized = String(alias);
+    SITE_NAME_BY_ID.set(id, normalized);
+    ID_BY_SITE_NAME.set(normalized.toLowerCase(), id);
+  }
+});
+
+// Хелперы для соответствия chatId ↔ alias
+function getSiteNameForChatId(id) {
+  return SITE_NAME_BY_ID.get(Number(id)) || null;
+}
+
+function getChatIdForSiteName(name) {
+  if (!name) return null;
+  const n = ID_BY_SITE_NAME.get(String(name).toLowerCase());
+  return (typeof n === 'number' && Number.isFinite(n)) ? n : null;
+}
 
 // Стили quake2.com.ru — подключаются только при наличии ?forceQuake2ComRuCSS=1
 const QUAKE2_COM_RU_CSS = `
@@ -269,6 +301,11 @@ let colMaps;                            // NEW: карты
 let colGroupResults;       // коллекция group_results
 let colFinalResults;       // коллекция final_results
 let colSuperFinalResults;  // коллекция superfinal_results
+// НОВОЕ: глобальные коллекции пользователей, команд и регистрации
+let colUsers;
+let colTeams;
+let colRegistrationSettings;
+let colSignups;
 
 function escapeHtml(s = '') {
   return String(s)
@@ -486,6 +523,7 @@ function renderTopMenu({
   achievementsPerc = [],
   showStats = false,
   showFeedback = false,
+  analyticsUrl = '',          // NEW: ссылка на аналитику
 }) {
   const raw = [];
 
@@ -500,12 +538,39 @@ function renderTopMenu({
   if (Array.isArray(groups) && groups.length > 0) raw.push({ label: 'Квалификации', href: '#section-groups' });
   if (Array.isArray(finals) && finals.length > 0) raw.push({ label: 'Финал', href: '#section-finals' });
   if (Array.isArray(superfinals) && superfinals.length > 0) raw.push({ label: 'Суперфинал', href: '#section-superfinals' });
+  // NEW: Аналитика — до Статистики
+  if (analyticsUrl) raw.push({ label: 'Аналитика', href: analyticsUrl });
   if (showStats) raw.push({ label: 'Статистика', href: '#section-stats' });
   if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: 'Ачивки', href: '#section-achievements' });
   if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: 'Перки', href: '#section-perks' });
   if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: 'Сервера', href: '#section-servers' });
   if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
   if (showFeedback) raw.push({ label: 'Отзывы', href: '#section-feedback' });
+
+  // НОВОЕ: кнопки для модалок "Игроки / Команды / Заявки"
+  raw.push({
+    label: 'Игроки',
+    href: '#players-modal',
+    badgeText: '',
+    external: false,
+    anchor: false,
+  });
+
+  raw.push({
+    label: 'Команды',
+    href: '#teams-modal',
+    badgeText: '',
+    external: false,
+    anchor: false,
+  });
+
+  raw.push({
+    label: 'Заявки',
+    href: '#signups-modal',
+    badgeText: '',
+    external: false,
+    anchor: false,
+  });
 
   if (!raw.length) return '';
 
@@ -1034,6 +1099,171 @@ function renderFeedbackSection(feedbackEntries = [], containerClass, collapsedBy
       </details>
     </section>
   `;
+}
+
+// === НОВОЕ: контент модалок "Игроки / Команды / Заявки" ===
+
+function renderUsersModalBody(users = []) {
+  if (!Array.isArray(users) || users.length === 0) {
+    return '<div class="text-muted small">Пока нет зарегистрированных игроков.</div>';
+  }
+
+  const rows = users.map(u => {
+    const nick = u.nick || '';
+    const bio = u.bio || '';
+    const created = u.createdAt ? formatRuMskDateTime(u.createdAt) : '';
+    const updated = u.updatedAt ? formatRuMskDateTime(u.updatedAt) : '';
+
+    return `
+      <tr>
+        <td class="small fw-semibold">${escapeHtml(nick)}</td>
+        <td class="small">${escapeHtml(bio || '')}</td>
+        <td class="small text-nowrap text-muted qj-col-created">${escapeHtml(created || '')}</td>
+        <td class="small text-nowrap text-muted qj-col-updated">${escapeHtml(updated || '')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="qj-modal-meta small mb-2">Всего игроков: ${users.length}</div>
+    <div class="table-responsive qj-modal-shell">
+      <table class="table table-sm align-middle qj-table qj-modal-table mb-0 js-sortable-table">
+        <thead>
+          <tr>
+            <th class="small text-secondary" data-sort-type="string">Ник</th>
+            <th class="small text-secondary" data-sort-type="string">Описание</th>
+            <th class="small text-secondary text-nowrap qj-col-created" data-sort-type="string">Создан</th>
+            <th class="small text-secondary text-nowrap qj-col-updated" data-sort-type="string">Обновлён</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTeamsModalBody(teams = []) {
+  if (!Array.isArray(teams) || teams.length === 0) {
+    return '<div class="text-muted small">Пока нет игровых команд.</div>';
+  }
+
+  const rows = teams.map(t => {
+    const name = t.name || '';
+    const desc = t.description || '';
+    const members = Array.isArray(t.memberNicks) && t.memberNicks.length
+      ? t.memberNicks.join(', ')
+      : '(нет участников)';
+    const created = t.createdAt ? formatRuMskDateTime(t.createdAt) : '';
+    const updated = t.updatedAt ? formatRuMskDateTime(t.updatedAt) : '';
+
+    return `
+      <tr>
+        <td class="small fw-semibold">${escapeHtml(name)}</td>
+        <td class="small">${escapeHtml(desc || '')}</td>
+        <td class="small">${escapeHtml(members)}</td>
+        <td class="small text-nowrap text-muted qj-col-created">${escapeHtml(created || '')}</td>
+        <td class="small text-nowrap text-muted qj-col-updated">${escapeHtml(updated || '')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="qj-modal-meta small mb-2">Всего команд: ${teams.length}</div>
+    <div class="table-responsive qj-modal-shell">
+      <table class="table table-sm align-middle qj-table qj-modal-table mb-0 js-sortable-table">
+        <thead>
+          <tr>
+            <th class="small text-secondary" data-sort-type="string">Команда</th>
+            <th class="small text-secondary" data-sort-type="string">Описание</th>
+            <th class="small text-secondary" data-sort-type="string">Игроки</th>
+            <th class="small text-secondary text-nowrap qj-col-created" data-sort-type="string">Создана</th>
+            <th class="small text-secondary text-nowrap qj-col-updated" data-sort-type="string">Обновлена</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+
+function renderSignupsModalBody(registrationSettings, signups = []) {
+  const hasSettings = !!registrationSettings;
+  const hasSignups = Array.isArray(signups) && signups.length > 0;
+
+  if (!hasSettings && !hasSignups) {
+    return '<div class="text-muted small">Регистрация на турнир ещё не настроена.</div>';
+  }
+
+  let settingsHtml = '';
+  if (hasSettings) {
+    const maxPlayers = registrationSettings.maxPlayers ?? null;
+    const type = registrationSettings.tournamentType || '';
+    const deadline = registrationSettings.deadline ? formatRuMskDateTime(registrationSettings.deadline) : '';
+    const enabled = registrationSettings.registrationEnabled;
+    const openedAt = registrationSettings.registrationOpenedAt ? formatRuMskDateTime(registrationSettings.registrationOpenedAt) : '';
+    const closedAt = registrationSettings.registrationClosedAt ? formatRuMskDateTime(registrationSettings.registrationClosedAt) : '';
+
+    settingsHtml = `
+      <div class="card mb-3">
+        <div class="card-body py-2">
+          <div class="small mb-1"><span class="fw-semibold">Тип турнира:</span> ${escapeHtml(type || '—')}</div>
+          <div class="small mb-1"><span class="fw-semibold">Максимум участников:</span> ${maxPlayers !== null ? maxPlayers : '—'}</div>
+          <div class="small mb-1"><span class="fw-semibold">Дедлайн подачи заявок:</span> ${escapeHtml(deadline || '—')}</div>
+          <div class="small mb-1"><span class="fw-semibold">Статус регистрации:</span> ${enabled ? '<span class="text-success">открыта</span>' : '<span class="text-muted">закрыта</span>'}</div>
+          <div class="small text-muted">
+            ${openedAt ? `Открыта: ${escapeHtml(openedAt)}` : ''}
+            ${closedAt ? `<br>Закрыта: ${escapeHtml(closedAt)}` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  let tableHtml = '';
+  if (hasSignups) {
+    const rows = signups.map(s => {
+      const kind = s.kind === 'team' ? 'Командная заявка' : 'Индивидуальная';
+      const name = s.teamName || s.playerNick || '';
+      const members = Array.isArray(s.teamMembers) && s.teamMembers.length
+        ? s.teamMembers.join(', ')
+        : (s.playerNick || '—');
+      const created = s.createdAt ? formatRuMskDateTime(s.createdAt) : '';
+      const confirmed = s.confirmed ? '<span class="badge bg-success">подтверждена</span>' : '<span class="badge bg-secondary">ожидает</span>';
+
+      return `
+        <tr>
+          <td class="small">${kind}</td>
+          <td class="small fw-semibold">${escapeHtml(name)}</td>
+          <td class="small">${escapeHtml(members)}</td>
+          <td class="small text-nowrap text-muted">${escapeHtml(created || '')}</td>
+          <td class="small text-nowrap">${confirmed}</td>
+        </tr>
+      `;
+    }).join('');
+
+    tableHtml = `
+      <div class="qj-modal-meta small mb-2">Всего заявок: ${signups.length}</div>
+      <div class="table-responsive qj-modal-shell">
+        <table class="table table-sm align-middle qj-table qj-modal-table mb-0 js-sortable-table">
+          <thead>
+            <tr>
+              <th class="small text-secondary" data-sort-type="string">Тип</th>
+              <th class="small text-secondary" data-sort-type="string">Команда / игрок</th>
+              <th class="small text-secondary" data-sort-type="string">Состав</th>
+              <th class="small text-secondary text-nowrap" data-sort-type="string">Создана</th>
+              <th class="small text-secondary text-nowrap" data-sort-type="string">Статус</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } else {
+    tableHtml = '<div class="text-muted small">Заявок пока нет.</div>';
+  }
+
+  return settingsHtml + tableHtml;
 }
 
 
@@ -1761,35 +1991,35 @@ function renderPlayers(
 
   return `<ul class="players list-unstyled mb-2">
     ${arr.map((p, i) => {
-      const pts = ptsMap?.get(p.nameNorm);
-      const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
+    const pts = ptsMap?.get(p.nameNorm);
+    const badges = renderAchievementBadgesInline(p.nameNorm, achIndex);
 
-      const posHtml = hasPtsFlag
-        ? `<span class="player-pos text-muted">${i + 1}.</span>`
-        : '';
+    const posHtml = hasPtsFlag
+      ? `<span class="player-pos text-muted">${i + 1}.</span>`
+      : '';
 
-      const ptsHtml = (pts !== undefined && pts !== null)
-        ? `<span class="player-pts qj-pts">${pts}</span>`
-        : '';
+    const ptsHtml = (pts !== undefined && pts !== null)
+      ? `<span class="player-pts qj-pts">${pts}</span>`
+      : '';
 
-      const metaHtml = (ptsHtml || badges)
-        ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
-        : '';
+    const metaHtml = (ptsHtml || badges)
+      ? `<span class="player-meta ms-2">${ptsHtml}${badges}</span>`
+      : '';
 
-      const displayName = p.nameOrig || p.nameNorm || '';
-      const haloClass = getHaloClassByIndex(i);
+    const displayName = p.nameOrig || p.nameNorm || '';
+    const haloClass = getHaloClassByIndex(i);
 
-      const pnameHtml = PLAYER_STATS_ENABLED
-        ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat${haloClass}"
+    const pnameHtml = PLAYER_STATS_ENABLED
+      ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat${haloClass}"
                 data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
-        : `<span class="player-name qj-accent fw-semibold${haloClass}">${escapeHtml(displayName)}</span>`;
+      : `<span class="player-name qj-accent fw-semibold${haloClass}">${escapeHtml(displayName)}</span>`;
 
-      return `<li>
+    return `<li>
           ${posHtml}
           ${pnameHtml}
           ${metaHtml}
         </li>`;
-    }).join('')}
+  }).join('')}
   </ul>`;
 }
 
@@ -2084,7 +2314,7 @@ function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
     const durationStr = formatMatchDuration(r);
     const players = Array.isArray(r.players) ? r.players.slice() : [];
 
-     // сортируем игроков: сначала по фрагам (по убыванию),
+    // сортируем игроков: сначала по фрагам (по убыванию),
     // при равных фрагах — по эффективности (eff, по убыванию),
     // и только потом по имени
     players.sort((a, b) => {
@@ -2981,6 +3211,11 @@ function renderPage({
   finalResultsByGroup = new Map(),
   superResultsByGroup = new Map(),
   feedbackEntries = [],
+  // НОВОЕ:
+  users = [],
+  teams = [],
+  registrationSettings = null,
+  signups = [],
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
@@ -3004,14 +3239,28 @@ function renderPage({
     })()
     : '';
 
+  // NEW: ссылка на аналитику для текущего selectedChatId
+  const analyticsUrl = (selectedChatId != null)
+    ? `/analytics?${encodeURIComponent(TOURNAMENT_QUERY_PARAM)}=${encodeURIComponent(String(selectedChatId))}`
+    : '';
+
+  // Бейдж "A" для мобильной шапки
+  const analyticsBadgeMobile = analyticsUrl
+    ? `<a href="${escapeAttr(analyticsUrl)}" class="qj-badge-circle qj-badge-analytics" title="Аналитика по турниру">A</a>`
+    : '';
+
   const containerClass = useQ2Css ? 'container-fluid px-0' : 'container';
 
   // НОВОЕ: селектор турниров (показываем только если турниров > 1)
   const tournamentSelectHtml = Array.isArray(tournamentsMeta) && tournamentsMeta.length > 1
     ? (() => {
       const opts = tournamentsMeta.map(t => {
-        const sel = (Number(t.id) === Number(selectedChatId)) ? ' selected' : '';
-        return `<option value="${escapeAttr(String(t.id))}"${sel}>${escapeHtml(t.name || `Чат ${t.id}`)}</option>`;
+        const isSelected = (Number(t.id) === Number(selectedChatId));
+        const alias = getSiteNameForChatId(t.id);
+        const value = alias || String(t.id);              // то, что пойдёт в ?T=
+        const label = t.name || alias || `Чат ${t.id}`;   // текст для пользователя
+        const sel = isSelected ? ' selected' : '';
+        return `<option value="${escapeAttr(value)}" data-chat-id="${escapeAttr(String(t.id))}"${sel}>${escapeHtml(label)}</option>`;
       }).join('');
       return `
           <div class="d-flex align-items-center gap-2">
@@ -3097,6 +3346,11 @@ function renderPage({
   const statsBaseNorm = (PLAYER_STATS_ENABLED && statsBaseUrl) ? statsBaseUrl : '';
   const tournamentStatsSec = renderTournamentStatsSection(statsBaseNorm, containerClass, true);
 
+  // Бейдж "C" (Статистика) для мобильной шапки — по тем же условиям, что и меню "Статистика"
+  const statsBadgeMobile = statsBaseNorm
+    ? `<a href="#section-stats" class="qj-badge-circle qj-badge-stats" title="Статистика турнира">C</a>`
+    : '';
+
   // Стримеры
   const streamsSec = renderStreamsSection(tournament, containerClass, collapseAll);
 
@@ -3171,6 +3425,11 @@ function renderPage({
     ['feedback', feedbackSec],
   ]);
 
+  // НОВОЕ: контент модалок
+  //const playersModalBody = renderUsersModalBody(users);
+  //const teamsModalBody = renderTeamsModalBody(teams);
+  //const signupsModalBody = renderSignupsModalBody(registrationSettings, signups);
+
   // Порядок секций
   const hasNews = !!(tournamentNews?.length);
   const hasSuper = !!(superfinals?.length);
@@ -3228,6 +3487,7 @@ function renderPage({
     achievementsPerc,
     showStats: Boolean(statsBaseNorm),
     showFeedback: hasFeedback,
+    analyticsUrl,   // NEW
   });
 
   // Стили
@@ -3348,12 +3608,167 @@ function renderPage({
 
     .player-modal { position: fixed; inset: 0; z-index: 1060; display: none; }
     .player-modal.is-open { display: block; }
-    .player-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
-    .player-modal-dialog { position: relative; margin: 6vh auto; background: #fff; color: var(--bs-body-color); width: min(920px, calc(100vw - 24px)); max-height: 88vh; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
-    .player-modal-header { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; border-bottom: 1px solid rgba(0,0,0,.08); position: sticky; top: 0; background: inherit; z-index: 1; }
-    .player-modal-title { font-weight: 600; }
-    .player-modal-body { height: calc(88vh - 52px); overflow: auto; }
-    .player-modal-body iframe { display: block; width: 100%; height: 100%; border: 0; }
+
+    .player-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      /* полупрозрачный тёмный фон, через который видно сайт */
+      background:
+        radial-gradient(circle at top, rgba(30,64,175,.35), transparent 55%),
+        rgba(15,23,42,.55);
+      backdrop-filter: blur(4px);
+    }
+
+    .player-modal-dialog {
+      position: relative;
+      margin: 6vh auto;
+      max-width: min(960px, calc(100vw - 24px));
+      max-height: 88vh;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 60px rgba(15,23,42,.25);
+      background: linear-gradient(180deg, #ffffff, #f7f9fc);
+      border: 1px solid rgba(15,23,42,.08);
+      color: #111827;
+    }
+
+    .player-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .85rem 1.1rem;
+      border-bottom: 1px solid rgba(15,23,42,.06);
+      background: linear-gradient(90deg, #ffffff, #e5edff);
+      color: #111827;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .player-modal-title {
+      font-weight: 600;
+      font-size: .98rem;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+
+    .player-modal-body {
+      height: calc(88vh - 54px);
+      overflow: auto;
+      padding: .75rem 1rem 1rem;
+      background: linear-gradient(180deg, #f8fafc, #eef2ff);
+    }
+
+    .player-modal-body iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-radius: 12px;
+      background: #020617;
+    }
+
+
+    /* Velvet-стиль для модалок "Игроки / Команды / Заявки" — светлая тема с чёткой сеткой */
+
+    #playersModal .player-modal-title,
+    #teamsModal .player-modal-title,
+    #signupsModal .player-modal-title {
+      font-size: 1rem;
+    }
+
+    #playersModal .qj-modal-meta,
+    #teamsModal .qj-modal-meta,
+    #signupsModal .qj-modal-meta {
+      color: rgba(71,85,105,.9);
+    }
+
+    #playersModal .qj-modal-shell,
+    #teamsModal .qj-modal-shell,
+    #signupsModal .qj-modal-shell {
+      background: #ffffff;
+      border-radius: 16px;
+      border: 1px solid rgba(148,163,184,.5);
+      box-shadow: 0 16px 40px rgba(15,23,42,.12);
+      padding: .5rem;
+    }
+
+    #playersModal .qj-modal-table,
+    #teamsModal .qj-modal-table,
+    #signupsModal .qj-modal-table {
+      margin-bottom: 0;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    #playersModal .qj-modal-table thead tr,
+    #teamsModal .qj-modal-table thead tr,
+    #signupsModal .qj-modal-table thead tr {
+      background: linear-gradient(90deg, #e3edff, #d7e3ff);
+      color: #111827;
+    }
+
+    #playersModal .qj-modal-table thead th,
+    #teamsModal .qj-modal-table thead th,
+    #signupsModal .qj-modal-table thead th {
+      border-bottom: 2px solid rgba(148,163,184,.8);
+      font-weight: 600;
+    }
+
+    #playersModal .qj-modal-table tbody tr,
+    #teamsModal .qj-modal-table tbody tr,
+    #signupsModal .qj-modal-table tbody tr {
+      background: #ffffff;
+      border-bottom: 1px solid rgba(226,232,240,1);
+      transition: background .16s ease-out, transform .16s ease-out, box-shadow .16s ease-out;
+    }
+
+    #playersModal .qj-modal-table tbody tr:nth-child(2n),
+    #teamsModal .qj-modal-table tbody tr:nth-child(2n),
+    #signupsModal .qj-modal-table tbody tr:nth-child(2n) {
+      background: #f8fafc;
+    }
+
+    #playersModal .qj-modal-table tbody tr:hover,
+    #teamsModal .qj-modal-table tbody tr:hover,
+    #signupsModal .qj-modal-table tbody tr:hover {
+      background: #edf2ff;
+      box-shadow: 0 6px 18px rgba(15,23,42,.12);
+      transform: translateY(-1px);
+    }
+
+    #playersModal .qj-modal-table th,
+    #playersModal .qj-modal-table td,
+    #teamsModal .qj-modal-table th,
+    #teamsModal .qj-modal-table td,
+    #signupsModal .qj-modal-table th,
+    #signupsModal .qj-modal-table td {
+      border-color: transparent;
+      vertical-align: middle;
+      font-size: .8rem;
+    }
+
+
+    /* Специальный светлый стиль для модалки статистики игрока */
+    #playerModal .player-modal-dialog {
+      background: #ffffff;
+      border-color: rgba(0,0,0,.08);
+      color: #111827;
+    }
+
+    #playerModal .player-modal-header {
+      background: #ffffff;
+      border-bottom: 1px solid rgba(0,0,0,.08);
+      color: #111827;
+    }
+
+    #playerModal .player-modal-body {
+      background: #ffffff;
+    }
+
+    #playerModal .player-modal-body iframe {
+      background: transparent;
+    }
 
     .qj-accent { color: var(--bs-primary); }
     .qj-muted { color: var(--bs-secondary); }
@@ -3520,6 +3935,16 @@ function renderPage({
       .news-text { overflow-wrap: anywhere; word-break: break-word; }
     }
 
+    /* Мобильная версия: в модалках Игроки/Команды прячем даты создания/обновления */
+    @media (max-width: 767.98px) {
+      #playersModal .qj-col-created,
+      #playersModal .qj-col-updated,
+      #teamsModal .qj-col-created,
+      #teamsModal .qj-col-updated {
+        display: none;
+      }
+    }
+
     /* Авто-появление/скрытие шапки на мобильных при скролле */
     @media (max-width: 767.98px) {
       body:not(.q2css-active) header.hero.hero--sticky {
@@ -3538,6 +3963,41 @@ function renderPage({
 
     /* Кнопка мобильного меню всегда видима в мобильной шапке */
     .mobile-menu-trigger { display: inline-flex; align-items: center; justify-content: center; padding: .25rem .6rem; min-height: 30px; }
+
+    .qj-badge-circle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.9rem;
+      height: 1.9rem;
+      border-radius: 999px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-decoration: none !important;
+      line-height: 1;
+      padding: 0;
+      margin: 0;
+      box-sizing: border-box;
+    }
+
+    .qj-badge-analytics {
+      color: #ffffff;
+      background-color: #0d6efd;
+      border: 2px solid #0b5ed7;
+      box-shadow: 0 0 0 1px rgba(13, 110, 253, 0.2);
+    }
+
+    .qj-badge-stats {
+      color: #ffffff;
+      background-color: #198754;
+      border: 2px solid #157347;
+      box-shadow: 0 0 0 1px rgba(25, 135, 84, 0.2);
+    }
+
+    .qj-badge-circle:hover {
+      filter: brightness(1.08);
+      text-decoration: none !important;
+    }
 
     /* Мобильное меню (оверлей) */
     .qj-mm { position: fixed; inset: 0; z-index: 1080; display: none; }
@@ -3730,7 +4190,7 @@ function renderPage({
   ${useQ2Css ? `<style id="quake2-com-ru-css">${QUAKE2_COM_RU_CSS}</style>` : ''}
   ${useQ2Css ? `<style id="q2-overrides-css">${q2OverridesCss}</style>` : ''}
 </head>
-<body class="${useQ2Css ? 'q2css-active' : ''}">
+<body class="${useQ2Css ? 'q2css-active' : ''}" data-chat-id="${selectedChatId != null ? String(selectedChatId) : ''}">
   <header class="hero py-3 ${useQ2Css ? 'head_image' : 'hero--sticky'}">
     <div class="${containerClass}">
       <!-- Мобильная шапка: логотип + название + ссылки + селектор турнира + кнопки -->
@@ -3741,14 +4201,22 @@ function renderPage({
             <div class="d-flex flex-column align-items-start">
               <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
               ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
-              ${newsChannelLink ? `<div class="site-link mt-1">${newsChannelLink}</div>` : ''}
 
-              ${tournamentSelectHtml
-                ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
-                : ''}
+              ${(newsChannelLink || analyticsBadgeMobile || statsBadgeMobile)
+      ? `<div class="site-link mt-1 d-flex align-items-center flex-wrap gap-2">
+                       ${newsChannelLink ? `<span class="me-1">${newsChannelLink}</span>` : ''}
+                       ${analyticsBadgeMobile || ''}
+                       ${statsBadgeMobile || ''}
+                     </div>`
+      : ''
+    }
             </div>
           </div>
         </div>
+
+        ${tournamentSelectHtml
+      ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
+      : ''}
 
         <!-- Кнопки: Меню + Q2CSS + Свернуть все -->
         <div class="qj-controls mt-2">
@@ -3762,6 +4230,7 @@ function renderPage({
         <!-- Чипы меню (скрыты на мобиле визуально, но используются для заполнения мобильного меню) -->
         ${topMenuHtml || ''}
       </div>
+
 
       <!-- Десктопная шапка (липкая) -->
       <div class="d-none d-md-flex align-items-start">
@@ -3805,6 +4274,48 @@ function renderPage({
       </div>
       <div class="player-modal-body">
         <iframe id="playerModalFrame" src="about:blank" loading="lazy" title="Player stats preview"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка "Игроки" -->
+  <div id="playersModal" class="player-modal" aria-hidden="true" role="dialog" aria-label="Список игроков">
+    <div class="player-modal-backdrop"></div>
+    <div class="player-modal-dialog" role="document" aria-modal="true">
+      <div class="player-modal-header">
+        <div class="player-modal-title">Игроки</div>
+        <button type="button" class="btn-close js-close-modal" data-target="playersModal" aria-label="Закрыть"></button>
+      </div>
+      <div class="player-modal-body">
+        <div class="small text-muted">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка "Команды" -->
+  <div id="teamsModal" class="player-modal" aria-hidden="true" role="dialog" aria-label="Список команд">
+    <div class="player-modal-backdrop"></div>
+    <div class="player-modal-dialog" role="document" aria-modal="true">
+      <div class="player-modal-header">
+        <div class="player-modal-title">Команды</div>
+        <button type="button" class="btn-close js-close-modal" data-target="teamsModal" aria-label="Закрыть"></button>
+      </div>
+      <div class="player-modal-body">
+        <div class="small text-muted">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка "Заявки" -->
+  <div id="signupsModal" class="player-modal" aria-hidden="true" role="dialog" aria-label="Заявки на турнир">
+    <div class="player-modal-backdrop"></div>
+    <div class="player-modal-dialog" role="document" aria-modal="true">
+      <div class="player-modal-header">
+        <div class="player-modal-title">Заявки</div>
+        <button type="button" class="btn-close js-close-modal" data-target="signupsModal" aria-label="Закрыть"></button>
+      </div>
+      <div class="player-modal-body">
+        <div class="small text-muted">Загрузка...</div>
       </div>
     </div>
   </div>
@@ -4173,6 +4684,105 @@ function renderPage({
         });
       }
 
+      // --- НОВОЕ: простые модальные окна "Игроки / Команды / Заявки" с ленивой загрузкой ---
+      (function initSimpleInfoModals(){
+        const MODAL_IDS = ['playersModal', 'teamsModal', 'signupsModal'];
+
+        function getChatId() {
+          return document.body.getAttribute('data-chat-id') || '';
+        }
+
+        function loadModalContent(modalId) {
+          const modal = document.getElementById(modalId);
+          if (!modal) return;
+
+          const body = modal.querySelector('.player-modal-body');
+          if (!body) return;
+
+          let url;
+          const chatId = getChatId();
+          switch (modalId) {
+            case 'playersModal':
+              url = '/api/players-modal';
+              break;
+            case 'teamsModal':
+              url = '/api/teams-modal';
+              break;
+            case 'signupsModal':
+              if (!chatId) {
+                body.innerHTML = '<div class="text-danger small">Не указан турнир (chatId).</div>';
+                return;
+              }
+              url = '/api/signups-modal?chatId=' + encodeURIComponent(chatId);
+              break;
+            default:
+              return;
+          }
+
+          body.innerHTML = '<div class="small text-muted">Загрузка...</div>';
+
+          fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(resp => {
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              return resp.text();
+            })
+            .then(html => {
+              body.innerHTML = html;
+            })
+            .catch(err => {
+              console.error('Error loading modal', modalId, err);
+              body.innerHTML = '<div class="text-danger small">Не удалось загрузить данные. Попробуйте позже.</div>';
+            });
+        }
+
+        function openModal(id) {
+          loadModalContent(id);
+
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.classList.add('is-open');
+          document.body.classList.add('no-scroll');
+          el.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeModal(id) {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.classList.remove('is-open');
+          document.body.classList.remove('no-scroll');
+          el.setAttribute('aria-hidden', 'true');
+        }
+
+        // клики по фону и крестику
+        MODAL_IDS.forEach(id => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          const backdrop = el.querySelector('.player-modal-backdrop');
+          const closeBtn = el.querySelector('.js-close-modal');
+
+          backdrop && backdrop.addEventListener('click', () => closeModal(id));
+          closeBtn && closeBtn.addEventListener('click', () => closeModal(id));
+        });
+
+        // клики по ссылкам меню (десктоп и мобильный)
+        document.addEventListener('click', function(e){
+          const link = e.target.closest('a[href="#players-modal"], a[href="#teams-modal"], a[href="#signups-modal"]');
+          if (!link) return;
+
+          e.preventDefault();
+          const href = link.getAttribute('href') || '';
+          if (href === '#players-modal') openModal('playersModal');
+          else if (href === '#teams-modal') openModal('teamsModal');
+          else if (href === '#signups-modal') openModal('signupsModal');
+        });
+
+        // Esc закрывает любые открытые модалки
+        document.addEventListener('keydown', function(e){
+          if (e.key !== 'Escape' && e.key !== 'Esc') return;
+          MODAL_IDS.forEach(id => closeModal(id));
+        });
+      })();
+
       // Переключатели Q2CSS и CollapseAll (UPDATED)
       const isQ2Css = ${useQ2Css ? 'true' : 'false'};
       const isCollapsedInitial = ${collapseAll ? 'true' : 'false'};
@@ -4181,8 +4791,8 @@ function renderPage({
       const COLLAPSE_COOKIE = ${JSON.stringify(COLLAPSE_COOKIE)};
       const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 год
 
-       // НОВОЕ: параметр выбора турнира
-       const TOURN_PARAM = ${JSON.stringify(TOURNAMENT_QUERY_PARAM)};
+      // НОВОЕ: параметр выбора турнира по alias-имени (?T=OpenFFA2025)
+      const TOURN_PARAM = ${JSON.stringify(TOURNAMENT_NAME_PARAM)};
 
       function toggleParam(name, current) {
         const url = new URL(location.href);
@@ -4747,6 +5357,11 @@ async function main() {
   colSuperFinalRatings = db.collection('super_final_ratings');   // NEW
   colSuperFinalResults = db.collection('superfinal_results');
   colFeedback = db.collection('feedback');    // NEW: коллекция отзывов
+  // НОВОЕ: таблицы регистрации и справочники игроков/команд
+  colUsers = db.collection('users');
+  colTeams = db.collection('teams');
+  colRegistrationSettings = db.collection('registration_settings');
+  colSignups = db.collection('signups');
 
   const app = express();
 
@@ -4800,10 +5415,26 @@ async function main() {
       }
 
       // 3) Определяем выбранный турнир
-      const rawParamId = req.query?.[TOURNAMENT_QUERY_PARAM];
-      let selectedChatId = Number(rawParamId);
-      if (!Number.isFinite(selectedChatId) || !ALLOWED_CHAT_IDS.includes(selectedChatId)) {
-        selectedChatId = DEFAULT_CHAT_ID;
+      // Сначала пробуем новый alias-параметр ?T=OpenFFA2025 (SITE_NAMES)
+      const rawNameParam = req.query?.[TOURNAMENT_NAME_PARAM];
+      let selectedChatId = null;
+
+      if (typeof rawNameParam === 'string' && rawNameParam.trim()) {
+        const idFromName = getChatIdForSiteName(rawNameParam.trim());
+        if (idFromName && ALLOWED_CHAT_IDS.includes(idFromName)) {
+          selectedChatId = idFromName;
+        }
+      }
+
+      // Если alias не передан или невалиден — читаем старый numeric-параметр ?tournamentId=...
+      if (selectedChatId == null) {
+        const rawParamId = req.query?.[TOURNAMENT_QUERY_PARAM];
+        const parsedId = Number(rawParamId);
+        if (Number.isFinite(parsedId) && ALLOWED_CHAT_IDS.includes(parsedId)) {
+          selectedChatId = parsedId;
+        } else {
+          selectedChatId = DEFAULT_CHAT_ID;
+        }
       }
 
       // 4) Метаданные для селектора турниров
@@ -4817,6 +5448,11 @@ async function main() {
         groupResultsByGroup,
         finalResultsByGroup,
         superResultsByGroup,
+        // НОВОЕ:
+        //users,
+        //teams,
+        //registrationSettings,
+        //signups,
       ] = await Promise.all([
         getTournament(selectedChatId),
         getGroups(selectedChatId),
@@ -4829,6 +5465,12 @@ async function main() {
         getGroupResultsMap(selectedChatId),
         getFinalResultsMap(selectedChatId),
         getSuperFinalResultsMap(selectedChatId),
+        // НОВОЕ: глобальные игроки/команды и настройки регистрации по текущему турниру
+        //Теперь это не нужно, т.к. данные будем тянуть по API при открытии модалок.
+        //colUsers.find({}).sort({ nickNorm: 1, nick: 1 }).toArray(),
+        //colTeams.find({}).sort({ nameNorm: 1, name: 1 }).toArray(),
+        //colRegistrationSettings.findOne({ chatId: selectedChatId }),
+        //colSignups.find({ chatId: selectedChatId }).sort({ createdAt: 1 }).toArray(),
       ]);
 
       PLAYER_STATS_ENABLED = tournament.tournamentStatsEnabled;
@@ -4901,6 +5543,11 @@ async function main() {
         groupResultsByGroup,
         finalResultsByGroup,
         superResultsByGroup,
+        // НОВОЕ:
+        //users,
+        //teams,
+        //registrationSettings,
+        //signups,
       });
 
       if (cookiesToSet.length) {
@@ -4912,6 +5559,50 @@ async function main() {
       res.status(500).send('Internal Server Error');
     }
   });
+
+  // --- API для модальных окон Игроки / Команды / Заявки ---
+
+  app.get('/api/players-modal', async (req, res) => {
+    try {
+      const users = await colUsers.find({}).sort({ nickNorm: 1, nick: 1 }).toArray();
+      const html = renderUsersModalBody(users);
+      res.type('text/html').send(html);
+    } catch (err) {
+      console.error('Error in /api/players-modal:', err);
+      res.status(500).type('text/plain').send('Ошибка загрузки игроков');
+    }
+  });
+
+  app.get('/api/teams-modal', async (req, res) => {
+    try {
+      const teams = await colTeams.find({}).sort({ nameNorm: 1, name: 1 }).toArray();
+      const html = renderTeamsModalBody(teams);
+      res.type('text/html').send(html);
+    } catch (err) {
+      console.error('Error in /api/teams-modal:', err);
+      res.status(500).type('text/plain').send('Ошибка загрузки команд');
+    }
+  });
+
+  app.get('/api/signups-modal', async (req, res) => {
+    try {
+      const chatIdRaw = req.query.chatId;
+      const chatId = chatIdRaw ? Number(chatIdRaw) : null;
+      if (!chatId) {
+        return res.status(400).type('text/plain').send('chatId не указан');
+      }
+
+      const registrationSettings = await colRegistrationSettings.findOne({ chatId });
+      const signups = await colSignups.find({ chatId }).sort({ createdAt: 1 }).toArray();
+      const html = renderSignupsModalBody(registrationSettings, signups);
+
+      res.type('text/html').send(html);
+    } catch (err) {
+      console.error('Error in /api/signups-modal:', err);
+      res.status(500).type('text/plain').send('Ошибка загрузки заявок');
+    }
+  });
+
 
   // Healthcheck
   const server = app.listen(PORT, () => {

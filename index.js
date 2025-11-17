@@ -55,7 +55,9 @@ const bot = new Telegraf(BOT_TOKEN, {
 
 let db;
 let colChats, colAdmins, colSkillGroups, colMaps, colGameGroups, colCounters, colUserIndex, colFinalGroups, colWaitingPlayers, colRatings;
-let colGroupPoints, colFinalPoints, colScreenshots, colFinalRatings, colSuperFinalGroups, colSuperFinalRatings, colNews, colFeedback;
+let colGroupPoints, colFinalPoints, colScreenshots, colFinalRatings, colSuperFinalGroups, colSuperFinalRatings, colNews, colFeedback, colUsers, colTeams;
+let colRegistrationSettings; // настройки регистрации турнира
+let colSignups;              // заявки игроков и команд на турнир
 
 let colCustomGroups, colCustomPoints;
 let colAchievements; // NEW
@@ -167,6 +169,239 @@ function dedupByNorm(items) {
   return out;
 }
 
+// --- Users: helpers ---
+// Глобальные профили игроков по Telegram ID
+
+async function findUserByTelegramId(telegramId) {
+  if (!telegramId) return null;
+  return colUsers.findOne({ telegramId: Number(telegramId) });
+}
+
+async function findUserByNick(nick, excludeTelegramId = null) {
+  const nickNorm = norm(nick);
+  if (!nickNorm) return null;
+  const query = { nickNorm };
+  if (excludeTelegramId != null) {
+    query.telegramId = { $ne: Number(excludeTelegramId) };
+  }
+  return colUsers.findOne(query);
+}
+
+function formatUserProfileForDisplay(u) {
+  if (!u) return 'Профиль не найден.';
+  const lines = [];
+
+  lines.push('Профиль игрока');
+  lines.push('----------------');
+
+  lines.push(`Telegram ID: ${u.telegramId}`);
+  const username = u.username ? `@${u.username}` : '(нет username)';
+  lines.push(`Telegram: ${username}`);
+
+  if (u.nick) {
+    lines.push(`Ник: ${u.nick}`);
+  } else {
+    lines.push('Ник: (не задан)');
+  }
+
+  if (u.bio) {
+    lines.push('');
+    lines.push('Описание:');
+    lines.push(u.bio);
+  }
+
+  const createdAt = u.createdAt ? new Date(u.createdAt) : null;
+  const updatedAt = u.updatedAt ? new Date(u.updatedAt) : null;
+  if (createdAt || updatedAt) {
+    lines.push('');
+    if (createdAt) lines.push(`Создан: ${createdAt.toLocaleString('ru-RU')}`);
+    if (updatedAt) lines.push(`Обновлён: ${updatedAt.toLocaleString('ru-RU')}`);
+  }
+
+  return lines.join('\n');
+}
+
+function formatUsersListForDisplay(users = []) {
+  if (!users.length) return 'Пока нет зарегистрированных пользователей.';
+
+  const lines = [];
+  lines.push(`Всего зарегистрированных пользователей: ${users.length}`);
+  lines.push('');
+
+  let i = 1;
+  for (const u of users) {
+    const parts = [];
+    if (u.nick) parts.push(`"${u.nick}"`);
+    if (u.username) parts.push(`@${u.username}`);
+    parts.push(`#${u.telegramId}`);
+    let line = `${i}. ${parts.join(' ')}`;
+    if (u.bio) {
+      const trimmed = String(u.bio).trim();
+      if (trimmed) {
+        const short = trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed;
+        line += ` — ${short}`;
+      }
+    }
+    lines.push(line);
+    i += 1;
+  }
+
+  return lines.join('\n');
+}
+
+// --- Teams: helpers ---
+
+async function findTeamById(teamId) {
+  if (!teamId) return null;
+  try {
+    return await colTeams.findOne({ _id: new ObjectId(String(teamId)) });
+  } catch {
+    return null;
+  }
+}
+
+function formatTeamForDisplay(team) {
+  if (!team) return 'Команда не найдена.';
+
+  const lines = [];
+  lines.push('Команда');
+  lines.push('----------------');
+
+  lines.push(`ID: ${team._id}`);
+  lines.push(`Название: ${team.name || '(без названия)'}`);
+
+  if (team.description) {
+    lines.push('');
+    lines.push('Описание:');
+    lines.push(team.description);
+  }
+
+  if (Array.isArray(team.memberNicks) && team.memberNicks.length) {
+    lines.push('');
+    lines.push('Состав:');
+    lines.push(team.memberNicks.join(', '));
+  }
+
+  const createdAt = team.createdAt ? new Date(team.createdAt) : null;
+  const updatedAt = team.updatedAt ? new Date(team.updatedAt) : null;
+  if (createdAt || updatedAt) {
+    lines.push('');
+    if (createdAt) lines.push(`Создана: ${createdAt.toLocaleString('ru-RU')}`);
+    if (updatedAt) lines.push(`Обновлена: ${updatedAt.toLocaleString('ru-RU')}`);
+  }
+
+  return lines.join('\n');
+}
+
+function formatTeamsListForDisplay(teams = []) {
+  if (!teams.length) return 'Пока нет зарегистрированных игровых команд.';
+
+  const lines = [];
+  lines.push(`Всего игровых команд: ${teams.length}`);
+  lines.push('');
+
+  let i = 1;
+  for (const t of teams) {
+    const name = t.name || '(без названия)';
+    lines.push(`${i}. ${name} — ID: ${t._id}`);
+
+    if (Array.isArray(t.memberNicks) && t.memberNicks.length) {
+      lines.push(`Игроки: ${t.memberNicks.join(', ')}`);
+    }
+
+    const desc = (t.description || '').trim();
+    if (desc) {
+      lines.push('Описание:');
+      lines.push(desc);
+    }
+
+    lines.push(''); // пустая строка между командами
+    i += 1;
+  }
+
+  return lines.join('\n');
+}
+
+// --- Signups: хелперы ---
+
+function generateSignupId() {
+  // crypto уже подключён вверху файла
+  return crypto.randomBytes(12).toString('hex');
+}
+
+function formatRegistrationSettingsForDisplay(reg) {
+  const lines = [];
+
+  lines.push('Настройки регистрации турнира:');
+  lines.push(`- тип турнира: ${reg.tournamentType || '(not set)'}`);
+  lines.push(`- регистрация: ${reg.registrationEnabled ? 'открыта' : 'закрыта'}`);
+
+  if (reg.registrationOpenedAt) {
+    lines.push(`- открыта: ${formatMoscowDateTime(reg.registrationOpenedAt)}`);
+  }
+  if (reg.registrationClosedAt) {
+    lines.push(`- закрыта: ${formatMoscowDateTime(reg.registrationClosedAt)}`);
+  }
+
+  lines.push(`- maxPlayers: ${reg.maxPlayers != null ? reg.maxPlayers : '(not set)'}`);
+  lines.push(`- deadline: ${reg.deadline ? formatMoscowDateTime(reg.deadline) : '(not set)'}`);
+
+  return lines.join('\n');
+}
+
+function formatPlayerSignupsList(signups = []) {
+  if (!signups.length) return 'Заявок игроков пока нет.';
+
+  const lines = [];
+  lines.push(`Всего заявок игроков: ${signups.length}`);
+  lines.push('');
+
+  let i = 1;
+  for (const s of signups) {
+    const name = s.playerNick || '(без ника)';
+    const dt = s.createdAt ? formatMoscowDateTime(s.createdAt) : '(дата неизвестна)';
+    const conf = s.confirmed ? 'подтверждена' : 'ожидает подтверждения';
+    lines.push(`${i}. ${name}`);
+    lines.push(`   ID: ${s.signupId}`);
+    lines.push(`   Дата регистрации: ${dt}`);
+    lines.push(`   Статус: ${conf}`);
+    lines.push('');
+    i += 1;
+  }
+
+  return lines.join('\n');
+}
+
+function formatTeamSignupsList(signups = []) {
+  if (!signups.length) return 'Заявок команд пока нет.';
+
+  const lines = [];
+  lines.push(`Всего заявок команд: ${signups.length}`);
+  lines.push('');
+
+  let i = 1;
+  for (const s of signups) {
+    const name = s.teamName || '(без названия)';
+    const dt = s.createdAt ? formatMoscowDateTime(s.createdAt) : '(дата неизвестна)';
+    const conf = s.confirmed ? 'подтверждена' : 'ожидает подтверждения';
+
+    lines.push(`${i}. ${name}`);
+    lines.push(`   ID: ${s.signupId}`);
+    lines.push(`   Дата регистрации: ${dt}`);
+    lines.push(`   Статус: ${conf}`);
+
+    if (Array.isArray(s.teamMembers) && s.teamMembers.length) {
+      lines.push(`   Состав: ${s.teamMembers.join(', ')}`);
+    }
+
+    lines.push('');
+    i += 1;
+  }
+
+  return lines.join('\n');
+}
+
+
 // --- NEW: News2 (конструктор новостей с блоками) ---
 
 // Черновики конструкторов: key = `${chatId}:${userId}`
@@ -252,7 +487,7 @@ function toUnixTsFromMoscow(datePart, timePart) {
   return Number.isFinite(d.getTime()) ? d.getTime() : null;
 }
 
-function formatMoscowDateTime(date = new Date()) {
+function formatMoscowDateTime2(date = new Date()) {
   const pad = n => String(n).padStart(2, '0');
   // Получаем время в МСК без смены системной TZ
   const dt = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }));
@@ -631,6 +866,75 @@ async function setChatSettings(chatId, patch) {
   );
 }
 
+// --- Registration settings (по турниру / chatId) ---
+
+async function getRegistrationSettings(chatId) {
+  const doc = await colRegistrationSettings.findOne({ chatId });
+
+  return {
+    chatId,
+    tournamentType: doc?.tournamentType || null,          // 'FFA' | '1v1' | 'TDM' | null
+    registrationEnabled: !!doc?.registrationEnabled,
+    registrationOpenedAt: doc?.registrationOpenedAt || null,
+    registrationClosedAt: doc?.registrationClosedAt || null,
+    maxPlayers: doc?.maxPlayers ?? null,
+    deadline: doc?.deadline || null,
+    createdAt: doc?.createdAt || null,
+    updatedAt: doc?.updatedAt || null,
+  };
+}
+
+async function updateRegistrationSettings(chatId, patch = {}) {
+  const now = new Date();
+  await colRegistrationSettings.updateOne(
+    { chatId },
+    {
+      $set: {
+        ...patch,
+        updatedAt: now,
+      },
+      $setOnInsert: {
+        chatId,
+        createdAt: now,
+      },
+    },
+    { upsert: true },
+  );
+}
+
+function parseMoscowDateTime(str) {
+  if (!str) return null;
+  const m = str.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, year, month, day, hour, minute] = m;
+  // Строим ISO-строку с часовым поясом +03:00 (МСК)
+  const iso = `${year}-${month}-${day}T${hour}:${minute}:00+03:00`;
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function formatMoscowDateTime(dt) {
+  if (!dt) return '(not set)';
+  try {
+    const d = new Date(dt);
+    // Приводим к МСК
+    const s = d.toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    // по умолчанию формат "DD.MM.YYYY, HH:MM", уберём запятую
+    return s.replace(',', '');
+  } catch {
+    return String(dt);
+  }
+}
+
+
 // Seen usernames index (helps resolving @username -> userId if seen before)
 async function recordUser(ctx, user) {
   if (!user) return;
@@ -913,6 +1217,34 @@ function feedbackSessionKey(chatId, userId) {
   return `${chatId}:${userId}`;
 }
 
+// --- Профили пользователей (глобальные) ---
+// Ключ: userId (Telegram ID), значение: { mode: 'add'|'edit', step: 'nick'|'bio', nick, nickNorm, bio, startedAt }
+const userProfileSessions = new Map();
+function userProfileKey(userId) {
+  return String(userId);
+}
+
+// --- Игровые команды (глобальные) ---
+
+// Сессии создания/редактирования команд
+// Ключ: userId (Telegram ID)
+const teamSessions = new Map();
+function teamSessionKey(userId) {
+  return String(userId);
+}
+
+// Сессии выбора команды для редактирования (/teams edit, если команд несколько)
+// Ключ: userId (Telegram ID)
+const teamSelectSessions = new Map();
+function teamSelectKey(userId) {
+  return String(userId);
+}
+
+// Сессии выбора команды для /signup add (TDM, когда у игрока несколько команд)
+const signupTeamSelectSessions = new Map();
+function signupTeamSelectKey(chatId, userId) {
+  return `signupTeam:${chatId}:${userId}`;
+}
 
 // -------- Achievements (ачивки) --------
 
@@ -2199,6 +2531,8 @@ async function resetCustomGroupIdCounter(chatId) {
   await colCounters.deleteOne({ chatId, key: 'customGroupId' });
 }
 
+
+
 // Storage
 async function listCustomGroups(chatId) {
   return colCustomGroups.find({ chatId }).sort({ groupId: 1 }).toArray();
@@ -2621,6 +2955,330 @@ async function customHandler(ctx) {
 
 bot.command(['custom', 'c'], customHandler);
 
+
+// USERS (глобальные профили игроков)
+async function usersHandler(ctx) {
+  if (!requireGroupContext(ctx)) {
+    await ctx.reply('Эта команда доступна только в чатах (группы или личные), не в каналах.');
+    return;
+  }
+
+  if (!ctx.from) {
+    await ctx.reply('Не удалось определить пользователя.');
+    return;
+  }
+
+  const chat = ctx.chat || {};
+  const isPrivate = chat.type === 'private';
+  const userId = ctx.from.id;
+  const args = parseCommandArgs(ctx.message.text || '');
+  const tokens = args.split(' ').filter(Boolean);
+  const sub = (tokens[0] || '').toLowerCase();
+
+  // /users all — только для админов/владельцев
+  if (sub === 'all') {
+    if (!(await requireAdminGuard(ctx, { ignoreLock: true }))) return;
+
+    const users = await colUsers.find({}).sort({ nickNorm: 1, telegramId: 1 }).toArray();
+    await replyPre(ctx, formatUsersListForDisplay(users));
+    return;
+  }
+
+  // /users add — регистрация (только в личке с ботом)
+  if (sub === 'add') {
+    if (!isPrivate) {
+      await ctx.reply('Для регистрации профиля напишите боту в личку и выполните там команду /u add.');
+      return;
+    }
+
+    const existing = await findUserByTelegramId(userId);
+    if (existing) {
+      await ctx.reply('Вы уже зарегистрированы.\n\nПосмотреть профиль: /u\nИзменить профиль: /u edit.');
+      return;
+    }
+
+    const uKey = userProfileKey(userId);
+    userProfileSessions.set(uKey, {
+      mode: 'add',
+      step: 'nick',
+      nick: null,
+      nickNorm: null,
+      bio: null,
+      startedAt: Date.now(),
+    });
+
+    await ctx.reply('Регистрация профиля игрока.\n\nВведите желаемый ник (игровое имя).\n\nОтмена — /cancel.');
+    return;
+  }
+
+  // /users edit — редактирование (только в личке)
+  if (sub === 'edit') {
+    if (!isPrivate) {
+      await ctx.reply('Для редактирования профиля напишите боту в личку и выполните там команду /u edit.');
+      return;
+    }
+
+    const existing = await findUserByTelegramId(userId);
+    if (!existing) {
+      await ctx.reply('Вы ещё не зарегистрированы. Сначала выполните /u add.');
+      return;
+    }
+
+    const uKey = userProfileKey(userId);
+    userProfileSessions.set(uKey, {
+      mode: 'edit',
+      step: 'nick',
+      nick: existing.nick || '',
+      nickNorm: existing.nickNorm || (existing.nick ? norm(existing.nick) : null),
+      bio: existing.bio || '',
+      startedAt: Date.now(),
+    });
+
+    const currentNick = existing.nick || '(не задан)';
+    const text =
+      'Редактирование профиля игрока.\n\n' +
+      `Текущий ник: ${currentNick}\n\n` +
+      'Отправьте новый ник.\nЕсли хотите оставить как есть — просто повторите текущий ник.\n\n' +
+      'Отмена — /cancel.';
+
+    try {
+      // если ник без спецсимволов — можно в Markdown, иначе обычный текст
+      await ctx.reply(text);
+    } catch (_) {
+      await ctx.reply(text);
+    }
+    return;
+  }
+
+  // /users или /u без параметров — показать профиль текущего пользователя
+  const profile = await findUserByTelegramId(userId);
+  if (!profile) {
+    if (isPrivate) {
+      await ctx.reply(
+        'Профиль игрока для вас пока не создан.\n\n' +
+        'Чтобы зарегистрироваться, выполните /u add и следуйте инструкциям.'
+      );
+    } else {
+      await ctx.reply(
+        'Профиль игрока для вас пока не создан.\n\n' +
+        'Чтобы зарегистрироваться, напишите боту в личку и выполните там команду /u add.'
+      );
+    }
+    return;
+  }
+
+  await replyPre(ctx, formatUserProfileForDisplay(profile));
+}
+
+bot.command(['users', 'u'], usersHandler);
+
+// TEAMS (глобальные игровые команды)
+async function teamsHandler(ctx) {
+  if (!requireGroupContext(ctx)) return;
+
+  const chatId = getEffectiveChatId(ctx);
+  const userId = ctx.from?.id;
+  if (!userId) {
+    await ctx.reply('Не удалось определить пользователя.');
+    return;
+  }
+
+  const args = parseCommandArgs(ctx.message.text || '');
+  const tokens = args.split(' ').filter(Boolean);
+  const sub = (tokens[0] || '').toLowerCase();
+
+  // Помощник: загрузить текущего пользователя из colUsers
+  const me = await findUserByTelegramId(userId);
+
+  // /teams all — только для админов, игнорирует lock турнира
+  if (sub === 'all') {
+    if (!(await requireAdminGuard(ctx, { ignoreLock: true }))) return;
+
+    const teams = await colTeams.find({}).sort({ nameNorm: 1 }).toArray();
+    await replyPre(ctx, formatTeamsListForDisplay(teams));
+    return;
+  }
+
+  // /teams add — админы или зарегистрированные users
+  if (sub === 'add') {
+    let canCreate = false;
+    if (me) canCreate = true;
+    else if (await isChatAdminOrOwner(ctx, chatId)) canCreate = true;
+
+    if (!canCreate) {
+      await ctx.reply(
+        'Для создания игровой команды нужно быть зарегистрированным игроком (/u add)\n' +
+        'или администратором турнира.'
+      );
+      return;
+    }
+
+    const tKey = teamSessionKey(userId);
+    teamSessions.set(tKey, {
+      mode: 'add',
+      step: 'name',
+      teamId: null,
+      name: '',
+      nameNorm: '',
+      description: '',
+      memberIds: [],
+      memberNicks: [],
+      startedAt: Date.now(),
+    });
+
+    await ctx.reply(
+      'Создание новой игровой команды.\n\n' +
+      'Шаг 1. Отправьте название команды.\n\n' +
+      'Отмена — /cancel.'
+    );
+    return;
+  }
+
+  // /teams edit — редактирование команды, где текущий пользователь включён в состав
+  if (sub === 'edit') {
+    if (!me) {
+      await ctx.reply(
+        'Вы ещё не зарегистрированы как игрок.\n' +
+        'Сначала выполните /u add для регистрации профиля.'
+      );
+      return;
+    }
+
+    const teams = await colTeams
+      .find({ memberIds: me._id })
+      .sort({ nameNorm: 1 })
+      .toArray();
+
+    if (!teams.length) {
+      await ctx.reply(
+        'Вы пока не входите ни в одну игровую команду.\n' +
+        'Можно создать новую команду через /teams add.'
+      );
+      return;
+    }
+
+    if (teams.length === 1) {
+      const team = teams[0];
+      const tKey = teamSessionKey(userId);
+      teamSessions.set(tKey, {
+        mode: 'edit',
+        step: 'name',
+        teamId: String(team._id),
+        name: team.name || '',
+        nameNorm: team.nameNorm || (team.name ? norm(team.name) : ''),
+        description: team.description || '',
+        memberIds: team.memberIds || [],
+        memberNicks: team.memberNicks || [],
+        startedAt: Date.now(),
+      });
+
+      await replyPre(ctx, formatTeamForDisplay(team));
+      await ctx.reply(
+        '\nРедактирование этой команды.\n\n' +
+        'Сначала отправьте новое название команды.\n' +
+        'Отмена — /cancel.'
+      );
+      return;
+    }
+
+    // Несколько команд — даём выбор по номеру
+    const tsKey = teamSelectKey(userId);
+    teamSelectSessions.set(tsKey, {
+      teams,
+      startedAt: Date.now(),
+    });
+
+    const listText = formatTeamsListForDisplay(teams);
+    await replyPre(ctx,
+      listText +
+      '\n\nУкажите номер команды, которую хотите отредактировать, или /cancel для отмены.'
+    );
+    return;
+  }
+
+  // /teams или /tm без параметров — показать команды, где участвует текущий пользователь
+  if (!me) {
+    await ctx.reply(
+      'Вы ещё не зарегистрированы как игрок.\n' +
+      'Сначала выполните /u add для регистрации профиля.'
+    );
+    return;
+  }
+
+  const myTeams = await colTeams
+    .find({ memberIds: me._id })
+    .sort({ nameNorm: 1 })
+    .toArray();
+
+  if (!myTeams.length) {
+    await ctx.reply(
+      'Вы пока не входите ни в одну игровую команду.\n' +
+      'Можно создать новую команду через /teams add.'
+    );
+    return;
+  }
+
+  await replyPre(ctx, formatTeamsListForDisplay(myTeams));
+}
+
+bot.command(['teams', 'tm'], teamsHandler);
+
+async function teamAdminHandler(ctx) {
+  if (!requireGroupContext(ctx)) return;
+
+  const chatId = getEffectiveChatId(ctx);
+  const userId = ctx.from?.id;
+  if (!userId) {
+    await ctx.reply('Не удалось определить пользователя.');
+    return;
+  }
+
+  const args = parseCommandArgs(ctx.message.text || '');
+  const tokens = args.split(' ').filter(Boolean);
+
+  const sub = (tokens[0] || '').toLowerCase();
+  if (sub !== 'editadm') {
+    await ctx.reply('Использование: /team editadm <teamId>');
+    return;
+  }
+
+  const teamId = tokens[1];
+  if (!teamId) {
+    await ctx.reply('Укажите ID команды. Пример: /team editadm 691904031ce2010bfc82e308');
+    return;
+  }
+
+  if (!(await requireAdminGuard(ctx, { ignoreLock: true }))) return;
+
+  const team = await findTeamById(teamId);
+  if (!team) {
+    await ctx.reply('Команда с таким ID не найдена.');
+    return;
+  }
+
+  const tKey = teamSessionKey(userId);
+  teamSessions.set(tKey, {
+    mode: 'edit',
+    step: 'name',
+    teamId: String(team._id),
+    name: team.name || '',
+    nameNorm: team.nameNorm || (team.name ? norm(team.name) : ''),
+    description: team.description || '',
+    memberIds: team.memberIds || [],
+    memberNicks: team.memberNicks || [],
+    startedAt: Date.now(),
+  });
+
+  await replyPre(ctx, formatTeamForDisplay(team));
+  await ctx.reply(
+    '\nАдмин-редактирование команды.\n\n' +
+    'Сначала отправьте новое название команды.\n' +
+    'Отмена — /cancel.'
+  );
+}
+
+bot.command('team', teamAdminHandler);
+
 // Command handlers
 bot.use(async (ctx, next) => {
   // rate limit
@@ -2708,6 +3366,373 @@ bot.on('text', async (ctx, next) => {
     }
     (fSess.buffer ||= []).push(txt);
     return; // для обычного текста остаёмся в режиме ввода фидбэка и не передаём дальше
+  }
+
+  // 0.1) --- NEW: сессии профиля пользователя (только в личке) ---
+  if (ctx.chat?.type === 'private') {
+    const uKey = userProfileKey(userId);
+    const uSess = userProfileSessions.get(uKey);
+    if (uSess) {
+      const txt = (ctx.message.text || '').trim();
+      if (!txt || txt.startsWith('/')) {
+        // команды (/cancel, /done и т.п.) обрабатываются отдельными хэндлерами
+        return next();
+      }
+
+      try {
+        if (uSess.step === 'nick') {
+          const nick = txt;
+          if (nick.length < 2 || nick.length > 50) {
+            await ctx.reply('Ник должен содержать от 2 до 50 символов. Попробуйте ещё раз.');
+            return;
+          }
+
+          const exists = await findUserByNick(nick, uSess.mode === 'edit' ? userId : null);
+          if (exists) {
+            await ctx.reply('Такой ник уже используется другим пользователем. Выберите другой ник.');
+            return;
+          }
+
+          uSess.nick = nick;
+          uSess.nickNorm = norm(nick);
+          uSess.step = 'bio';
+          userProfileSessions.set(uKey, uSess);
+
+          await ctx.reply('Ок. Теперь отправьте короткое описание о себе (одно или несколько предложений).\n\nОтмена — /cancel.');
+          return;
+        }
+
+        if (uSess.step === 'bio') {
+          const bio = txt;
+          if (bio.length > 1000) {
+            await ctx.reply('Описание слишком длинное (максимум 1000 символов). Сократите текст и отправьте снова.');
+            return;
+          }
+
+          const now = new Date();
+          const from = ctx.from || {};
+          const base = {
+            username: from.username || null,
+            firstName: from.first_name || null,
+            lastName: from.last_name || null,
+            updatedAt: now,
+          };
+
+          if (uSess.mode === 'add') {
+            // защита от двойной регистрации
+            const already = await findUserByTelegramId(userId);
+            if (already) {
+              userProfileSessions.delete(uKey);
+              await ctx.reply('Вы уже зарегистрированы. Посмотреть профиль: /u . Изменить профиль: /u edit.');
+              return;
+            }
+
+            const doc = {
+              telegramId: Number(userId),
+              nick: uSess.nick,
+              nickNorm: uSess.nickNorm,
+              bio,
+              createdAt: now,
+              ...base,
+            };
+
+            await colUsers.insertOne(doc);
+            userProfileSessions.delete(uKey);
+
+            await ctx.reply('Профиль игрока создан.');
+            await replyPre(ctx, formatUserProfileForDisplay(doc));
+            return;
+          }
+
+          if (uSess.mode === 'edit') {
+            const upd = await colUsers.updateOne(
+              { telegramId: Number(userId) },
+              {
+                $set: {
+                  nick: uSess.nick,
+                  nickNorm: uSess.nickNorm,
+                  bio,
+                  ...base,
+                },
+              },
+            );
+
+            userProfileSessions.delete(uKey);
+
+            if (!upd.matchedCount) {
+              await ctx.reply('Профиль не найден. Попробуйте сначала выполнить /u add.');
+              return;
+            }
+
+            const fresh = await findUserByTelegramId(userId);
+            await ctx.reply('Профиль игрока обновлён.');
+            if (fresh) {
+              await replyPre(ctx, formatUserProfileForDisplay(fresh));
+            }
+            return;
+          }
+
+          // неизвестный режим — сбрасываем
+          userProfileSessions.delete(uKey);
+          await ctx.reply('Неизвестный режим редактирования профиля. Попробуйте /u или /u edit ещё раз.');
+          return;
+        }
+      } catch (e) {
+        console.error('userProfileSessions error', e);
+        userProfileSessions.delete(uKey);
+        await ctx.reply('Ошибка сохранения профиля. Попробуйте ещё раз позже.');
+        return;
+      }
+    }
+  }
+
+  // 0.2) --- Выбор команды для /teams edit (если у пользователя несколько команд) ---
+  {
+    const tsKey = teamSelectKey(userId);
+    const tsSess = teamSelectSessions.get(tsKey);
+    if (tsSess) {
+      const txt = (ctx.message.text || '').trim();
+      if (!txt || txt.startsWith('/')) {
+        // Команды (/cancel, /done) обрабатываются отдельно
+        return next();
+      }
+
+      const n = Number(txt);
+      if (!Number.isInteger(n) || n < 1 || n > tsSess.teams.length) {
+        await ctx.reply(`Введите номер команды от 1 до ${tsSess.teams.length}, либо /cancel для отмены.`);
+        return;
+      }
+
+      const team = tsSess.teams[n - 1];
+      teamSelectSessions.delete(tsKey);
+
+      const tKey = teamSessionKey(userId);
+      teamSessions.set(tKey, {
+        mode: 'edit',
+        step: 'name',
+        teamId: String(team._id),
+        name: team.name || '',
+        description: team.description || '',
+        memberNicks: team.memberNicks || [],
+        memberIds: team.memberIds || [],
+        startedAt: Date.now(),
+      });
+
+      await ctx.reply(
+        'Редактирование команды.\n\n' +
+        `Текущее название: ${team.name || '(не задано)'}\n\n` +
+        'Отправьте новое название команды.\n' +
+        'Отмена — /cancel.'
+      );
+      return;
+    }
+  }
+
+  // 0.25) --- Выбор команды для /signup add (TDM, если у пользователя несколько команд) ---
+  {
+    const stKey = signupTeamSelectKey(chatId, userId);
+    const stSess = signupTeamSelectSessions.get(stKey);
+    if (stSess) {
+      const txt = (ctx.message.text || '').trim();
+      if (!txt || txt.startsWith('/')) {
+        // /cancel и прочие команды пойдут дальше по пайплайну
+        return next();
+      }
+
+      const n = Number(txt);
+      if (!Number.isInteger(n) || n < 1 || n > stSess.teams.length) {
+        await ctx.reply(`Введите номер команды от 1 до ${stSess.teams.length}, либо /cancel для отмены.`);
+        return;
+      }
+
+      const team = stSess.teams[n - 1];
+
+      try {
+        // На всякий случай — проверим, что тип турнира всё ещё TDM
+        const reg = await getRegistrationSettings(chatId);
+        if (reg.tournamentType !== 'TDM') {
+          signupTeamSelectSessions.delete(stKey);
+          await ctx.reply('Тип турнира был изменён. Повторите /signup add.');
+          return;
+        }
+
+        // Проверяем, не успела ли команда уже подать заявку
+        const existing = await colSignups.findOne({
+          chatId,
+          kind: 'team',
+          teamId: team._id,
+        });
+        if (existing) {
+          signupTeamSelectSessions.delete(stKey);
+          await ctx.reply(
+            'Команда уже подала заявку на этот турнир.\n\n' +
+            `ID заявки: ${existing.signupId}`
+          );
+          return;
+        }
+
+        const now2 = new Date();
+        const signupId = generateSignupId();
+        await colSignups.insertOne({
+          chatId,
+          signupId,
+          kind: 'team',
+          teamId: team._id,
+          teamName: team.name,
+          teamNameNorm: team.nameNorm,
+          teamMembers: team.memberNicks || [],
+          confirmed: false,
+          createdByTelegramId: userId,
+          createdByUsername: ctx.from?.username || null,
+          createdAt: now2,
+          updatedAt: now2,
+        });
+
+        signupTeamSelectSessions.delete(stKey);
+
+        await ctx.reply(
+          `Заявка команды "${team.name}" на участие в турнире принята.\n` +
+          `ID заявки: ${signupId}`
+        );
+      } catch (e) {
+        console.error('signupTeamSelectSessions error', e);
+        signupTeamSelectSessions.delete(stKey);
+        await ctx.reply('Не удалось сохранить заявку. Попробуйте ещё раз /signup add.');
+      }
+      return;
+    }
+  }
+
+  // 0.3) --- Сессии создания/редактирования команды (name → description → members → /done) ---
+  {
+    const tKey = teamSessionKey(userId);
+    const tSess = teamSessions.get(tKey);
+    if (tSess) {
+      const txt = (ctx.message.text || '').trim();
+      if (!txt || txt.startsWith('/')) {
+        // /cancel или /done пойдут в соответствующие хэндлеры
+        return next();
+      }
+
+      // Шаг 1: название
+      if (tSess.step === 'name') {
+        if (txt.length < 2 || txt.length > 100) {
+          await ctx.reply('Название команды должно содержать от 2 до 100 символов. Попробуйте ещё раз.');
+          return;
+        }
+
+        const nameNorm = norm(txt);
+        const exists = await colTeams.findOne({
+          nameNorm,
+          ...(tSess.mode === 'edit'
+            ? { _id: { $ne: new ObjectId(tSess.teamId) } }
+            : {}),
+        });
+
+        if (exists) {
+          await ctx.reply('Команда с таким названием уже существует. Введите другое название.');
+          return;
+        }
+
+        tSess.name = txt;
+        tSess.nameNorm = nameNorm;
+        tSess.step = 'description';
+        teamSessions.set(tKey, tSess);
+
+        await ctx.reply('Ок. Теперь отправьте описание команды.\n\nОтмена — /cancel.');
+        return;
+      }
+
+      // Шаг 2: описание
+      if (tSess.step === 'description') {
+        if (txt.length > 2000) {
+          await ctx.reply('Описание слишком длинное (максимум 2000 символов). Сократите текст и отправьте снова.');
+          return;
+        }
+
+        tSess.description = txt;
+        tSess.step = 'members';
+        teamSessions.set(tKey, tSess);
+
+        await ctx.reply(
+          'Теперь отправьте список ников участников команды через запятую.\n' +
+          'Например: ly, aid, slonik\n\n' +
+          'Все ники должны быть зарегистрированными пользователями (/u add).\n' +
+          'Отмена — /cancel.'
+        );
+        return;
+      }
+
+      // Шаг 3: список участников
+      if (tSess.step === 'members') {
+        const raw = txt.split(',').map(s => s.trim()).filter(Boolean);
+        if (!raw.length) {
+          await ctx.reply('Список участников пуст. Укажите хотя бы один ник.');
+          return;
+        }
+
+        // удаляем дубликаты по нормализованному нику
+        const seen = new Set();
+        const nicks = [];
+        for (const r of raw) {
+          const nn = norm(r);
+          if (!nn) continue;
+          if (seen.has(nn)) continue;
+          seen.add(nn);
+          nicks.push({ nick: r, nickNorm: nn });
+        }
+
+        if (!nicks.length) {
+          await ctx.reply('Не удалось разобрать список ников. Попробуйте ещё раз.');
+          return;
+        }
+
+        // Ищем всех пользователей
+        const nickNorms = nicks.map(x => x.nickNorm);
+        const users = await colUsers.find({ nickNorm: { $in: nickNorms } }).toArray();
+
+        if (users.length !== nicks.length) {
+          // Найдём, каких ников не хватает
+          const found = new Set(users.map(u => u.nickNorm));
+          const missing = nicks.filter(x => !found.has(x.nickNorm)).map(x => x.nick);
+          await ctx.reply(
+            'Не все указанные ники найдены среди зарегистрированных пользователей.\n' +
+            'Следующие ники отсутствуют в базе:\n' +
+            missing.join(', ') + '\n\n' +
+            'Попросите этих пользователей зарегистрироваться через /u add,\n' +
+            'или скорректируйте список и отправьте его ещё раз.'
+          );
+          return;
+        }
+
+        tSess.memberIds = users.map(u => u._id);
+        tSess.memberNicks = users.map(u => u.nick);
+        tSess.step = 'confirm';
+        teamSessions.set(tKey, tSess);
+
+        const previewLines = [];
+        previewLines.push('Проверьте данные команды:');
+        previewLines.push('');
+        previewLines.push(`Название: ${tSess.name}`);
+        previewLines.push('');
+        previewLines.push('Описание:');
+        previewLines.push(tSess.description || '(без описания)');
+        previewLines.push('');
+        previewLines.push('Состав:');
+        previewLines.push(tSess.memberNicks.join(', '));
+        previewLines.push('');
+        previewLines.push('Если все данные верны — отправьте /done для сохранения.');
+        previewLines.push('Для отмены используйте /cancel.');
+
+        await replyPre(ctx, previewLines.join('\n'));
+        return;
+      }
+
+      // Если step неизвестен — сбрасываем
+      teamSessions.delete(tKey);
+      await ctx.reply('Неизвестный шаг редактирования команды. Попробуйте ещё раз с /teams add или /teams edit.');
+      return;
+    }
   }
 
   const key = achvKey(chatId, userId);
@@ -3065,6 +4090,39 @@ async function helpText() {
     '/feedback (/fb) del — удалить свой отзыв (если был)',
     '',
     '--------------------------',
+    '',
+    '9) Регистрация пользователей и команд',
+    'Пользователи:',
+    '/users (/u) — ваш профиль игрока (ник + описание)',
+    '/users add - регистрация игрока (глобальная для всех турниров)',
+    '/users edit - редактирование игрока ',
+    '/users all - просмотр всех зарегистрированных игроков (для админа)',
+    '',
+    'Игровые команды:',
+    '/teams (/tm) — список игровых команд, в которых вы состоите',
+    '/teams add — создать новую игровую команду',
+    '/teams edit — отредактировать одну из ваших команд',
+    // Для админов:
+    '/teams all — список всех команд (админы)',
+    '/team editadm <teamId> — админ-редактирование команды',
+    '',
+    '--------------------------',
+    '10) Регистрация на турнир',
+    '/signup (/sup) — подать / отозвать заявку на участие в турнире и посмотреть статус',
+    '/registration (/reg) — сводка по настройкам регистрации и списку заявок',
+    '----------',
+    'Административные команды регистрации на турнир:',
+    '/registration (/reg) enabled true|false — открыть/закрыть регистрацию',
+    '/reg maxplayers <N> — установить лимит игроков регистрации',
+    '/reg deadline [YYYY-MM-DD HH:mm] — показать/установить дедлайн регистрации',
+    '/reg addp <nick> — добавить игрока в список регистрации',
+    '/reg addt <team> — добавить команду в список регистрации (TDM)',
+    '/reg delp <id>, /reg delt <id> — удалить заявку',
+    '/reg players [<id> status true|false] — список/изменение статуса заявок игроков',
+    '/reg teams [<id> status true|false] — список/изменение статуса заявок команд',
+    '/t type [FFA|1v1|TDM] — посмотреть/установить тип турнира',
+    '----------',
+    '',
     'Управление приёмом изображений:',
     '/done — завершить текущую сессию приёма изображений',
     '/cancel — отменить текущую сессию (временные файлы ачивок удаляются)',
@@ -3098,7 +4156,7 @@ bot.command(['info', 'i'], async ctx => {
   }
   const chatId = getEffectiveChatId(ctx);
   const [
-    settings, sgs, maps, ggs, fgs, sfgs, waiting, rating, finalRating, groupPtsArr, finalPtsArr
+    settings, sgs, maps, ggs, fgs, sfgs, waiting, rating, finalRating, groupPtsArr, finalPtsArr, regSettings,
   ] = await Promise.all([
     getChatSettings(chatId),
     listSkillGroups(chatId),
@@ -3111,6 +4169,7 @@ bot.command(['info', 'i'], async ctx => {
     getFinalRating(chatId),
     getGroupPoints(chatId),
     getFinalPoints(chatId),
+    getRegistrationSettings(chatId),
   ]);
 
   const gpMap = groupPointsToMap(groupPtsArr);
@@ -3123,6 +4182,7 @@ bot.command(['info', 'i'], async ctx => {
   lines.push(`- name: ${settings.tournamentName || '(not set)'}`);
   lines.push(`- site: ${settings.tournamentSite || '(not set)'}`);
   lines.push(`- desc: ${settings.tournamentDesc || '(not set)'}`);
+  lines.push(`- type: ${regSettings.tournamentType || '(not set)'}`);
   lines.push('');
 
   // Settings block
@@ -3549,12 +4609,74 @@ async function tournamentHandler(ctx) {
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
 
+  const token0 = tokens[0]?.toLowerCase();
+
+  // /t type — показать или задать тип турнира (FFA / 1v1 / TDM)
+  if (token0 === 'type') {
+    const reg = await getRegistrationSettings(chatId);
+
+    // /t type  — только показать (публично)
+    if (tokens.length === 1) {
+      await ctx.reply(
+        `Текущий тип турнира: ${reg.tournamentType || '(not set)'}\n\n` +
+        'Варианты: FFA, 1v1, TDM.\n' +
+        'Админы могут задать тип: /t type FFA'
+      );
+      return;
+    }
+
+    // /t type <value> — задать (только админы)
+    if (!(await requireAdminGuard(ctx))) return;
+
+    const rawType = tokens[1].toUpperCase();
+    const allowed = ['FFA', '1V1', 'TDM'];
+    if (!allowed.includes(rawType)) {
+      await ctx.reply('Неверный тип турнира. Допустимые значения: FFA, 1v1, TDM.');
+      return;
+    }
+
+    const normalized = rawType === '1V1' ? '1v1' : rawType;
+
+    // --- НОВОЕ: блокировка смены типа, если уже есть конфликтующие заявки ---
+
+    const currentType = reg.tournamentType || null;
+    if (currentType && normalized !== currentType) {
+      const currentIsTeam = currentType === 'TDM';   // true если текущий тип = команды
+      const newIsTeam = normalized === 'TDM';        // true если новый тип = команды
+
+      // Разрешаем смену ТОЛЬКО внутри одной "семьи":
+      // - FFA ↔ 1v1 (оба игроки)
+      // - TDM ↔ TDM (само на себя)
+      // НЕЛЬЗЯ менять "игроки" <-> "команды", если есть заявки.
+      if (currentIsTeam !== newIsTeam) {
+        // Если переходим в TDM — конфликтуют заявки игроков (kind: 'player')
+        // Если переходим из TDM в FFA/1v1 — конфликтуют заявки команд (kind: 'team')
+        const conflictKind = newIsTeam ? 'player' : 'team';
+
+        const conflict = await colSignups.findOne({ chatId, kind: conflictKind });
+        if (conflict) {
+          await ctx.reply(
+            'Нельзя сменить тип турнира между режимами "игроки" (FFA/1v1) и "команды" (TDM),\n' +
+            'пока существуют заявки на участие для этого турнира.\n' +
+            'Сначала очистите заявки через /reg delp / /reg delt (или очистите коллекцию signups).'
+          );
+          return;
+        }
+      }
+    }
+
+    await updateRegistrationSettings(chatId, { tournamentType: normalized });
+    await ctx.reply(`Тип турнира установлен: ${normalized}`);
+    return;
+  }
+
+
   // /tournament info — агрегированная информация
   if (!tokens.length || tokens[0].toLowerCase() === 'info') {
     const [
       settings, sgs, ggs, fgs, sfgs, waiting, groupPtsArr, finalPtsArr,
       cgs, cptsDocs,
-      achs,
+      achs, regSettings,
     ] = await Promise.all([
       getChatSettings(chatId),
       listSkillGroups(chatId),
@@ -3567,6 +4689,7 @@ async function tournamentHandler(ctx) {
       listCustomGroups(chatId),
       colCustomPoints.find({ chatId }).toArray(),
       listAchievements(chatId),
+      getRegistrationSettings(chatId),
     ]);
 
     const gpMap = groupPointsToMap(groupPtsArr);
@@ -3579,6 +4702,7 @@ async function tournamentHandler(ctx) {
     lines.push(`- name: ${settings.tournamentName || '(not set)'}`);
     lines.push(`- site: ${settings.tournamentSite || '(not set)'}`);
     lines.push(`- desc: ${settings.tournamentDesc || '(not set)'}`);
+    lines.push(`- type: ${regSettings.tournamentType || '(not set)'}`);
     lines.push(`- news channel: ${settings.tournamentNewsChannel || '(not set)'}`);
     // Новые строки персональной статистики
     lines.push(`- player stats enabled: ${settings.tournamentStatsEnabled ? 'true' : 'false'}`);
@@ -6762,7 +7886,7 @@ bot.command('done', async ctx => {
         }
 
         const now = new Date();
-        const msk = formatMoscowDateTime(now);
+        const msk = formatMoscowDateTime2(now);
 
         if (fSess.mode === 'add') {
           await colFeedback.insertOne({
@@ -6810,6 +7934,78 @@ bot.command('done', async ctx => {
       }
     }
   }
+
+  // === TEAMS: завершение создания/редактирования команды ===
+  {
+    const tKey = teamSessionKey(userId);
+    const tSess = teamSessions.get(tKey);
+    if (tSess) {
+      if (tSess.step !== 'confirm') {
+        await ctx.reply('Сначала завершите ввод всех данных по команде (название, описание и список участников).');
+        return;
+      }
+
+      const now = new Date();
+      const from = ctx.from || {};
+
+      if (tSess.mode === 'add') {
+        const doc = {
+          name: tSess.name,
+          nameNorm: tSess.nameNorm,
+          description: tSess.description || '',
+          memberIds: tSess.memberIds || [],
+          memberNicks: tSess.memberNicks || [],
+          createdByTelegramId: userId,
+          createdByUsername: from.username || null,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        const res = await colTeams.insertOne(doc);
+        const saved = { ...doc, _id: res.insertedId };
+
+        teamSessions.delete(tKey);
+        await ctx.reply('Игровая команда создана.');
+        await replyPre(ctx, formatTeamForDisplay(saved));
+        return;
+      }
+
+      if (tSess.mode === 'edit') {
+        const upd = await colTeams.updateOne(
+          { _id: new ObjectId(tSess.teamId) },
+          {
+            $set: {
+              name: tSess.name,
+              nameNorm: tSess.nameNorm,
+              description: tSess.description || '',
+              memberIds: tSess.memberIds || [],
+              memberNicks: tSess.memberNicks || [],
+              updatedAt: now,
+            },
+          },
+        );
+
+        teamSessions.delete(tKey);
+
+        if (!upd.matchedCount) {
+          await ctx.reply('Команда не найдена. Попробуйте ещё раз выполнить /teams edit.');
+          return;
+        }
+
+        const fresh = await findTeamById(tSess.teamId);
+        await ctx.reply('Игровая команда обновлена.');
+        if (fresh) {
+          await replyPre(ctx, formatTeamForDisplay(fresh));
+        }
+        return;
+      }
+
+      teamSessions.delete(tKey);
+      await ctx.reply('Неизвестный режим обработки команды. Попробуйте заново.');
+      return;
+    }
+  }
+
 
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
@@ -6933,6 +8129,43 @@ bot.command('cancel', async ctx => {
       return;
     }
   }
+
+  // === USER PROFILE: если есть активная сессия профиля, отменяем её и выходим ===
+  {
+    const uKey = userProfileKey(userId);
+    if (userProfileSessions.has(uKey)) {
+      userProfileSessions.delete(uKey);
+      await ctx.reply('Настройка вашего профиля отменена.');
+      return;
+    }
+  }
+
+  // === TEAMS: если есть активная сессия команды/выбора команды, отменяем ===
+  {
+    const tKey = teamSessionKey(userId);
+    const tsKey = teamSelectKey(userId);
+    const stKey = signupTeamSelectKey(chatId, userId);
+    let had = false;
+
+    if (teamSessions.has(tKey)) {
+      teamSessions.delete(tKey);
+      had = true;
+    }
+    if (teamSelectSessions.has(tsKey)) {
+      teamSelectSessions.delete(tsKey);
+      had = true;
+    }
+    if (signupTeamSelectSessions.has(stKey)) {
+      signupTeamSelectSessions.delete(stKey);
+      had = true;
+    }
+
+    if (had) {
+      await ctx.reply('Операция с игровой командой отменена.');
+      return;
+    }
+  }
+
 
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
@@ -7283,6 +8516,607 @@ bot.command('unlock', async (ctx) => {
   );
 });
 
+// REGISTRATION (настройки и админ-операции с заявками)
+async function registrationHandler(ctx) {
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+  const args = parseCommandArgs(ctx.message.text || '');
+  const tokens = args.split(' ').filter(Boolean);
+  const sub = (tokens[0] || '').toLowerCase();
+
+  const reg = await getRegistrationSettings(chatId);
+
+  // /reg  — показать сводку настроек + краткую инфу о заявках
+  if (!sub) {
+    const [playerSignups, teamSignups] = await Promise.all([
+      colSignups.find({ chatId, kind: 'player' }).sort({ createdAt: 1 }).toArray(),
+      colSignups.find({ chatId, kind: 'team' }).sort({ createdAt: 1 }).toArray(),
+    ]);
+
+    const parts = [];
+    parts.push(formatRegistrationSettingsForDisplay(reg));
+    parts.push('');
+    parts.push(formatPlayerSignupsList(playerSignups));
+    parts.push('');
+    parts.push(formatTeamSignupsList(teamSignups));
+
+    await replyPre(ctx, parts.join('\n\n'));
+    return;
+  }
+
+  // /reg enabled <true/false>
+  if (sub === 'enabled') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const valRaw = (tokens[1] || '').toLowerCase();
+    if (!['true', 'false'].includes(valRaw)) {
+      await ctx.reply('Использование: /reg enabled true|false');
+      return;
+    }
+    const flag = valRaw === 'true';
+    const patch = {
+      registrationEnabled: flag,
+    };
+    const now = new Date();
+    if (flag) {
+      patch.registrationOpenedAt = now;
+      patch.registrationClosedAt = null;
+    } else {
+      patch.registrationClosedAt = now;
+    }
+    await updateRegistrationSettings(chatId, patch);
+    await ctx.reply(`Регистрация на турнир теперь ${flag ? 'открыта' : 'закрыта'}.`);
+    return;
+  }
+
+  // /reg maxplayers <count>
+  if (sub === 'maxplayers') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const raw = tokens[1];
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      await ctx.reply('Использование: /reg maxplayers <целое положительное число>');
+      return;
+    }
+    await updateRegistrationSettings(chatId, { maxPlayers: n });
+    await ctx.reply(`Максимальное количество игроков для регистрации установлено: ${n}`);
+    return;
+  }
+
+  // /reg deadline  (просмотр) и /reg deadline <YYYY-MM-DD HH:mm> (установка)
+  if (sub === 'deadline') {
+    // /reg deadline без параметров — публичный просмотр
+    if (tokens.length === 1) {
+      const text =
+        'Текущий дедлайн регистрации: ' +
+        (reg.deadline ? formatMoscowDateTime(reg.deadline) : '(not set)');
+      await ctx.reply(text);
+      return;
+    }
+
+    // /reg deadline <value> — только админы
+    if (!(await requireAdminGuard(ctx))) return;
+
+    const raw = tokens.slice(1).join(' ');
+    const dt = parseMoscowDateTime(raw);
+    if (!dt) {
+      await ctx.reply('Не удалось распарсить дату. Формат: YYYY-MM-DD HH:mm, пример: 2025-12-31 23:00');
+      return;
+    }
+
+    await updateRegistrationSettings(chatId, { deadline: dt });
+    await ctx.reply('Дедлайн регистрации установлен: ' + formatMoscowDateTime(dt));
+    return;
+  }
+
+  // --- Ниже команды, которые работают с записями в colSignups ---
+
+  // /reg addp <nick> — добавить игрока (админ, только FFA/1v1)
+  if (sub === 'addp') {
+    if (!(await requireAdminGuard(ctx))) return;
+
+    if (!reg.tournamentType || !['FFA', '1v1'].includes(reg.tournamentType)) {
+      await ctx.reply('Регистрация игроков доступна только для турниров типа FFA или 1v1.');
+      return;
+    }
+
+    const nickRaw = tokens.slice(1).join(' ').trim();
+    if (!nickRaw) {
+      await ctx.reply('Использование: /reg addp <nick>');
+      return;
+    }
+
+    // Ищем игрока в users
+    const user = await findUserByNick(nickRaw);
+    if (!user) {
+      await ctx.reply(
+        'Игрок с таким ником не найден среди зарегистрированных пользователей.\n' +
+        'Попросите игрока зарегистрироваться через /u add и используйте /signup add, либо /reg addp после регистрации.'
+      );
+      return;
+    }
+
+    // Проверка, нет ли уже заявки для этого игрока
+    const existing = await colSignups.findOne({
+      chatId,
+      kind: 'player',
+      userId: user._id,
+    });
+    if (existing) {
+      await ctx.reply(
+        'У этого игрока уже есть заявка на участие в турнире.\n\n' +
+        'ID заявки: ' + existing.signupId
+      );
+      return;
+    }
+
+    const now = new Date();
+    const signupId = generateSignupId();
+    await colSignups.insertOne({
+      chatId,
+      signupId,
+      kind: 'player',
+      userId: user._id,
+      playerNick: user.nick,
+      playerNickNorm: user.nickNorm,
+      confirmed: false,
+      createdByTelegramId: ctx.from.id,
+      createdByUsername: ctx.from.username || null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.reply(`Игрок ${user.nick} добавлен в регистрацию турнира. ID заявки: ${signupId}`);
+    return;
+  }
+
+  // /reg addt <teamName> — добавить команду (админ, только TDM)
+  if (sub === 'addt') {
+    if (!(await requireAdminGuard(ctx))) return;
+
+    if (reg.tournamentType !== 'TDM') {
+      await ctx.reply('Регистрация команд доступна только для турниров типа TDM.');
+      return;
+    }
+
+    const nameRaw = tokens.slice(1).join(' ').trim();
+    if (!nameRaw) {
+      await ctx.reply('Использование: /reg addt <team name>');
+      return;
+    }
+
+    const nameNorm = norm(nameRaw);
+    const team = await colTeams.findOne({ nameNorm });
+    if (!team) {
+      await ctx.reply(
+        'Команда с таким названием не найдена среди зарегистрированных команд.\n' +
+        'Сначала создайте команду через /teams add.'
+      );
+      return;
+    }
+
+    const existing = await colSignups.findOne({
+      chatId,
+      kind: 'team',
+      teamId: team._id,
+    });
+    if (existing) {
+      await ctx.reply(
+        'Эта команда уже подала заявку на участие в турнире.\n\n' +
+        'ID заявки: ' + existing.signupId
+      );
+      return;
+    }
+
+    const now = new Date();
+    const signupId = generateSignupId();
+    await colSignups.insertOne({
+      chatId,
+      signupId,
+      kind: 'team',
+      teamId: team._id,
+      teamName: team.name,
+      teamNameNorm: team.nameNorm,
+      teamMembers: team.memberNicks || [],
+      confirmed: false,
+      createdByTelegramId: ctx.from.id,
+      createdByUsername: ctx.from.username || null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await ctx.reply(`Команда "${team.name}" добавлена в регистрацию турнира. ID заявки: ${signupId}`);
+    return;
+  }
+
+  // /reg delp <id> — удалить заявку игрока
+  if (sub === 'delp') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const id = tokens[1];
+    if (!id) {
+      await ctx.reply('Использование: /reg delp <id>');
+      return;
+    }
+    const res = await colSignups.deleteOne({ chatId, kind: 'player', signupId: id });
+    if (!res.deletedCount) {
+      await ctx.reply('Заявка игрока с таким ID не найдена для этого турнира.');
+      return;
+    }
+    await ctx.reply('Заявка игрока удалена.');
+    return;
+  }
+
+  // /reg delt <id> — удалить заявку команды
+  if (sub === 'delt') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const id = tokens[1];
+    if (!id) {
+      await ctx.reply('Использование: /reg delt <id>');
+      return;
+    }
+    const res = await colSignups.deleteOne({ chatId, kind: 'team', signupId: id });
+    if (!res.deletedCount) {
+      await ctx.reply('Заявка команды с таким ID не найдена для этого турнира.');
+      return;
+    }
+    await ctx.reply('Заявка команды удалена.');
+    return;
+  }
+
+  // /reg players <id> status <true/false>  ИЛИ /reg players — список
+  if (sub === 'players') {
+    if (tokens.length === 1) {
+      const players = await colSignups.find({ chatId, kind: 'player' }).sort({ createdAt: 1 }).toArray();
+      await replyPre(ctx, formatPlayerSignupsList(players));
+      return;
+    }
+
+    if (!(await requireAdminGuard(ctx))) return;
+    const id = tokens[1];
+    const key = (tokens[2] || '').toLowerCase();
+    const valRaw = (tokens[3] || '').toLowerCase();
+    if (key !== 'status' || !['true', 'false'].includes(valRaw)) {
+      await ctx.reply('Использование: /reg players <id> status <true|false>');
+      return;
+    }
+    const flag = valRaw === 'true';
+    const res = await colSignups.updateOne(
+      { chatId, kind: 'player', signupId: id },
+      { $set: { confirmed: flag, updatedAt: new Date() } },
+    );
+    if (!res.matchedCount) {
+      await ctx.reply('Заявка игрока с таким ID не найдена.');
+      return;
+    }
+    await ctx.reply(`Статус заявки игрока обновлён: ${flag ? 'подтверждена' : 'ожидает подтверждения'}.`);
+    return;
+  }
+
+  // /reg teams <id> status <true/false>  ИЛИ /reg teams — список
+  if (sub === 'teams') {
+    if (tokens.length === 1) {
+      const teams = await colSignups.find({ chatId, kind: 'team' }).sort({ createdAt: 1 }).toArray();
+      await replyPre(ctx, formatTeamSignupsList(teams));
+      return;
+    }
+
+    if (!(await requireAdminGuard(ctx))) return;
+    const id = tokens[1];
+    const key = (tokens[2] || '').toLowerCase();
+    const valRaw = (tokens[3] || '').toLowerCase();
+    if (key !== 'status' || !['true', 'false'].includes(valRaw)) {
+      await ctx.reply('Использование: /reg teams <id> status <true|false>');
+      return;
+    }
+    const flag = valRaw === 'true';
+    const res = await colSignups.updateOne(
+      { chatId, kind: 'team', signupId: id },
+      { $set: { confirmed: flag, updatedAt: new Date() } },
+    );
+    if (!res.matchedCount) {
+      await ctx.reply('Заявка команды с таким ID не найдена.');
+      return;
+    }
+    await ctx.reply(`Статус заявки команды обновлён: ${flag ? 'подтверждена' : 'ожидает подтверждения'}.`);
+    return;
+  }
+
+  await ctx.reply('Неизвестная подкоманда /reg. Доступные: enabled, maxplayers, deadline, addp, addt, delp, delt, players, teams.');
+}
+
+bot.command(['registration', 'reg'], registrationHandler);
+
+// SIGNUP (публичные заявки от игроков / команд)
+async function signupHandler(ctx) {
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+  const args = parseCommandArgs(ctx.message.text || '');
+  const tokens = args.split(' ').filter(Boolean);
+  const sub = (tokens[0] || '').toLowerCase();
+
+  if (!ctx.from) {
+    await ctx.reply('Не удалось определить пользователя.');
+    return;
+  }
+
+  const reg = await getRegistrationSettings(chatId);
+
+  const now = new Date();
+  const registrationOpen =
+    reg.registrationEnabled &&
+    (!reg.deadline || now.getTime() <= new Date(reg.deadline).getTime());
+
+  // /signup — статус моей заявки
+  if (!sub) {
+    const me = await findUserByTelegramId(ctx.from.id);
+    if (!me) {
+      await ctx.reply(
+        'Вы ещё не зарегистрированы как игрок.\n' +
+        'Сначала выполните /u add в личке с ботом.'
+      );
+      return;
+    }
+
+    if (!reg.tournamentType) {
+      await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
+      return;
+    }
+
+    // FFA / 1v1 — ищем заявку игрока
+    if (['FFA', '1v1'].includes(reg.tournamentType)) {
+      const signup = await colSignups.findOne({
+        chatId,
+        kind: 'player',
+        userId: me._id,
+      });
+      if (!signup) {
+        await ctx.reply('У вас пока нет заявки на участие в этом турнире.');
+        return;
+      }
+
+      const lines = [];
+      lines.push('Ваша заявка на участие:');
+      lines.push('');
+      lines.push(formatPlayerSignupsList([signup]));
+      await replyPre(ctx, lines.join('\n'));
+      return;
+    }
+
+    // TDM — ищем заявку команды, в которой он участник
+    if (reg.tournamentType === 'TDM') {
+      const teams = await colTeams.find({ memberIds: me._id }).toArray();
+      if (!teams.length) {
+        await ctx.reply(
+          'Вы пока не состоите ни в одной игровой команде.\n' +
+          'Создайте команду через /teams add.'
+        );
+        return;
+      }
+
+      const teamIds = teams.map(t => t._id);
+      const signup = await colSignups.findOne({
+        chatId,
+        kind: 'team',
+        teamId: { $in: teamIds },
+      });
+      if (!signup) {
+        await ctx.reply('Ни одна из ваших команд пока не подала заявку на этот турнир.');
+        return;
+      }
+
+      const lines = [];
+      lines.push('Заявка команды, в которой вы участвуете:');
+      lines.push('');
+      lines.push(formatTeamSignupsList([signup]));
+      await replyPre(ctx, lines.join('\n'));
+      return;
+    }
+
+    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
+    return;
+  }
+
+  // /signup add — подать заявку
+  if (sub === 'add') {
+    if (!registrationOpen) {
+      await ctx.reply(
+        'Сейчас регистрация на турнир закрыта либо истёк дедлайн.\n' +
+        'Уточните актуальные настройки у администратора (/reg).'
+      );
+      return;
+    }
+
+    const me = await findUserByTelegramId(ctx.from.id);
+    if (!me) {
+      await ctx.reply(
+        'Вы ещё не зарегистрированы как игрок.\n' +
+        'Сначала выполните /u add в личке с ботом.'
+      );
+      return;
+    }
+
+    if (!reg.tournamentType) {
+      await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
+      return;
+    }
+
+    // --- FFA / 1v1: заявка самого игрока ---
+    if (['FFA', '1v1'].includes(reg.tournamentType)) {
+      const existing = await colSignups.findOne({
+        chatId,
+        kind: 'player',
+        userId: me._id,
+      });
+      if (existing) {
+        await ctx.reply(
+          'Вы уже подали заявку на участие в этом турнире.\n\n' +
+          `ID заявки: ${existing.signupId}`
+        );
+        return;
+      }
+
+      const now2 = new Date();
+      const signupId = generateSignupId();
+      await colSignups.insertOne({
+        chatId,
+        signupId,
+        kind: 'player',
+        userId: me._id,
+        playerNick: me.nick,
+        playerNickNorm: me.nickNorm,
+        confirmed: false,
+        createdByTelegramId: ctx.from.id,
+        createdByUsername: ctx.from.username || null,
+        createdAt: now2,
+        updatedAt: now2,
+      });
+
+      await ctx.reply(
+        'Ваша заявка на участие в турнире принята.\n' +
+        `ID заявки: ${signupId}`
+      );
+      return;
+    }
+
+    // --- TDM: заявка команды, где пользователь состоит ---
+    if (reg.tournamentType === 'TDM') {
+      const teams = await colTeams
+        .find({ memberIds: me._id })
+        .sort({ nameNorm: 1 })
+        .toArray();
+
+      if (!teams.length) {
+        await ctx.reply(
+          'Вы пока не состоите ни в одной игровой команде.\n' +
+          'Создайте команду через /teams add и повторите /signup add.'
+        );
+        return;
+      }
+
+      // Проверим, не подана ли уже заявка от какой-либо команды, где он состоит
+      const teamIds = teams.map(t => t._id);
+      const existing = await colSignups.findOne({
+        chatId,
+        kind: 'team',
+        teamId: { $in: teamIds },
+      });
+      if (existing) {
+        await ctx.reply(
+          'Одна из ваших команд уже подала заявку на этот турнир.\n\n' +
+          `ID заявки: ${existing.signupId}`
+        );
+        return;
+      }
+
+      // Если команда одна — регистрируем сразу
+      if (teams.length === 1) {
+        const team = teams[0];
+        const now2 = new Date();
+        const signupId = generateSignupId();
+        await colSignups.insertOne({
+          chatId,
+          signupId,
+          kind: 'team',
+          teamId: team._id,
+          teamName: team.name,
+          teamNameNorm: team.nameNorm,
+          teamMembers: team.memberNicks || [],
+          confirmed: false,
+          createdByTelegramId: ctx.from.id,
+          createdByUsername: ctx.from.username || null,
+          createdAt: now2,
+          updatedAt: now2,
+        });
+
+        await ctx.reply(
+          `Заявка команды "${team.name}" на участие в турнире принята.\n` +
+          `ID заявки: ${signupId}`
+        );
+        return;
+      }
+
+      // Если команд больше одной — запускаем диалог выбора
+      const stKey = signupTeamSelectKey(chatId, ctx.from.id);
+      signupTeamSelectSessions.set(stKey, {
+        chatId,
+        userId: ctx.from.id,
+        teams,
+        startedAt: Date.now(),
+      });
+
+      const listText = formatTeamsListForDisplay(teams);
+      await replyPre(
+        ctx,
+        listText +
+          '\nУкажите номер команды, которую нужно зарегистрировать на турнир (1, 2, ...).\n' +
+          'Для отмены используйте /cancel.'
+      );
+      return;
+    }
+
+    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
+    return;
+  }
+
+  // /signup del — отозвать свою заявку
+  if (sub === 'del') {
+    const me = await findUserByTelegramId(ctx.from.id);
+    if (!me) {
+      await ctx.reply('Вы ещё не зарегистрированы как игрок (/u add).');
+      return;
+    }
+
+    if (!reg.tournamentType) {
+      await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
+      return;
+    }
+
+    // FFA / 1v1 — удаляем заявку игрока
+    if (['FFA', '1v1'].includes(reg.tournamentType)) {
+      const res = await colSignups.deleteOne({
+        chatId,
+        kind: 'player',
+        userId: me._id,
+      });
+      if (!res.deletedCount) {
+        await ctx.reply('Активной заявки игрока на этот турнир не найдено.');
+        return;
+      }
+      await ctx.reply('Ваша заявка на участие в турнире отозвана.');
+      return;
+    }
+
+    // TDM — удаляем заявку команды, в которой он состоит
+    if (reg.tournamentType === 'TDM') {
+      const teams = await colTeams.find({ memberIds: me._id }).toArray();
+      if (!teams.length) {
+        await ctx.reply('Вы не состоите ни в одной команде, зарегистрированной на этот турнир.');
+        return;
+      }
+
+      const teamIds = teams.map(t => t._id);
+      const res = await colSignups.deleteOne({
+        chatId,
+        kind: 'team',
+        teamId: { $in: teamIds },
+      });
+      if (!res.deletedCount) {
+        await ctx.reply('Для ваших команд не найдено активных заявок на этот турнир.');
+        return;
+      }
+      await ctx.reply('Заявка одной из ваших команд на участие в турнире отозвана.');
+      return;
+    }
+
+    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
+    return;
+  }
+
+  await ctx.reply('Неизвестная подкоманда /signup. Доступные: add, del.');
+}
+
+// Привязка команд
+bot.command(['signup', 'sup'], signupHandler);
+
 
 // SetMyCommands (basic)
 bot.telegram.setMyCommands([
@@ -7304,6 +9138,10 @@ bot.telegram.setMyCommands([
   { command: 'chatid', description: 'Показать ID чата/темы' },
   { command: 'achievements', description: 'Ачивки' },
   { command: 'ac', description: 'Ачивки (краткая команда)' },
+  { command: 'users', description: 'Профиль игрока (ник + описание)' },
+  { command: 'teams', description: 'Игровые команды (создание/просмотр)' },
+  { command: 'registration', description: 'Регистрация на турнир (настройки)' },
+  { command: 'signup', description: 'Подать заявку на участие в турнире' },
 ]).catch(() => { });
 
 
@@ -7328,15 +9166,20 @@ bot.telegram.setMyCommands([
   colFinalRatings = db.collection('final_ratings');
   colSuperFinalGroups = db.collection('super_final_groups');
   colNews = db.collection('news');
-  colCustomGroups = db.collection('custom_groups');       // NEW
-  colCustomPoints = db.collection('custom_points');       // NEW
-  colAchievements = db.collection('achievements'); // NEW
-  colRoles = db.collection('roles'); // NEW
+  colUsers = db.collection('users'); // NEW
+  colTeams = db.collection('teams'); // NEW
+  colCustomGroups = db.collection('custom_groups');
+  colCustomPoints = db.collection('custom_points');
+  colAchievements = db.collection('achievements');
+  colRoles = db.collection('roles');
   colGroupResults = db.collection('group_results');
   colFinalResults = db.collection('final_results');
   colSuperFinalRatings = db.collection('super_final_ratings');
   colSuperFinalResults = db.collection('superfinal_results');
   colFeedback = db.collection('feedback');
+  // НОВОЕ:
+  colRegistrationSettings = db.collection('registration_settings');
+  colSignups = db.collection('signups');
 
   // Indexes
   await Promise.all([
@@ -7365,6 +9208,20 @@ bot.telegram.setMyCommands([
     colSuperFinalResults.createIndex({ chatId: 1, groupId: 1, matchTs: 1 }),
     colFeedback.createIndex({ chatId: 1, userId: 1 }, { unique: true }), // у каждого пользователя по одному фидбэку на чат
     colFeedback.createIndex({ chatId: 1, createdAt: -1 }),
+    // --- Users (глобальные профили по Telegram ID) ---
+    colUsers.createIndex({ telegramId: 1 }, { unique: true }),
+    colUsers.createIndex({ nickNorm: 1 }, { unique: true }),
+    colUsers.createIndex({ username: 1 }),
+    // --- Teams (глобальные игровые команды) ---
+    colTeams.createIndex({ nameNorm: 1 }, { unique: true }),
+    colTeams.createIndex({ memberIds: 1 }), // поиск команд по участнику
+    // --- Registration settings ---
+    colRegistrationSettings.createIndex({ chatId: 1 }, { unique: true }),
+    // --- Signups (заявки) ---
+    colSignups.createIndex({ chatId: 1, signupId: 1 }, { unique: true }),
+    colSignups.createIndex({ chatId: 1, kind: 1 }),
+    colSignups.createIndex({ chatId: 1, userId: 1 }),
+    colSignups.createIndex({ chatId: 1, teamId: 1 }),
   ]);
 
   console.log('Connected to MongoDB. Starting bot...');
