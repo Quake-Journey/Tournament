@@ -386,7 +386,43 @@ function linkify(text = '') {
     (m, pre, user) => `${pre}<a href="https://t.me/${user}" target="_blank" rel="noopener">@${user}</a>`);
 }
 
+function tournamentHasStreams(tournament) {
+  const raw = tournament?.streams;
+  if (!raw) return false;
 
+  const arr = Array.isArray(raw) ? raw : [raw];
+
+  for (const item of arr) {
+    const candidates = [];
+
+    if (typeof item === 'string') {
+      candidates.push(item);
+    } else if (item && typeof item === 'object') {
+      ['url', 'href', 'link'].forEach(k => {
+        if (item[k] != null) candidates.push(item[k]);
+      });
+    }
+
+    for (const v of candidates) {
+      const s = String(v || '').trim();
+      if (!s) continue;
+
+      // Считаем, что это «нормальный» стрим, если там явно есть ссылка
+      if (
+        s.includes('http://') ||
+        s.includes('https://') ||
+        s.includes('twitch.') ||
+        s.includes('youtube.') ||
+        s.includes('vk.com') ||
+        s.includes('rutube.')
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 
 function renderServersSection(tournament, containerClass, collapsedByDefault = false) {
@@ -527,6 +563,21 @@ function renderTopMenu({
 }) {
   const raw = [];
 
+   // Есть ли вообще демки у турнира (по группам/финалам/суперфиналам)
+   const hasDemos = (() => {
+    function has(arr) {
+      if (!Array.isArray(arr)) return false;
+      for (const g of arr) {
+        const urls = Array.isArray(g?.demos)
+          ? g.demos.map(u => String(u || '').trim()).filter(Boolean)
+          : [];
+        if (urls.length) return true;
+      }
+      return false;
+    }
+    return has(groups) || has(finals) || has(superfinals);
+  })();
+
   // Новости: якорь на последнюю турнирную новость
   if (Array.isArray(tournamentNews) && tournamentNews.length > 0) {
     const n = tournamentNews[0];
@@ -543,8 +594,23 @@ function renderTopMenu({
   if (showStats) raw.push({ label: 'Статистика', href: '#section-stats' });
   if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: 'Ачивки', href: '#section-achievements' });
   if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: 'Перки', href: '#section-perks' });
+
+  // NEW: кнопка "Демки" — строго после "Перки" и только если есть хотя бы одна ссылка на демо
+  if (hasDemos) {
+    raw.push({
+      label: 'Демки',
+      href: '#demos-modal',
+      badgeText: '',
+      external: false,
+      anchor: false,
+    });
+  }
+
   if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: 'Сервера', href: '#section-servers' });
-  if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
+
+  const hasStreams = tournamentHasStreams(tournament);
+  if (hasStreams) raw.push({ label: 'Стримы', href: '#section-streams' });
+  //if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
   if (showFeedback) raw.push({ label: 'Отзывы', href: '#section-feedback' });
 
   // НОВОЕ: кнопки для модалок "Игроки / Команды / Заявки"
@@ -1264,6 +1330,61 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
   }
 
   return settingsHtml + tableHtml;
+}
+
+function renderDemosModalBody(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return '<div class="text-muted small">Нет демо-записей для этого турнира.</div>';
+  }
+
+  const tbody = rows.map((row, idx) => {
+    const stageSafe = escapeHtml(row.stage || '');
+    const groupSafe = row.groupId != null ? escapeHtml(String(row.groupId)) : '';
+
+    const playersArr = Array.isArray(row.players) ? row.players : [];
+    const playersText = playersArr.length
+      ? playersArr.join(', ')
+      : '—';
+    const playersSafe = escapeHtml(playersText);
+
+    const url = String(row.url || '').trim();
+    const urlSafeAttr = escapeAttr(url);
+    const urlSafeText = escapeHtml(url);
+
+    return `
+      <tr>
+        <td class="small text-secondary text-end">${idx + 1}</td>
+        <td class="small">${stageSafe}</td>
+        <td class="small text-end">${groupSafe}</td>
+        <td class="small">${playersSafe}</td>
+        <td class="small">
+          <a href="${urlSafeAttr}" target="_blank" rel="noopener">${urlSafeText}</a>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="qj-modal-shell">
+      <div class="qj-modal-meta small text-muted mb-2">
+        Всего демо-записей: ${rows.length}
+      </div>
+      <div class="table-responsive qj-modal-table-container">
+        <table class="table table-sm table-hover align-middle qj-modal-table">
+          <thead>
+            <tr>
+              <th class="small text-secondary text-end" style="width:40px;">#</th>
+              <th class="small text-secondary">Стадия</th>
+              <th class="small text-secondary text-end" style="width:80px;">№ группы</th>
+              <th class="small text-secondary">Игроки группы</th>
+              <th class="small text-secondary">Ссылка</th>
+            </tr>
+          </thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 
@@ -3352,7 +3473,12 @@ function renderPage({
     : '';
 
   // Стримеры
-  const streamsSec = renderStreamsSection(tournament, containerClass, collapseAll);
+  const hasStreams = tournamentHasStreams(tournament);
+  const streamsSec = hasStreams
+    ? renderStreamsSection(tournament, containerClass, collapseAll)
+    : '';
+
+  //const streamsSec = renderStreamsSection(tournament, containerClass, collapseAll);
 
   const feedbackSec = renderFeedbackSection(feedbackEntries, containerClass, true);
 
@@ -3673,19 +3799,22 @@ function renderPage({
 
     #playersModal .player-modal-title,
     #teamsModal .player-modal-title,
-    #signupsModal .player-modal-title {
+    #signupsModal .player-modal-title,
+    #demosModal .player-modal-title {
       font-size: 1rem;
     }
 
     #playersModal .qj-modal-meta,
     #teamsModal .qj-modal-meta,
-    #signupsModal .qj-modal-meta {
+    #signupsModal .qj-modal-meta,
+    #demosModal .qj-modal-meta {
       color: rgba(71,85,105,.9);
     }
 
     #playersModal .qj-modal-shell,
     #teamsModal .qj-modal-shell,
-    #signupsModal .qj-modal-shell {
+    #signupsModal .qj-modal-shell,
+    #demosModal .qj-modal-shell {
       background: #ffffff;
       border-radius: 16px;
       border: 1px solid rgba(148,163,184,.5);
@@ -3695,7 +3824,8 @@ function renderPage({
 
     #playersModal .qj-modal-table,
     #teamsModal .qj-modal-table,
-    #signupsModal .qj-modal-table {
+    #signupsModal .qj-modal-table,
+    #demosModal .qj-modal-table {
       margin-bottom: 0;
       border-collapse: separate;
       border-spacing: 0;
@@ -3703,21 +3833,24 @@ function renderPage({
 
     #playersModal .qj-modal-table thead tr,
     #teamsModal .qj-modal-table thead tr,
-    #signupsModal .qj-modal-table thead tr {
+    #signupsModal .qj-modal-table thead tr,
+    #demosModal .qj-modal-table thead tr {
       background: linear-gradient(90deg, #e3edff, #d7e3ff);
       color: #111827;
     }
 
     #playersModal .qj-modal-table thead th,
     #teamsModal .qj-modal-table thead th,
-    #signupsModal .qj-modal-table thead th {
+    #signupsModal .qj-modal-table thead th,
+    #demosModal .qj-modal-table thead th {
       border-bottom: 2px solid rgba(148,163,184,.8);
       font-weight: 600;
     }
 
     #playersModal .qj-modal-table tbody tr,
     #teamsModal .qj-modal-table tbody tr,
-    #signupsModal .qj-modal-table tbody tr {
+    #signupsModal .qj-modal-table tbody tr,
+    #demosModal .qj-modal-table tbody tr {
       background: #ffffff;
       border-bottom: 1px solid rgba(226,232,240,1);
       transition: background .16s ease-out, transform .16s ease-out, box-shadow .16s ease-out;
@@ -3725,13 +3858,15 @@ function renderPage({
 
     #playersModal .qj-modal-table tbody tr:nth-child(2n),
     #teamsModal .qj-modal-table tbody tr:nth-child(2n),
-    #signupsModal .qj-modal-table tbody tr:nth-child(2n) {
+    #signupsModal .qj-modal-table tbody tr:nth-child(2n),
+    #demosModal .qj-modal-table tbody tr:nth-child(2n) {
       background: #f8fafc;
     }
 
     #playersModal .qj-modal-table tbody tr:hover,
     #teamsModal .qj-modal-table tbody tr:hover,
-    #signupsModal .qj-modal-table tbody tr:hover {
+    #signupsModal .qj-modal-table tbody tr:hover,
+    #demosModal .qj-modal-table tbody tr:hover {
       background: #edf2ff;
       box-shadow: 0 6px 18px rgba(15,23,42,.12);
       transform: translateY(-1px);
@@ -3742,7 +3877,9 @@ function renderPage({
     #teamsModal .qj-modal-table th,
     #teamsModal .qj-modal-table td,
     #signupsModal .qj-modal-table th,
-    #signupsModal .qj-modal-table td {
+    #signupsModal .qj-modal-table td
+    #demosModal .qj-modal-table th,
+    #demosModal .qj-modal-table td {
       border-color: transparent;
       vertical-align: middle;
       font-size: .8rem;
@@ -4320,6 +4457,20 @@ function renderPage({
     </div>
   </div>
 
+  <!-- Модалка "Демки" -->
+  <div id="demosModal" class="player-modal" aria-hidden="true" role="dialog" aria-label="Демки">
+    <div class="player-modal-backdrop"></div>
+    <div class="player-modal-dialog" role="document" aria-modal="true">
+      <div class="player-modal-header">
+        <div class="player-modal-title">Демки</div>
+        <button type="button" class="btn-close js-close-modal" data-target="demosModal" aria-label="Закрыть"></button>
+      </div>
+      <div class="player-modal-body">
+        <div class="small text-muted">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Мобильное меню -->
   <div id="mobileMenu" class="qj-mm" aria-hidden="true">
     <div class="qj-mm-backdrop"></div>
@@ -4686,7 +4837,7 @@ function renderPage({
 
       // --- НОВОЕ: простые модальные окна "Игроки / Команды / Заявки" с ленивой загрузкой ---
       (function initSimpleInfoModals(){
-        const MODAL_IDS = ['playersModal', 'teamsModal', 'signupsModal'];
+        const MODAL_IDS = ['playersModal', 'teamsModal', 'signupsModal', 'demosModal'];
 
         function getChatId() {
           return document.body.getAttribute('data-chat-id') || '';
@@ -4714,6 +4865,13 @@ function renderPage({
                 return;
               }
               url = '/api/signups-modal?chatId=' + encodeURIComponent(chatId);
+              break;
+            case 'demosModal':
+              if (!chatId) {
+                body.innerHTML = '<div class="text-danger small">Не указан турнир (chatId).</div>';
+                return;
+              }
+              url = '/api/demos-modal?chatId=' + encodeURIComponent(chatId);
               break;
             default:
               return;
@@ -4766,7 +4924,7 @@ function renderPage({
 
         // клики по ссылкам меню (десктоп и мобильный)
         document.addEventListener('click', function(e){
-          const link = e.target.closest('a[href="#players-modal"], a[href="#teams-modal"], a[href="#signups-modal"]');
+          const link = e.target.closest('a[href="#players-modal"], a[href="#teams-modal"], a[href="#signups-modal"], a[href="#demos-modal"]');
           if (!link) return;
 
           e.preventDefault();
@@ -4774,6 +4932,7 @@ function renderPage({
           if (href === '#players-modal') openModal('playersModal');
           else if (href === '#teams-modal') openModal('teamsModal');
           else if (href === '#signups-modal') openModal('signupsModal');
+          else if (href === '#demos-modal') openModal('demosModal');
         });
 
         // Esc закрывает любые открытые модалки
@@ -5603,7 +5762,94 @@ async function main() {
     }
   });
 
-
+  app.get('/api/demos-modal', async (req, res) => {
+    try {
+      const rawChatId = req.query.chatId;
+      const chatId = Number(rawChatId);
+  
+      if (!Number.isFinite(chatId)) {
+        res.status(400).type('text/plain; charset=utf-8').send('chatId is required');
+        return;
+      }
+  
+      const [groups, finals, superfinals] = await Promise.all([
+        getGroups(chatId),
+        getFinals(chatId),
+        getSuperfinals(chatId),
+      ]);
+  
+      // helper: получить список имён игроков для группы/финала/суперфинала
+      function getPlayerNamesFromGroupDoc(g) {
+        const playersArr = Array.isArray(g?.players) ? g.players : [];
+        const names = [];
+  
+        for (const p of playersArr) {
+          if (!p) continue;
+          const name = (p.nameOrig || p.nameNorm || '').trim();
+          if (!name) continue;
+          names.push(name);
+        }
+  
+        // на всякий случай уберём дубли
+        const uniq = [];
+        const seen = new Set();
+        for (const n of names) {
+          const key = n.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          uniq.push(n);
+        }
+        return uniq;
+      }
+  
+      const rows = [];
+  
+      function collect(stageLabel, items) {
+        if (!Array.isArray(items)) return;
+        for (const g of items) {
+          const groupId = g.groupId != null ? Number(g.groupId) : null;
+          const urls = Array.isArray(g?.demos)
+            ? g.demos.map(u => String(u || '').trim()).filter(Boolean)
+            : [];
+  
+          const players = getPlayerNamesFromGroupDoc(g);
+  
+          for (const url of urls) {
+            rows.push({ stage: stageLabel, groupId, url, players });
+          }
+        }
+      }
+  
+      collect('Квалификация', groups);
+      collect('Финал', finals);
+      collect('Суперфинал', superfinals);
+  
+      const stageOrder = { 'Квалификация': 1, 'Финал': 2, 'Суперфинал': 3 };
+      rows.sort((a, b) => {
+        const sa = stageOrder[a.stage] || 99;
+        const sb = stageOrder[b.stage] || 99;
+        if (sa !== sb) return sa - sb;
+        const ga = a.groupId ?? 0;
+        const gb = b.groupId ?? 0;
+        return ga - gb;
+      });
+  
+      const html = renderDemosModalBody(rows);
+  
+      res
+        .status(200)
+        .type('text/html; charset=utf-8')
+        .send(html);
+    } catch (err) {
+      console.error('Error in /api/demos-modal', err);
+      res
+        .status(500)
+        .type('text/plain; charset=utf-8')
+        .send('INTERNAL_ERROR');
+    }
+  });
+  
+  
   // Healthcheck
   const server = app.listen(PORT, () => {
     console.log(`Site started on http://localhost:${PORT}`);

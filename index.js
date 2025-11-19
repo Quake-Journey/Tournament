@@ -27,6 +27,7 @@ const https = require('https');
 
 const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || path.resolve(process.cwd(), 'screenshots');
 const ACHIEVEMENTS_ROLE = 'Achievements';
+const NEWS_ROLE = 'News';
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -642,12 +643,18 @@ async function hasUserRole(chatId, userId, roleName) {
 }
 
 function isSupportedRoleName(roleName = '') {
-  return String(roleName).trim().toLowerCase() === 'achievements';
+  const v = String(roleName).trim().toLowerCase();
+  return v === 'achievements' || v === 'news';
 }
 
 function normalizeRoleName(roleName = '') {
-  return 'Achievements'; // сейчас единственная поддерживаемая, нормализуем к каноническому написанию
+  const v = String(roleName).trim().toLowerCase();
+  if (v === 'news') return NEWS_ROLE;
+  // по умолчанию считаем Achievements
+  return ACHIEVEMENTS_ROLE;
 }
+
+
 
 // Удаление роли у пользователя (и удаляем документ, если ролей не осталось)
 async function removeUserRole(chatId, user, roleName) {
@@ -734,6 +741,36 @@ async function requireAchievementsGuard(ctx, opts = {}) {
   return true;
 }
 
+async function isNewsEditor(ctx) {
+  const chatId = getEffectiveChatId(ctx);
+  // админ / владелец чата — всегда имеет права на новости
+  if (await isChatAdminOrOwner(ctx, chatId)) return true;
+  if (!ctx.from?.id) return false;
+  // отдельная роль News
+  return hasUserRole(chatId, ctx.from.id, NEWS_ROLE);
+}
+
+async function requireNewsGuard(ctx, opts = {}) {
+  if (!requireGroupContext(ctx)) {
+    await ctx.reply('Эта команда доступна только в контексте чатов (группы или личные), не в каналах.');
+    return false;
+  }
+  const chatId = getEffectiveChatId(ctx);
+
+  if (!(await isNewsEditor(ctx))) {
+    await ctx.reply('Недостаточно прав. Требуется админ целевого чата или роль News.');
+    return false;
+  }
+
+  if (!opts.ignoreLock) {
+    if (await isTournamentLocked(chatId)) {
+      await ctx.reply('Турнир заблокирован для изменений. Разрешено только чтение данных.');
+      return false;
+    }
+  }
+
+  return true;
+}
 
 function userMatchesAdmin(user, adminEntry) {
   // Match by userId if present; else by username (case-insensitive)
@@ -1245,6 +1282,21 @@ const signupTeamSelectSessions = new Map();
 function signupTeamSelectKey(chatId, userId) {
   return `signupTeam:${chatId}:${userId}`;
 }
+
+// Сессии мастера регистрации /register (регистрация игрока/команды с автоподачей заявки)
+// Ключ: `${chatId}:${userId}`
+const signupWizardSessions = new Map();
+function signupWizardKey(chatId, userId) {
+  return `${chatId}:${userId}`;
+}
+
+// Разрешения на использование /register (выдаются только после /signup)
+// Ключ: `${chatId}:${userId}`
+const signupRegisterAllowed = new Map();
+function signupRegisterKey(chatId, userId) {
+  return `${chatId}:${userId}`;
+}
+
 
 // -------- Achievements (ачивки) --------
 
@@ -3353,6 +3405,205 @@ bot.on('text', async (ctx, next) => {
   const chatId = getEffectiveChatId(ctx);
   const userId = ctx.from.id;
 
+  // 0.05) --- Сессии мастера регистрации /register (игрок/команда с автоподачей заявки) ---
+  {
+    const sKey = signupWizardKey(chatId, userId);
+    const sSess = signupWizardSessions.get(sKey);
+    if (sSess) {
+      const txt = (ctx.message.text || '').trim();
+      if (!txt || txt.startsWith('/')) {
+        // Команды (/cancel и др.) обрабатываются отдельными хэндлерами
+        return next();
+      }
+
+      try {
+        // Шаг 1: ник игрока
+        if (sSess.step === 'player_nick') {
+          const nick = txt;
+          if (nick.length < 2 || nick.length > 50) {
+            await ctx.reply('Ник должен содержать от 2 до 50 символов. Попробуйте ещё раз.');
+            return;
+          }
+
+          const exists = await findUserByNick(nick, null);
+          if (exists) {
+            await ctx.reply('Такой ник уже используется другим пользователем. Выберите другой ник.');
+            return;
+          }
+
+          sSess.playerNick = nick;
+          sSess.playerNickNorm = norm(nick);
+          sSess.step = 'player_bio';
+          signupWizardSessions.set(sKey, sSess);
+
+          await ctx.reply(
+            'Теперь отправьте краткое описание игрока (био). Можно пропустить, отправив один дефис "-".\n\n' +
+            'Отмена — /cancel.'
+          );
+          return;
+        }
+
+        // Шаг 2: описание игрока
+        if (sSess.step === 'player_bio') {
+          let bio = txt;
+          if (bio === '-') bio = '';
+          if (bio.length > 1000) {
+            await ctx.reply('Описание слишком длинное (максимум 1000 символов). Сократите текст и отправьте снова.');
+            return;
+          }
+
+          const now = new Date();
+          const from = ctx.from || {};
+          const base = {
+            username: from.username || null,
+            firstName: from.first_name || null,
+            lastName: from.last_name || null,
+            updatedAt: now,
+          };
+
+          // защита от двойной регистрации: вдруг пользователь успел сделать /u add
+          const already = await findUserByTelegramId(userId);
+          if (already && !sSess.playerId) {
+            sSess.playerId = already._id;
+            sSess.playerNick = already.nick;
+            sSess.playerNickNorm = already.nickNorm;
+            sSess.playerBio = already.bio || '';
+          } else if (!already) {
+            const doc = {
+              telegramId: Number(userId),
+              nick: sSess.playerNick,
+              nickNorm: sSess.playerNickNorm,
+              bio,
+              createdAt: now,
+              ...base,
+            };
+
+            const res = await colUsers.insertOne(doc);
+            sSess.playerId = res.insertedId;
+            sSess.playerNick = doc.nick;
+            sSess.playerNickNorm = doc.nickNorm;
+            sSess.playerBio = doc.bio;
+          } else {
+            // already есть и playerId уже был записан — ничего не делаем
+          }
+
+          // FFA / 1v1 — после игрока сразу подаём заявку
+          if (sSess.tournamentType === 'FFA' || sSess.tournamentType === '1v1') {
+            const userDoc = await colUsers.findOne({ _id: sSess.playerId });
+            if (!userDoc) {
+              signupWizardSessions.delete(sKey);
+              await ctx.reply('Не удалось найти профиль игрока после регистрации. Попробуйте ещё раз /register.');
+              return;
+            }
+
+            signupWizardSessions.delete(sKey);
+            await createPlayerSignupAndReply(ctx, chatId, { tournamentType: sSess.tournamentType }, userDoc);
+            return;
+          }
+
+          // TDM — после регистрации игрока переходим к созданию команды
+          if (sSess.tournamentType === 'TDM') {
+            sSess.step = 'team_name';
+            signupWizardSessions.set(sKey, sSess);
+
+            await ctx.reply(
+              'Профиль игрока зарегистрирован.\n\n' +
+              'Теперь создадим игровую команду.\n\n' +
+              'Шаг 1. Отправьте название команды.\n\n' +
+              'Отмена — /cancel.'
+            );
+            return;
+          }
+
+          // fallback
+          signupWizardSessions.delete(sKey);
+          await ctx.reply('Регистрация завершена, но тип турнира не распознан. Обратитесь к администратору.');
+          return;
+        }
+
+        // Шаг 3: название команды (TDM)
+        if (sSess.step === 'team_name') {
+          const name = txt;
+          if (name.length < 2 || name.length > 100) {
+            await ctx.reply('Название команды должно содержать от 2 до 100 символов. Попробуйте ещё раз.');
+            return;
+          }
+
+          const nameNorm = norm(name);
+          const exists = await colTeams.findOne({ nameNorm });
+          if (exists) {
+            await ctx.reply('Команда с таким названием уже существует. Введите другое название.');
+            return;
+          }
+
+          sSess.teamName = name;
+          sSess.teamNameNorm = nameNorm;
+          sSess.step = 'team_desc';
+          signupWizardSessions.set(sKey, sSess);
+
+          await ctx.reply(
+            'Шаг 2. Отправьте краткое описание команды. Можно пропустить, отправив один дефис "-".\n\n' +
+            'Отмена — /cancel.'
+          );
+          return;
+        }
+
+        // Шаг 4: описание команды (TDM), создаём команду и заявку
+        if (sSess.step === 'team_desc') {
+          let desc = txt;
+          if (desc === '-') desc = '';
+          if (desc.length > 2000) {
+            await ctx.reply('Описание слишком длинное (максимум 2000 символов). Сократите текст и отправьте снова.');
+            return;
+          }
+
+          const now = new Date();
+          const from = ctx.from || {};
+
+          // подстрахуемся — найдём игрока
+          const userDoc = await colUsers.findOne({ _id: sSess.playerId }) ||
+            await findUserByTelegramId(userId);
+          if (!userDoc) {
+            signupWizardSessions.delete(sKey);
+            await ctx.reply('Не удалось найти профиль игрока при создании команды. Попробуйте ещё раз /register.');
+            return;
+          }
+
+          const doc = {
+            name: sSess.teamName,
+            nameNorm: sSess.teamNameNorm,
+            description: desc || '',
+            memberIds: [userDoc._id],
+            memberNicks: [userDoc.nick || ''],
+            createdByTelegramId: userId,
+            createdByUsername: from.username || null,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          const res = await colTeams.insertOne(doc);
+          const savedTeam = { ...doc, _id: res.insertedId };
+
+          // Завершили мастер — удаляем сессию
+          signupWizardSessions.delete(sKey);
+
+          // Создаём заявку от команды
+          await createTeamSignupAndReply(ctx, chatId, { tournamentType: 'TDM' }, savedTeam);
+          return;
+        }
+
+        // fallback
+        signupWizardSessions.delete(sKey);
+        await ctx.reply('Состояние мастера регистрации не распознано. Попробуйте начать заново через /register.');
+        return;
+      } catch (e) {
+        console.error('signupWizardSessions error', e);
+        signupWizardSessions.delete(sKey);
+        await ctx.reply('Ошибка обработки регистрации. Попробуйте ещё раз /register.');
+        return;
+      }
+    }
+  }
 
   // 0) --- NEW: сбор текста для активной feedback-сессии (add/edit) ---
   // используем общую in-memory Map feedbackSessions с ключом `${chatId}:${userId}`
@@ -3906,11 +4157,14 @@ async function helpText() {
     '/admin role del <rolename> @nick | user_id — удалить роль у пользователя в текущем чате',
     '  Поддерживаемые роли:',
     '  - Achievements — даёт доступ ко всем НЕпубличным командам /achievements (как у админа чата)',
+    '  - News — даёт доступ к добавлению и редактированию новостей в текущем чате (турнирные, групповые, финальные, суперфинальные, /news del|edit).',
+    '    Полное удаление всех новостей (команды с delall) остаётся только для админов.',
     '',
     '--------------------------',
-    'Глобальные новости:',
-    '/news del <id> — удалить новость по ID (только админы)',
-    '/news edit <id> <текст> — изменить новость по ID (только админы)',
+    'Все новости по турниру:',
+    '/news — показать все новости по текущему чату (всех разделов) с ID',
+    '/news del <id> — удалить новость по ID (админы чата или роль News)',
+    '/news edit <id> <текст> — изменить новость по ID (админы чата или роль News)',
     '',
     '--------------------------',
     '0) Турнир:',
@@ -4109,6 +4363,7 @@ async function helpText() {
     '--------------------------',
     '10) Регистрация на турнир',
     '/signup (/sup) — подать / отозвать заявку на участие в турнире и посмотреть статус',
+
     '/registration (/reg) — сводка по настройкам регистрации и списку заявок',
     '----------',
     'Административные команды регистрации на турнир:',
@@ -4252,6 +4507,7 @@ async function adminHandler(ctx) {
   }
 
   // Блок ролей
+  // Блок ролей
   if (sub.toLowerCase() === 'role') {
     if (!(await requireAdminGuard(ctx))) return;
 
@@ -4269,19 +4525,25 @@ async function adminHandler(ctx) {
     if (action === 'add') {
       const roleName = (rest[1] || '').trim();
       if (!roleName) {
-        await ctx.reply('Укажите роль. Пример: /admin role add Achievements @username');
+        await ctx.reply(
+          'Укажите роль. Пример:\n' +
+          '/admin role add Achievements @username\n' +
+          '/admin role add News @username'
+        );
         return;
       }
       if (!isSupportedRoleName(roleName)) {
-        await ctx.reply('Неизвестная роль. Доступна только роль: Achievements');
+        await ctx.reply('Неизвестная роль. Доступные роли: Achievements, News');
         return;
       }
+
       const tail = rest.slice(2).join(' ');
       const ref = extractUserRef(ctx, tail);
       if (!ref) {
-        await ctx.reply('Укажите пользователя: /admin role add Achievements @username ИЛИ числовой id, ИЛИ используйте как ответ на сообщение.');
+        await ctx.reply('Укажите пользователя: /admin role add <rolename> @username ИЛИ числовой id, ИЛИ используйте как ответ на сообщение.');
         return;
       }
+
       // Попробуем обогатить userId из user_index по username, если id не передан
       let userId = ref.userId || null;
       let username = ref.username || null;
@@ -4290,13 +4552,14 @@ async function adminHandler(ctx) {
         if (doc) userId = Number(doc.userId);
       }
       if (!userId) {
-        await ctx.reply('Не удалось определить user_id. Сначала отправьте в чат сообщение от этого пользователя либо используйте числовой id.');
+        await ctx.reply('Не удалось определить user_id. Сначала отправьте команду как ответ на сообщение от этого пользователя либо используйте числовой id.');
         return;
       }
 
-      await addUserRole(chatId, { userId, username }, normalizeRoleName(roleName));
+      const normRole = normalizeRoleName(roleName);
+      await addUserRole(chatId, { userId, username }, normRole);
       const label = username ? `@${username}` : `#${userId}`;
-      await ctx.reply(`Роль Achievements назначена пользователю ${label}.`);
+      await ctx.reply(`Роль ${normRole} назначена пользователю ${label}.`);
       return;
     }
 
@@ -4304,19 +4567,25 @@ async function adminHandler(ctx) {
     if (action === 'del') {
       const roleName = (rest[1] || '').trim();
       if (!roleName) {
-        await ctx.reply('Укажите роль. Пример: /admin role del Achievements @username');
+        await ctx.reply(
+          'Укажите роль. Пример:\n' +
+          '/admin role del Achievements @username\n' +
+          '/admin role del News @username'
+        );
         return;
       }
       if (!isSupportedRoleName(roleName)) {
-        await ctx.reply('Неизвестная роль. Доступна только роль: Achievements');
+        await ctx.reply('Неизвестная роль. Доступные роли: Achievements, News');
         return;
       }
+
       const tail = rest.slice(2).join(' ');
       const ref = extractUserRef(ctx, tail);
       if (!ref) {
-        await ctx.reply('Укажите пользователя: /admin role del Achievements @username ИЛИ числовой id, ИЛИ используйте как ответ на сообщение.');
+        await ctx.reply('Укажите пользователя: /admin role del <rolename> @username ИЛИ числовой id, ИЛИ используйте как ответ на сообщение.');
         return;
       }
+
       let userId = ref.userId || null;
       let username = ref.username || null;
       if (!userId && username) {
@@ -4324,13 +4593,14 @@ async function adminHandler(ctx) {
         if (doc) userId = Number(doc.userId);
       }
       if (!userId) {
-        await ctx.reply('Не удалось определить user_id. Сначала отправьте в чат сообщение от этого пользователя либо используйте числовой id.');
+        await ctx.reply('Не удалось определить user_id. Сначала отправьте команду как ответ на сообщение от этого пользователя либо используйте числовой id.');
         return;
       }
 
-      await removeUserRole(chatId, { userId, username }, normalizeRoleName(roleName));
+      const normRole = normalizeRoleName(roleName);
+      await removeUserRole(chatId, { userId, username }, normRole);
       const label = username ? `@${username}` : `#${userId}`;
-      await ctx.reply(`Роль Achievements удалена у пользователя ${label}.`);
+      await ctx.reply(`Роль ${normRole} удалена у пользователя ${label}.`);
       return;
     }
 
@@ -4942,7 +5212,8 @@ async function tournamentHandler(ctx) {
     const op = (tokens[1] || '').toLowerCase();
 
     if (op === 'add') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const text = tokens.slice(2).join(' ').trim();
       if (!text) { await ctx.reply('Использование: /tournament news add <текст новости>'); return; }
       await addNews(chatId, 'tournament', text, null, { id: ctx.from.id, username: ctx.from.username });
@@ -4952,7 +5223,8 @@ async function tournamentHandler(ctx) {
 
     // --- ПОЛНАЯ ЗАМЕНА ветки edit ---
     if (op === 'edit') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
 
       const idStr = tokens[1];
       const newText = tokens.slice(2).join(' ').trim();
@@ -5021,7 +5293,8 @@ async function tournamentHandler(ctx) {
   if (sub === 'news2') {
     const op = (tokens[1] || '').toLowerCase();
     if (op === 'add') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const userId = ctx.from.id;
 
       const keyS = ssKey(chatId, userId);
@@ -5918,7 +6191,8 @@ async function groupsHandler(ctx) {
     const sub = (tokens[1] || '').toLowerCase();
 
     if (sub === 'add') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const text = tokens.slice(2).join(' ').trim();
       if (!text) { await ctx.reply('Использование: /groups news add <текст новости>'); return; }
       const runId = await findLatestRunIdForScope(chatId, 'group');
@@ -5929,7 +6203,8 @@ async function groupsHandler(ctx) {
     }
 
     if (sub === 'edit') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const idStr = tokens[2];
       const text = tokens.slice(3).join(' ').trim();
       if (!idStr || !text) { await ctx.reply('Использование: /groups news edit <id> <текст новости>'); return; }
@@ -6769,7 +7044,8 @@ async function finalsHandler(ctx) {
     const op = (tokens[1] || '').toLowerCase();
 
     if (op === 'add') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const text = tokens.slice(2).join(' ').trim();
       if (!text) { await ctx.reply('Использование: /finals news add <текст новости>'); return; }
       const runId = await findLatestRunIdForScope(chatId, 'final');
@@ -6780,7 +7056,8 @@ async function finalsHandler(ctx) {
     }
 
     if (op === 'edit') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const idStr = tokens[2];
       const text = tokens.slice(3).join(' ').trim();
       if (!idStr || !text) { await ctx.reply('Использование: /finals news edit <id> <текст новости>'); return; }
@@ -7532,7 +7809,8 @@ async function superfinalHandler(ctx) {
     const op = (tokens[1] || '').toLowerCase();
 
     if (op === 'add') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const text = tokens.slice(2).join(' ').trim();
       if (!text) { await ctx.reply('Использование: /superfinal news add <текст новости>'); return; }
       const runId = await findLatestRunIdForScope(chatId, 'superfinal');
@@ -7543,7 +7821,8 @@ async function superfinalHandler(ctx) {
     }
 
     if (op === 'edit') {
-      if (!(await requireAdminGuard(ctx))) return;
+      //if (!(await requireAdminGuard(ctx))) return;
+      if (!(await requireNewsGuard(ctx))) return;
       const idStr = tokens[2];
       const text = tokens.slice(3).join(' ').trim();
       if (!idStr || !text) { await ctx.reply('Использование: /superfinal news edit <id> <текст новости>'); return; }
@@ -8130,6 +8409,33 @@ bot.command('cancel', async ctx => {
     }
   }
 
+  // === SIGNUP WIZARD (/register): если активен мастер регистрации заявки, отменяем его ===
+  {
+    const sKey = signupWizardKey(chatId, userId);
+    if (signupWizardSessions.has(sKey)) {
+      signupWizardSessions.delete(sKey);
+
+      // заодно сбросим разрешение на /register, если оно было выдано
+      const rKey = signupRegisterKey(chatId, userId);
+      if (signupRegisterAllowed.has(rKey)) {
+        signupRegisterAllowed.delete(rKey);
+      }
+
+      await ctx.reply('Регистрация для подачи заявки на турнир отменена.');
+      return;
+    }
+  }
+
+  // === SIGNUP REGISTER FLAG: если есть только разрешение на /register после /signup ===
+  {
+    const rKey = signupRegisterKey(chatId, userId);
+    if (signupRegisterAllowed.has(rKey)) {
+      signupRegisterAllowed.delete(rKey);
+      await ctx.reply('Подача заявки на турнир отменена.');
+      return;
+    }
+  }
+
   // === USER PROFILE: если есть активная сессия профиля, отменяем её и выходим ===
   {
     const uKey = userProfileKey(userId);
@@ -8166,16 +8472,19 @@ bot.command('cancel', async ctx => {
     }
   }
 
-
+  // === SCREENSHOTS & ACHIEVEMENTS: отмена загрузки скриншотов/логотипов/ачивок ===
   const sKey = ssKey(chatId, userId);
   const sess = screenshotSessions.get(sKey);
+  let touched = false;
 
   // Удалим временный файл для режимов ачивок (создание и редактирование логотипа)
   if (sess && (sess.mode === 'achv' || sess.mode === 'achv_logo') && sess.tempImage?.relPath) {
     try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, sess.tempImage.relPath)); } catch (_) { }
+    touched = true;
   }
   if (sess) {
     screenshotSessions.delete(sKey);
+    touched = true;
   }
 
   // Удаляем черновик описания новой ачивки (если был)
@@ -8186,15 +8495,24 @@ bot.command('cancel', async ctx => {
       try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, draft.image.relPath)); } catch (_) { }
     }
     achvDrafts.delete(akey);
+    touched = true;
   }
 
   // Удаляем активную сессию редактирования (name/desc)
   if (achvEditSessions.has(akey)) {
     achvEditSessions.delete(akey);
+    touched = true;
   }
 
-  await ctx.reply('Отменено. Уже сохранённые файлы оставлены без изменений (кроме временных файлов ачивок).');
+  if (touched) {
+    await ctx.reply('Отменено. Уже сохранённые файлы оставлены без изменений (кроме временных файлов ачивок).');
+    return;
+  }
+
+  // Ничего отменять не пришлось — скажем пользователю, что активных операций нет
+  await ctx.reply('Отмена: активных операций, связанных с заявками, профилем, командами или загрузками, не найдено.');
 });
+
 
 
 // Приём фото/документов в активной сессии
@@ -8225,7 +8543,8 @@ bot.command('news', async ctx => {
 
   // Удаление новости (как было)
   if (sub === 'del') {
-    if (!(await requireAdminGuard(ctx))) return;
+    //if (!(await requireAdminGuard(ctx))) return;
+    if (!(await requireNewsGuard(ctx))) return;
     if (!idStr) { await ctx.reply('Использование: /news del <id>'); return; }
     const res = await deleteNewsById(chatId, idStr);
     if (res.error) { await ctx.reply(res.error); return; }
@@ -8235,7 +8554,8 @@ bot.command('news', async ctx => {
 
   // Редактирование текста + предложение заменить картинку
   if (sub === 'edit') {
-    if (!(await requireAdminGuard(ctx))) return;
+    //if (!(await requireAdminGuard(ctx))) return;
+    if (!(await requireNewsGuard(ctx))) return;
     if (!idStr || !newText) { await ctx.reply('Использование: /news edit <id> <текст>'); return; }
 
     let _id;
@@ -8825,7 +9145,142 @@ async function registrationHandler(ctx) {
 
 bot.command(['registration', 'reg'], registrationHandler);
 
+// REGISTER — мастер регистрации игрока / команды с последующей подачей заявки
+async function registerForSignupHandler(ctx) {
+  if (!requireGroupContext(ctx)) return;
+  const chatId = getEffectiveChatId(ctx);
+
+  if (!ctx.from) {
+    await ctx.reply('Не удалось определить пользователя.');
+    return;
+  }
+
+  const userId = ctx.from.id;
+  const reg = await getRegistrationSettings(chatId);
+
+  if (!reg.tournamentType) {
+    await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
+    return;
+  }
+
+  // Проверяем, был ли перед этим /signup, который выдал право вызвать /register
+  const rKey = signupRegisterKey(chatId, userId);
+  const allow = signupRegisterAllowed.get(rKey);
+  if (!allow) {
+    await ctx.reply(
+      'Команда /register используется только после /signup, когда бот сообщает о необходимости регистрации для подачи заявки на турнир.'
+    );
+    return;
+  }
+  // Одноразовый допуск — сразу удаляем
+  signupRegisterAllowed.delete(rKey);
+
+  const me = await findUserByTelegramId(userId);
+
+  // FFA / 1v1 — если игрок уже есть, заявка подаётся через /signup; иначе запускаем мастер регистрации
+  if (['FFA', '1v1'].includes(reg.tournamentType)) {
+    if (me) {
+      await ctx.reply(
+        'Вы уже зарегистрированы как игрок.\n' +
+        'Для подачи заявки используйте команду /signup.'
+      );
+      return;
+    }
+
+    const sKey = signupWizardKey(chatId, userId);
+    signupWizardSessions.set(sKey, {
+      chatId,
+      userId,
+      tournamentType: reg.tournamentType,
+      step: 'player_nick',
+      mode: 'ffa',
+      playerNick: null,
+      playerNickNorm: null,
+      playerBio: null,
+      playerId: null, // заполним после insert
+    });
+
+    await ctx.reply(
+      'Регистрация профиля игрока.\n\n' +
+      'Введите желаемый ник (игровое имя).\n\n' +
+      'Отмена — /cancel.'
+    );
+    return;
+  }
+
+  // TDM — регистрируем игрока (если нужно) и создаём команду, затем подаём заявку
+  if (reg.tournamentType === 'TDM') {
+    // Если игрок уже есть
+    if (me) {
+      const teams = await colTeams.find({ memberIds: me._id }).toArray();
+
+      if (teams.length > 0) {
+        // У человека уже есть команда — логичнее использовать /signup
+        await ctx.reply(
+          'Вы уже зарегистрированы как игрок и состоите хотя бы в одной команде.\n' +
+          'Для подачи заявки используйте команду /signup.'
+        );
+        return;
+      }
+
+      // Игрок есть, команд нет — сразу переходим к созданию команды
+      const sKey = signupWizardKey(chatId, userId);
+      signupWizardSessions.set(sKey, {
+        chatId,
+        userId,
+        tournamentType: reg.tournamentType,
+        step: 'team_name',
+        mode: 'tdm',
+        playerNick: me.nick,
+        playerNickNorm: me.nickNorm,
+        playerBio: me.bio || '',
+        playerId: me._id,
+        teamName: null,
+        teamNameNorm: null,
+        teamDesc: null,
+      });
+
+      await ctx.reply(
+        'Добавление игровой команды.\n\n' +
+        'Шаг 1. Отправьте название команды.\n\n' +
+        'Отмена — /cancel.'
+      );
+      return;
+    }
+
+    // Игрока ещё нет — сначала регистрируем игрока, затем команду
+    const sKey = signupWizardKey(chatId, userId);
+    signupWizardSessions.set(sKey, {
+      chatId,
+      userId,
+      tournamentType: reg.tournamentType,
+      step: 'player_nick',
+      mode: 'tdm',
+      playerNick: null,
+      playerNickNorm: null,
+      playerBio: null,
+      playerId: null,
+      teamName: null,
+      teamNameNorm: null,
+      teamDesc: null,
+    });
+
+    await ctx.reply(
+      'Регистрация профиля игрока для TDM.\n\n' +
+      'Введите желаемый ник (игровое имя).\n\n' +
+      'Отмена — /cancel.'
+    );
+    return;
+  }
+
+  await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
+}
+
+bot.command('register', registerForSignupHandler);
+
+
 // SIGNUP (публичные заявки от игроков / команд)
+// /signup или /sup — основной сценарий подачи заявки
 async function signupHandler(ctx) {
   if (!requireGroupContext(ctx)) return;
   const chatId = getEffectiveChatId(ctx);
@@ -8838,6 +9293,7 @@ async function signupHandler(ctx) {
     return;
   }
 
+  const userId = ctx.from.id;
   const reg = await getRegistrationSettings(chatId);
 
   const now = new Date();
@@ -8845,149 +9301,112 @@ async function signupHandler(ctx) {
     reg.registrationEnabled &&
     (!reg.deadline || now.getTime() <= new Date(reg.deadline).getTime());
 
-  // /signup — статус моей заявки
+  // /signup или /sup без подкоманд
   if (!sub) {
-    const me = await findUserByTelegramId(ctx.from.id);
-    if (!me) {
-      await ctx.reply(
-        'Вы ещё не зарегистрированы как игрок.\n' +
-        'Сначала выполните /u add в личке с ботом.'
-      );
-      return;
-    }
-
     if (!reg.tournamentType) {
       await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
       return;
     }
 
-    // FFA / 1v1 — ищем заявку игрока
+    const me = await findUserByTelegramId(userId);
+
+    // --- FFA / 1v1 ---
     if (['FFA', '1v1'].includes(reg.tournamentType)) {
-      const signup = await colSignups.findOne({
-        chatId,
-        kind: 'player',
-        userId: me._id,
-      });
-      if (!signup) {
-        await ctx.reply('У вас пока нет заявки на участие в этом турнире.');
-        return;
-      }
+      if (!me) {
+        // Разрешаем использовать /register ровно один раз для этого чата и пользователя
+        const rKey = signupRegisterKey(chatId, userId);
+        signupRegisterAllowed.set(rKey, {
+          chatId,
+          userId,
+          tournamentType: reg.tournamentType,
+          createdAt: Date.now(),
+        });
 
-      const lines = [];
-      lines.push('Ваша заявка на участие:');
-      lines.push('');
-      lines.push(formatPlayerSignupsList([signup]));
-      await replyPre(ctx, lines.join('\n'));
-      return;
-    }
-
-    // TDM — ищем заявку команды, в которой он участник
-    if (reg.tournamentType === 'TDM') {
-      const teams = await colTeams.find({ memberIds: me._id }).toArray();
-      if (!teams.length) {
         await ctx.reply(
-          'Вы пока не состоите ни в одной игровой команде.\n' +
-          'Создайте команду через /teams add.'
+          'Для подачи заявки требуется регистрация игрока.\n\n' +
+          'Если хотите зарегистрироваться и подать заявку, используйте команду /register.\n' +
+          'Для отмены — /cancel.'
         );
         return;
       }
 
-      const teamIds = teams.map(t => t._id);
-      const signup = await colSignups.findOne({
-        chatId,
-        kind: 'team',
-        teamId: { $in: teamIds },
-      });
-      if (!signup) {
-        await ctx.reply('Ни одна из ваших команд пока не подала заявку на этот турнир.');
-        return;
-      }
-
-      const lines = [];
-      lines.push('Заявка команды, в которой вы участвуете:');
-      lines.push('');
-      lines.push(formatTeamSignupsList([signup]));
-      await replyPre(ctx, lines.join('\n'));
-      return;
-    }
-
-    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
-    return;
-  }
-
-  // /signup add — подать заявку
-  if (sub === 'add') {
-    if (!registrationOpen) {
-      await ctx.reply(
-        'Сейчас регистрация на турнир закрыта либо истёк дедлайн.\n' +
-        'Уточните актуальные настройки у администратора (/reg).'
-      );
-      return;
-    }
-
-    const me = await findUserByTelegramId(ctx.from.id);
-    if (!me) {
-      await ctx.reply(
-        'Вы ещё не зарегистрированы как игрок.\n' +
-        'Сначала выполните /u add в личке с ботом.'
-      );
-      return;
-    }
-
-    if (!reg.tournamentType) {
-      await ctx.reply('Тип турнира пока не задан. Обратитесь к администратору (/t type).');
-      return;
-    }
-
-    // --- FFA / 1v1: заявка самого игрока ---
-    if (['FFA', '1v1'].includes(reg.tournamentType)) {
+      // Ищем уже существующую заявку
       const existing = await colSignups.findOne({
         chatId,
         kind: 'player',
         userId: me._id,
       });
+
       if (existing) {
+        // Уже подавал заявку — показываем расширенную информацию
+        const lines = [];
+        lines.push('Вы уже подали заявку на участие в этом турнире.');
+        lines.push('');
+        lines.push(`Игрок: ${existing.playerNick || me.nick || '(без имени)'}`);
+        if (existing.createdAt) {
+          lines.push(`Дата подачи: ${formatMoscowDateTime2(existing.createdAt)}`);
+        }
+        lines.push(
+          `Статус: ${existing.confirmed ? 'одобрена' : 'ожидает подтверждения администратором'}`
+        );
+        lines.push('');
+        lines.push('Детали заявки:');
+        lines.push('');
+        lines.push(formatPlayerSignupsList([existing]));
+        await replyPre(ctx, lines.join('\n'));
+        return;
+      }
+
+      // Заявки ещё нет — создаём новую
+      if (!registrationOpen) {
         await ctx.reply(
-          'Вы уже подали заявку на участие в этом турнире.\n\n' +
-          `ID заявки: ${existing.signupId}`
+          'Сейчас регистрация на турнир закрыта либо истёк дедлайн.\n' +
+          'Уточните актуальные настройки у администратора (/reg).'
         );
         return;
       }
 
-      const now2 = new Date();
-      const signupId = generateSignupId();
-      await colSignups.insertOne({
-        chatId,
-        signupId,
-        kind: 'player',
-        userId: me._id,
-        playerNick: me.nick,
-        playerNickNorm: me.nickNorm,
-        confirmed: false,
-        createdByTelegramId: ctx.from.id,
-        createdByUsername: ctx.from.username || null,
-        createdAt: now2,
-        updatedAt: now2,
-      });
-
-      await ctx.reply(
-        'Ваша заявка на участие в турнире принята.\n' +
-        `ID заявки: ${signupId}`
-      );
+      await createPlayerSignupAndReply(ctx, chatId, reg, me);
       return;
     }
 
-    // --- TDM: заявка команды, где пользователь состоит ---
+    // --- TDM ---
     if (reg.tournamentType === 'TDM') {
+      if (!me) {
+        const rKey = signupRegisterKey(chatId, userId);
+        signupRegisterAllowed.set(rKey, {
+          chatId,
+          userId,
+          tournamentType: reg.tournamentType,
+          createdAt: Date.now(),
+        });
+
+        await ctx.reply(
+          'Для подачи заявки требуется регистрация игрока и принадлежность к команде.\n\n' +
+          'Если хотите зарегистрироваться и создать команду, используйте команду /register.\n' +
+          'Для отмены — /cancel.'
+        );
+        return;
+      }
+
       const teams = await colTeams
         .find({ memberIds: me._id })
         .sort({ nameNorm: 1 })
         .toArray();
 
       if (!teams.length) {
+        const rKey = signupRegisterKey(chatId, userId);
+        signupRegisterAllowed.set(rKey, {
+          chatId,
+          userId,
+          tournamentType: reg.tournamentType,
+          createdAt: Date.now(),
+        });
+
         await ctx.reply(
-          'Вы пока не состоите ни в одной игровой команде.\n' +
-          'Создайте команду через /teams add и повторите /signup add.'
+          'Вы пока не состоите ни в одной игровой командe.\n\n' +
+          'Если хотите зарегистрироваться и создать команду, используйте команду /register.\n' +
+          'Для отмены — /cancel.'
         );
         return;
       }
@@ -8999,46 +9418,45 @@ async function signupHandler(ctx) {
         kind: 'team',
         teamId: { $in: teamIds },
       });
+
       if (existing) {
+        const lines = [];
+        lines.push('Вы уже подали заявку на турнир как участник одной из команд.');
+        lines.push('');
+        lines.push(`Команда: ${existing.teamName || '(без названия)'}`);
+        if (existing.createdAt) {
+          lines.push(`Дата подачи: ${formatMoscowDateTime2(existing.createdAt)}`);
+        }
+        lines.push(
+          `Статус: ${existing.confirmed ? 'одобрена' : 'ожидает подтверждения администратором'}`
+        );
+        lines.push('');
+        lines.push('Детали заявки:');
+        lines.push('');
+        lines.push(formatTeamSignupsList([existing]));
+        await replyPre(ctx, lines.join('\n'));
+        return;
+      }
+
+      if (!registrationOpen) {
         await ctx.reply(
-          'Одна из ваших команд уже подала заявку на этот турнир.\n\n' +
-          `ID заявки: ${existing.signupId}`
+          'Сейчас регистрация на турнир закрыта либо истёк дедлайн.\n' +
+          'Уточните актуальные настройки у администратора (/reg).'
         );
         return;
       }
 
-      // Если команда одна — регистрируем сразу
+      // Если команда одна — сразу создаём заявку
       if (teams.length === 1) {
-        const team = teams[0];
-        const now2 = new Date();
-        const signupId = generateSignupId();
-        await colSignups.insertOne({
-          chatId,
-          signupId,
-          kind: 'team',
-          teamId: team._id,
-          teamName: team.name,
-          teamNameNorm: team.nameNorm,
-          teamMembers: team.memberNicks || [],
-          confirmed: false,
-          createdByTelegramId: ctx.from.id,
-          createdByUsername: ctx.from.username || null,
-          createdAt: now2,
-          updatedAt: now2,
-        });
-
-        await ctx.reply(
-          `Заявка команды "${team.name}" на участие в турнире принята.\n` +
-          `ID заявки: ${signupId}`
-        );
+        await createTeamSignupAndReply(ctx, chatId, reg, teams[0]);
         return;
       }
 
-      // Если команд больше одной — запускаем диалог выбора
-      const stKey = signupTeamSelectKey(chatId, ctx.from.id);
+      // Если команд больше одной — запускаем существующий механизм выбора команды
+      const stKey = signupTeamSelectKey(chatId, userId);
       signupTeamSelectSessions.set(stKey, {
         chatId,
-        userId: ctx.from.id,
+        userId,
         teams,
         startedAt: Date.now(),
       });
@@ -9047,19 +9465,19 @@ async function signupHandler(ctx) {
       await replyPre(
         ctx,
         listText +
-          '\nУкажите номер команды, которую нужно зарегистрировать на турнир (1, 2, ...).\n' +
-          'Для отмены используйте /cancel.'
+        '\nУкажите номер команды, которую нужно зарегистрировать на турнир (1, 2, ...).\n' +
+        'Для отмены используйте /cancel.'
       );
       return;
     }
 
-    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору.');
+    await ctx.reply('Неизвестный тип турнира. Обратитесь к администратору (/t type).');
     return;
   }
 
-  // /signup del — отозвать свою заявку
+  // /signup del — отозвать свою заявку (оставляем существующую логику)
   if (sub === 'del') {
-    const me = await findUserByTelegramId(ctx.from.id);
+    const me = await findUserByTelegramId(userId);
     if (!me) {
       await ctx.reply('Вы ещё не зарегистрированы как игрок (/u add).');
       return;
@@ -9111,11 +9529,76 @@ async function signupHandler(ctx) {
     return;
   }
 
-  await ctx.reply('Неизвестная подкоманда /signup. Доступные: add, del.');
+  await ctx.reply('Неизвестная подкоманда /signup. Доступна: del (отозвать заявку).');
 }
 
 // Привязка команд
 bot.command(['signup', 'sup'], signupHandler);
+
+// Хелпер: создать заявку игрока и вывести подробный текст
+async function createPlayerSignupAndReply(ctx, chatId, reg, userDoc) {
+  const now = new Date();
+  const signupId = generateSignupId();
+
+  await colSignups.insertOne({
+    chatId,
+    signupId,
+    kind: 'player',
+    userId: userDoc._id,
+    playerNick: userDoc.nick,
+    playerNickNorm: userDoc.nickNorm,
+    confirmed: false,
+    createdByTelegramId: ctx.from.id,
+    createdByUsername: ctx.from.username || null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const lines = [];
+  lines.push('Ваша заявка на участие в турнире принята!');
+  lines.push('');
+  if (ctx.chat?.title) {
+    lines.push(`Турнир: ${ctx.chat.title}`);
+  }
+  lines.push(`Игрок: ${userDoc.nick || '(без имени)'}`);
+  lines.push(`ID заявки: ${signupId}`);
+  lines.push(`Время: ${formatMoscowDateTime2(now)}`);
+  lines.push('Статус: ожидает подтверждения администратором турнира');
+  await replyPre(ctx, lines.join('\n'));
+}
+
+// Хелпер: создать заявку команды и вывести подробный текст
+async function createTeamSignupAndReply(ctx, chatId, reg, teamDoc) {
+  const now = new Date();
+  const signupId = generateSignupId();
+
+  await colSignups.insertOne({
+    chatId,
+    signupId,
+    kind: 'team',
+    teamId: teamDoc._id,
+    teamName: teamDoc.name,
+    teamNameNorm: teamDoc.nameNorm,
+    teamMembers: teamDoc.memberNicks || [],
+    confirmed: false,
+    createdByTelegramId: ctx.from.id,
+    createdByUsername: ctx.from.username || null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const lines = [];
+  lines.push('Заявка команды на участие в турнире принята!');
+  lines.push('');
+  if (ctx.chat?.title) {
+    lines.push(`Турнир: ${ctx.chat.title}`);
+  }
+  lines.push(`Команда: ${teamDoc.name}`);
+  lines.push(`ID заявки: ${signupId}`);
+  lines.push(`Время: ${formatMoscowDateTime2(now)}`);
+  lines.push('Статус: ожидает подтверждения администратором турнира');
+  await replyPre(ctx, lines.join('\n'));
+}
 
 
 // SetMyCommands (basic)
