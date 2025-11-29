@@ -433,7 +433,7 @@ function renderServersSection(tournament, containerClass, collapsedByDefault = f
     <section class="mb-4">
       <details id="section-servers" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Список серверов</span>
+          <span class="section-title">🖥️ 🖥️ 🖥️ Список серверов</span>
           <a href="#section-servers" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
         </summary>
         <div class="mt-2">
@@ -459,7 +459,7 @@ function renderPackSection(tournament, containerClass, collapsedByDefault = fals
     <section class="mb-4">
       <details id="section-pack" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Архив с картами</span>
+          <span class="section-title">🗂️ Архив с картами</span>
           <a href="#section-pack" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
         </summary>
         <div class="mt-2">
@@ -487,7 +487,7 @@ function renderMapsListSection(mapsList = [], containerClass, collapsedByDefault
     <section class="mb-4">
       <details id="section-maps-list" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Список карт</span>
+          <span class="section-title">🎮 Список карт</span>
           <a href="#section-maps-list" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
         </summary>
         <div class="mt-2">
@@ -563,8 +563,8 @@ function renderTopMenu({
 }) {
   const raw = [];
 
-   // Есть ли вообще демки у турнира (по группам/финалам/суперфиналам)
-   const hasDemos = (() => {
+  // Есть ли вообще демки у турнира (по группам/финалам/суперфиналам)
+  const hasDemos = (() => {
     function has(arr) {
       if (!Array.isArray(arr)) return false;
       for (const g of arr) {
@@ -582,23 +582,23 @@ function renderTopMenu({
   if (Array.isArray(tournamentNews) && tournamentNews.length > 0) {
     const n = tournamentNews[0];
     const nid = (n && n._id && typeof n._id.toString === 'function') ? n._id.toString() : String(n?._id || '');
-    if (nid) raw.push({ label: 'Новости', href: `#news-${nid}` });
+    if (nid) raw.push({ label: '📰 Новости', href: `#news-${nid}` });
   }
 
-  if (tournament?.desc) raw.push({ label: 'Информация', href: '#section-desc' });
-  if (Array.isArray(groups) && groups.length > 0) raw.push({ label: 'Квалификации', href: '#section-groups' });
-  if (Array.isArray(finals) && finals.length > 0) raw.push({ label: 'Финал', href: '#section-finals' });
-  if (Array.isArray(superfinals) && superfinals.length > 0) raw.push({ label: 'Суперфинал', href: '#section-superfinals' });
+  if (tournament?.desc) raw.push({ label: 'ℹ️ Информация', href: '#section-desc' });
+  if (Array.isArray(groups) && groups.length > 0) raw.push({ label: '🎯 Квалификации', href: '#section-groups' });
+  if (Array.isArray(finals) && finals.length > 0) raw.push({ label: '🏆 Финал', href: '#section-finals' });
+  if (Array.isArray(superfinals) && superfinals.length > 0) raw.push({ label: '👑 Суперфинал', href: '#section-superfinals' });
   // NEW: Аналитика — до Статистики
-  if (analyticsUrl) raw.push({ label: 'Аналитика', href: analyticsUrl });
-  if (showStats) raw.push({ label: 'Статистика', href: '#section-stats' });
-  if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: 'Ачивки', href: '#section-achievements' });
-  if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: 'Перки', href: '#section-perks' });
+  if (analyticsUrl) raw.push({ label: '📊 Аналитика', href: analyticsUrl });
+  if (showStats) raw.push({ label: '📈 Статистика', href: '#section-stats' });
+  if (Array.isArray(achievementsAch) && achievementsAch.length > 0) raw.push({ label: '🏅 Ачивки', href: '#section-achievements' });
+  if (Array.isArray(achievementsPerc) && achievementsPerc.length > 0) raw.push({ label: '⚡ Перки', href: '#section-perks' });
 
   // NEW: кнопка "Демки" — строго после "Перки" и только если есть хотя бы одна ссылка на демо
   if (hasDemos) {
     raw.push({
-      label: 'Демки',
+      label: '🎥 Демки',
       href: '#demos-modal',
       badgeText: '',
       external: false,
@@ -606,16 +606,16 @@ function renderTopMenu({
     });
   }
 
-  if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: 'Сервера', href: '#section-servers' });
+  if (Array.isArray(tournament?.servers) && tournament.servers.length > 0) raw.push({ label: '🖥️ Сервера', href: '#section-servers' });
 
   const hasStreams = tournamentHasStreams(tournament);
-  if (hasStreams) raw.push({ label: 'Стримы', href: '#section-streams' });
+  if (hasStreams) raw.push({ label: '📺 Стримы', href: '#section-streams' });
   //if (Array.isArray(tournament?.streams) && tournament.streams.length > 0) raw.push({ label: 'Стримы', href: '#section-streams' });
-  if (showFeedback) raw.push({ label: 'Отзывы', href: '#section-feedback' });
+  if (showFeedback) raw.push({ label: '💬 Отзывы', href: '#section-feedback' });
 
   // НОВОЕ: кнопки для модалок "Игроки / Команды / Заявки"
   raw.push({
-    label: 'Игроки',
+    label: '🧍 Игроки',
     href: '#players-modal',
     badgeText: '',
     external: false,
@@ -623,7 +623,7 @@ function renderTopMenu({
   });
 
   raw.push({
-    label: 'Команды',
+    label: '🛡️ Команды',
     href: '#teams-modal',
     badgeText: '',
     external: false,
@@ -631,7 +631,7 @@ function renderTopMenu({
   });
 
   raw.push({
-    label: 'Заявки',
+    label: '📝 Заявки',
     href: '#signups-modal',
     badgeText: '',
     external: false,
@@ -1031,7 +1031,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
     if (yt) {
       return `
         <div class="stream-embed mb-2">
-          <iframe data-src="${yt}" title="Трансляция YouTube"
+          <iframe data-src="${yt}" title="📺 Трансляция YouTube"
                   loading="lazy" tabindex="-1"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowfullscreen
@@ -1045,7 +1045,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
         <div class="stream-embed mb-2">
           <iframe class="js-video-iframe js-twitch-embed"
                   data-channel="${escapeHtml(twitchChan)}"
-                  title="Трансляция Twitch"
+                  title="📺 Трансляция Twitch"
                   loading="lazy" tabindex="-1"
                   allowfullscreen
                   style="width:100%; aspect-ratio:16/9; border:0; border-radius:10px;"></iframe>
@@ -1055,7 +1055,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
     if (vkVideo) {
       return `
         <div class="stream-embed mb-2">
-          <iframe data-src="${escapeHtml(vkVideo)}" title="Трансляция VK"
+          <iframe data-src="${escapeHtml(vkVideo)}" title="📺 Трансляция VK"
                   loading="lazy" tabindex="-1"
                   allowfullscreen
                   class="js-video-iframe"
@@ -1066,7 +1066,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
     if (rutube) {
       return `
         <div class="stream-embed mb-2">
-          <iframe data-src="${escapeHtml(rutube)}" title="Трансляция RuTube"
+          <iframe data-src="${escapeHtml(rutube)}" title="📺 Трансляция RuTube"
                   loading="lazy" tabindex="-1"
                   allowfullscreen
                   class="js-video-iframe"
@@ -1077,7 +1077,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
     if (vk) {
       return `
         <div class="stream-embed mb-2">
-          <iframe data-src="${escapeHtml(vk)}" title="Трансляция"
+          <iframe data-src="${escapeHtml(vk)}" title="📺 Трансляция"
                   loading="lazy" tabindex="-1"
                   allowfullscreen
                   class="js-video-iframe"
@@ -1092,7 +1092,7 @@ function renderStreamsSection(tournament, containerClass, collapsedByDefault = f
     <section class="mb-5">
       <details id="section-streams" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Стримеры</span>
+          <span class="section-title">📺 Стримеры</span>
           <a href="#section-streams" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
           <span class="qj-badge ms-auto">${tournament.streams.length}</span>
         </summary>
@@ -1153,7 +1153,7 @@ function renderFeedbackSection(feedbackEntries = [], containerClass, collapsedBy
     <section class="mb-5">
       <details id="section-feedback" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Отзывы</span>
+          <span class="section-title">💬 Отзывы</span>
           <a href="#section-feedback" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
           <span class="qj-badge ms-auto">${feedbackEntries.length}</span>
         </summary>
@@ -1182,10 +1182,15 @@ function renderUsersModalBody(users = []) {
 
     return `
       <tr>
-        <td class="small fw-semibold">${escapeHtml(nick)}</td>
+        <td class="small fw-semibold">
+          ${u.country
+        ? `<img src="/media/flags/1x1/${escapeHtml(u.country)}.svg" alt="" 
+                    style="height:14px; vertical-align:middle; margin-right:4px;">`
+        : `<img src="/media/flags/1x1/question.svg" alt="?" 
+                    style="height:14px; vertical-align:middle; margin-right:4px;">`}
+          ${escapeHtml(nick)}
+        </td>
         <td class="small">${escapeHtml(bio || '')}</td>
-        <td class="small text-nowrap text-muted qj-col-created">${escapeHtml(created || '')}</td>
-        <td class="small text-nowrap text-muted qj-col-updated">${escapeHtml(updated || '')}</td>
       </tr>
     `;
   }).join('');
@@ -1198,8 +1203,6 @@ function renderUsersModalBody(users = []) {
           <tr>
             <th class="small text-secondary" data-sort-type="string">Ник</th>
             <th class="small text-secondary" data-sort-type="string">Описание</th>
-            <th class="small text-secondary text-nowrap qj-col-created" data-sort-type="string">Создан</th>
-            <th class="small text-secondary text-nowrap qj-col-updated" data-sort-type="string">Обновлён</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -1262,21 +1265,52 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
   }
 
   let settingsHtml = '';
+  let hideMembersCol = false;
+  let type = '';
+
   if (hasSettings) {
     const maxPlayers = registrationSettings.maxPlayers ?? null;
-    const type = registrationSettings.tournamentType || '';
-    const deadline = registrationSettings.deadline ? formatRuMskDateTime(registrationSettings.deadline) : '';
-    const enabled = registrationSettings.registrationEnabled;
-    const openedAt = registrationSettings.registrationOpenedAt ? formatRuMskDateTime(registrationSettings.registrationOpenedAt) : '';
-    const closedAt = registrationSettings.registrationClosedAt ? formatRuMskDateTime(registrationSettings.registrationClosedAt) : '';
+    type = registrationSettings.tournamentType || '';
+    const typeNorm = String(type).toLowerCase();
+
+    // НЕ показываем колонку "Состав" для 1v1 и FFA
+    hideMembersCol = typeNorm.includes('1v1') || typeNorm.includes('ffa');
+
+    const deadline = registrationSettings.deadline
+      ? formatRuMskDateTime(registrationSettings.deadline)
+      : '';
+    const enabled = !!registrationSettings.registrationEnabled;
+    const openedAt = registrationSettings.registrationOpenedAt
+      ? formatRuMskDateTime(registrationSettings.registrationOpenedAt)
+      : '';
+    const closedAt = registrationSettings.registrationClosedAt
+      ? formatRuMskDateTime(registrationSettings.registrationClosedAt)
+      : '';
 
     settingsHtml = `
       <div class="card mb-3">
         <div class="card-body py-2">
-          <div class="small mb-1"><span class="fw-semibold">Тип турнира:</span> ${escapeHtml(type || '—')}</div>
-          <div class="small mb-1"><span class="fw-semibold">Максимум участников:</span> ${maxPlayers !== null ? maxPlayers : '—'}</div>
-          <div class="small mb-1"><span class="fw-semibold">Дедлайн подачи заявок:</span> ${escapeHtml(deadline || '—')}</div>
-          <div class="small mb-1"><span class="fw-semibold">Статус регистрации:</span> ${enabled ? '<span class="text-success">открыта</span>' : '<span class="text-muted">закрыта</span>'}</div>
+          <div class="small mb-1">
+            <span class="fw-semibold">Тип турнира:</span>
+            ${escapeHtml(type || '—')}
+          </div>
+          <div class="small mb-1">
+            <span class="fw-semibold">Тип регистрации:</span> ${escapeHtml(registrationSettings.sgAddMode || '—')}
+          </div>
+          <div class="small mb-1">
+            <span class="fw-semibold">Максимум участников:</span>
+            ${maxPlayers !== null ? maxPlayers : '—'}
+          </div>
+          <div class="small mb-1">
+            <span class="fw-semibold">Дедлайн подачи заявок:</span>
+            ${escapeHtml(deadline || '—')}
+          </div>
+          <div class="small mb-1">
+            <span class="fw-semibold">Регистрация:</span>
+            ${enabled
+        ? '<span class="text-success">открыта</span>'
+        : '<span class="text-muted">закрыта</span>'}
+          </div>
           <div class="small text-muted">
             ${openedAt ? `Открыта: ${escapeHtml(openedAt)}` : ''}
             ${closedAt ? `<br>Закрыта: ${escapeHtml(closedAt)}` : ''}
@@ -1284,6 +1318,9 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
         </div>
       </div>
     `;
+  } else {
+    // если настроек нет, подстраховка — колонку "Состав" показываем
+    hideMembersCol = false;
   }
 
   let tableHtml = '';
@@ -1295,13 +1332,21 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
         ? s.teamMembers.join(', ')
         : (s.playerNick || '—');
       const created = s.createdAt ? formatRuMskDateTime(s.createdAt) : '';
-      const confirmed = s.confirmed ? '<span class="badge bg-success">подтверждена</span>' : '<span class="badge bg-secondary">ожидает</span>';
+      const confirmed = s.confirmed
+        ? '<span class="badge bg-success">подтверждена</span>'
+        : '<span class="badge bg-secondary">ожидает</span>';
 
       return `
         <tr>
-          <td class="small">${kind}</td>
-          <td class="small fw-semibold">${escapeHtml(name)}</td>
-          <td class="small">${escapeHtml(members)}</td>
+          <td class="small fw-semibold">
+            ${s.country
+              ? `<img src="/media/flags/1x1/${escapeHtml(s.country)}.svg" alt="" 
+                      style="height:14px; vertical-align:middle; margin-right:4px;">`
+              : `<img src="/media/flags/1x1/question.svg" alt="?" 
+                      style="height:14px; vertical-align:middle; margin-right:4px;">`}
+            ${escapeHtml(name)}
+          </td>
+          ${hideMembersCol ? '' : `<td class="small">${escapeHtml(members)}</td>`}
           <td class="small text-nowrap text-muted">${escapeHtml(created || '')}</td>
           <td class="small text-nowrap">${confirmed}</td>
         </tr>
@@ -1314,9 +1359,8 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
         <table class="table table-sm align-middle qj-table qj-modal-table mb-0 js-sortable-table">
           <thead>
             <tr>
-              <th class="small text-secondary" data-sort-type="string">Тип</th>
               <th class="small text-secondary" data-sort-type="string">Команда / игрок</th>
-              <th class="small text-secondary" data-sort-type="string">Состав</th>
+              ${hideMembersCol ? '' : `<th class="small text-secondary" data-sort-type="string">Состав</th>`}
               <th class="small text-secondary text-nowrap" data-sort-type="string">Создана</th>
               <th class="small text-secondary text-nowrap" data-sort-type="string">Статус</th>
             </tr>
@@ -1331,6 +1375,7 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
 
   return settingsHtml + tableHtml;
 }
+
 
 function renderDemosModalBody(rows = []) {
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -1503,6 +1548,7 @@ async function getTournament(chatId) {
   return {
     name: doc?.tournamentName || '',
     site: doc?.tournamentSite || '',
+    wiki: doc?.tournamentWiki || '',
     desc: doc?.tournamentDesc || '',
     logo: doc?.tournamentLogo || null, // { relPath, ... }
     // Новые поля для верхнего блока
@@ -2130,10 +2176,17 @@ function renderPlayers(
     const displayName = p.nameOrig || p.nameNorm || '';
     const haloClass = getHaloClassByIndex(i);
 
+    // Формируем HTML флага
+    const flagCode = p.country || '';
+    const flagHtml = flagCode
+      ? `<img src="/media/flags/1x1/${escapeHtml(flagCode)}.svg" alt="" 
+           style="height:14px; vertical-align:middle; margin-right:4px;">`
+      : `<img src="/media/flags/1x1/question.svg" alt="?" 
+           style="height:14px; vertical-align:middle; margin-right:4px;">`;
     const pnameHtml = PLAYER_STATS_ENABLED
       ? `<a href="#" class="player-name player-link qj-accent fw-semibold js-player-stat${haloClass}"
-                data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
-      : `<span class="player-name qj-accent fw-semibold${haloClass}">${escapeHtml(displayName)}</span>`;
+            data-player="${escapeAttr(displayName)}">${flagHtml}${escapeHtml(displayName)}</a>`
+      : `<span class="player-name qj-accent fw-semibold${haloClass}">${flagHtml}${escapeHtml(displayName)}</span>`;
 
     return `<li>
           ${posHtml}
@@ -2142,6 +2195,115 @@ function renderPlayers(
         </li>`;
   }).join('')}
   </ul>`;
+}
+
+// === ФЛАГИ ИГРОКОВ =========================================================
+
+let PLAYER_COUNTRY_BY_SIGNUP_ID = new Map();
+let PLAYER_COUNTRY_BY_NORM_NAME = new Map();
+
+function normalizePlayerKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9а-яё]+/g, ''); // убираем пробелы/спецсимволы
+}
+
+function initPlayerCountryIndexes(signups = [], users = []) {
+  PLAYER_COUNTRY_BY_SIGNUP_ID = new Map();
+  PLAYER_COUNTRY_BY_NORM_NAME = new Map();
+
+  const usersById = new Map();
+
+  // Индекс по userId
+  for (const u of users || []) {
+    let id = null;
+    if (u?._id && typeof u._id.toString === 'function') {
+      id = u._id.toString();
+    } else if (u?._id != null) {
+      id = String(u._id);
+    }
+    if (!id) continue;
+
+    usersById.set(id, u);
+
+    const nickKey = normalizePlayerKey(u.nickNorm || u.nick);
+    const c = (u.country || '').trim().toLowerCase();
+    if (nickKey && c && !PLAYER_COUNTRY_BY_NORM_NAME.has(nickKey)) {
+      PLAYER_COUNTRY_BY_NORM_NAME.set(nickKey, c);
+    }
+  }
+
+  // Индекс по signupId + нормализованному нику из заявок
+  for (const s of signups || []) {
+    const signupId = s.signupId;
+    if (!signupId) continue;
+
+    let uid = null;
+    if (s.userId && typeof s.userId.toString === 'function') {
+      uid = s.userId.toString();
+    } else if (s.userId != null) {
+      uid = String(s.userId);
+    }
+
+    const u = uid ? usersById.get(uid) : null;
+    const c = (u?.country || '').trim().toLowerCase();
+    if (!c) continue;
+
+    // связываем signupId -> country
+    PLAYER_COUNTRY_BY_SIGNUP_ID.set(signupId, c);
+
+    // и сразу же ник из заявки -> country (на всякий случай)
+    const nKey = normalizePlayerKey(s.playerNickNorm || s.playerNick);
+    if (nKey && !PLAYER_COUNTRY_BY_NORM_NAME.has(nKey)) {
+      PLAYER_COUNTRY_BY_NORM_NAME.set(nKey, c);
+    }
+  }
+}
+
+function resolvePlayerCountryCode(nameNormOrOrig, signupId) {
+  // 1) приоритет по signupId
+  if (signupId && PLAYER_COUNTRY_BY_SIGNUP_ID.has(signupId)) {
+    return PLAYER_COUNTRY_BY_SIGNUP_ID.get(signupId);
+  }
+
+  // 2) fallback по нормализованному нику
+  const key = normalizePlayerKey(nameNormOrOrig);
+  if (key && PLAYER_COUNTRY_BY_NORM_NAME.has(key)) {
+    return PLAYER_COUNTRY_BY_NORM_NAME.get(key);
+  }
+
+  return null;
+}
+
+// Универсальный рендер имени с флагом
+function renderPlayerNameWithFlag(nameOrig, nameNorm, signupId, extraClasses = '') {
+  const displayName = nameOrig || nameNorm || '';
+  const code = resolvePlayerCountryCode(nameNorm || nameOrig, signupId);
+  const finalCode = (code && typeof code === 'string' && code.trim())
+    ? code.trim().toLowerCase()
+    : 'question';
+
+  const flagUrl = `/media/flags/1x1/${encodeURIComponent(finalCode)}.svg`;
+
+  const baseClass = extraClasses ? ' ' + extraClasses.trim() : '';
+
+  const nameHtml = PLAYER_STATS_ENABLED
+    ? `<a href="#"
+          class="player-name player-link qj-accent fw-semibold${baseClass}"
+          data-player="${escapeAttr(displayName)}">${escapeHtml(displayName)}</a>`
+    : `<span class="player-name qj-accent fw-semibold${baseClass}">${escapeHtml(displayName)}</span>`;
+
+  return `
+    <span class="qj-player-flag-wrap">
+      <img src="${escapeAttr(flagUrl)}"
+           alt=""
+           class="qj-player-flag me-1"
+           loading="lazy"
+           onerror="this.style.visibility='hidden';">
+      ${nameHtml}
+    </span>
+  `;
 }
 
 
@@ -2416,6 +2578,7 @@ function renderDemos(demos = []) {
 }
 
 // Результаты игровых карт для одной группы/финала/суперфинала
+// Результаты игровых карт для одной группы/финала/суперфинала
 function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
   const gid = Number(group.groupId);
   if (!Number.isFinite(gid) || !resultsByGroup || !resultsByGroup.size) return '';
@@ -2429,90 +2592,109 @@ function renderGroupResultsDetails(scope, group, resultsByGroup = new Map()) {
   // сортировка по времени матча (на всякий случай ещё раз)
   const items = list.slice().sort((a, b) => getMatchTimeValue(a) - getMatchTimeValue(b));
 
+  // локальный хелпер для флага
+  function renderPlayerFlagSmall(player) {
+    // предполагаем, что при сохранении результатов карты в player.country уже лежит код страны (ru, ua, us и т.д.)
+    const raw = (player && player.country) ? String(player.country).trim().toLowerCase() : '';
+    const code = raw || '';
+    const fileName = code ? `${code}.svg` : 'question.svg';
+    const alt = code || '?';
+
+    return `
+      <img
+        src="/media/flags/1x1/${escapeAttr(fileName)}"
+        alt="${escapeAttr(alt)}"
+        class="me-1"
+        style="width:16px; height:16px; object-fit:cover; border-radius:2px; vertical-align:middle;"
+      />
+    `;
+  }
+
   const blocks = items.map(r => {
     const mapName = r.map || r.mapNorm || '';
     const finishedStr = formatMatchFinishedRuMsk(r);
     const durationStr = formatMatchDuration(r);
     const players = Array.isArray(r.players) ? r.players.slice() : [];
 
-    // сортируем игроков: сначала по фрагам (по убыванию),
-    // при равных фрагах — по эффективности (eff, по убыванию),
-    // и только потом по имени
+    // сортировка игроков внутри карты:
+    // по фрагам (убыв), при равных фрагах — по эффективности (убыв)
     players.sort((a, b) => {
       const fa = Number(a.frags) || 0;
       const fb = Number(b.frags) || 0;
       if (fb !== fa) return fb - fa;
 
-      const eaRaw = Number(a.eff);
-      const ebRaw = Number(b.eff);
-      const ea = Number.isFinite(eaRaw) ? eaRaw : Number.NEGATIVE_INFINITY;
-      const eb = Number.isFinite(ebRaw) ? ebRaw : Number.NEGATIVE_INFINITY;
-      if (eb !== ea) return eb - ea;
-
-      return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
+      const ea = Number(a.eff) || 0;
+      const eb = Number(b.eff) || 0;
+      return eb - ea;
     });
 
-    const rowsHtml = players.map(p => `
-      <tr>
-        <td class="small">${escapeHtml(p.nameOrig || p.nameNorm || '')}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.frags)) ? Number(p.frags) : ''}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.kills)) ? Number(p.kills) : ''}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.eff)) ? Number(p.eff) : ''}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.fph)) ? Number(p.fph) : ''}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.dgiv)) ? Number(p.dgiv) : ''}</td>
-        <td class="text-end small">${Number.isFinite(Number(p.drec)) ? Number(p.drec) : ''}</td>
-      </tr>
-    `).join('');
+    const rowsHtml = players.map(p => {
+      const displayName = p.nameOrig || p.nameNorm || '';
+      const flagHtml = renderPlayerFlagSmall(p);
+      const nameHtml = `
+        <span class="d-inline-flex align-items-center">
+          <span>${escapeHtml(displayName)}</span>
+        </span>
+      `;
 
-    const finishedLine = finishedStr
-      ? `Завершена: ${escapeHtml(finishedStr)}`
-      : '';
-    const durationLine = durationStr
-      ? `Длительность: ${escapeHtml(durationStr)}`
-      : '';
-
-    const metaLine = finishedLine || durationLine
-      ? `<div class="small text-muted mb-2">${finishedLine}${finishedLine && durationLine ? ' · ' : ''}${durationLine}</div>`
-      : '';
+      return `
+        <tr>
+          <td>${nameHtml}</td>
+          <td class="text-end">${Number(p.frags) || 0}</td>
+          <td class="text-end">${Number(p.kills) || 0}</td>
+          <td class="text-end">${Number(p.eff) || 0}</td>
+          <td class="text-end">${Number(p.fph) || 0}</td>
+          <td class="text-end">${Number(p.dgiv) || 0}</td>
+          <td class="text-end">${Number(p.drec) || 0}</td>
+        </tr>
+      `;
+    }).join('');
 
     return `
-      <div class="mb-3">
-        <div class="small text-secondary mb-1">
-          <span class="fw-semibold">Карта:</span>
-          <span class="qj-tag qj-map-tag ms-1">${escapeHtml(mapName)}</span>
-        </div>
-        ${metaLine}
-        <div class="table-responsive">
-          <table class="table table-sm table-striped align-middle qj-table mb-0 js-sortable-table">
-            <thead>
-              <tr>
-                <th class="small text-secondary" data-sort-type="string">Игрок</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Frags</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Deaths</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Eff</th>
-                <th class="small text-secondary text-end" data-sort-type="number">FPH</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Dgiv</th>
-                <th class="small text-secondary text-end" data-sort-type="number">Drec</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
+      <div class="card shadow-sm mb-3">
+        <div class="card-body py-3">
+          <div class="d-flex flex-wrap align-items-center small text-muted mb-2">
+            <div class="me-3">
+              🎮 Карта: <span class="fw-semibold">${escapeHtml(mapName || '(не указано)')}</span>
+            </div>
+            <div class="me-3">
+              ${finishedStr ? `⏱️ Завершена: ${escapeHtml(finishedStr)}` : ''}
+            </div>
+            <div class="me-3">
+              ${durationStr ? `⏳ Длительность: ${escapeHtml(durationStr)}` : ''}
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle qj-table mb-0 js-sortable-table">
+              <thead>
+                <tr>
+                  <th class="small text-secondary" data-sort-type="string">Игрок</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Frags</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Deaths</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Eff</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">FPH</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Dgiv</th>
+                  <th class="small text-secondary text-end" data-sort-type="number">Drec</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
         </div>
       </div>
     `;
-
   }).join('');
 
   // ВАЖНО: по умолчанию секция "Подробнее" всегда свёрнута (open не ставим)
   return `
     <details id="${escapeHtml(detailsId)}" class="sub-collapse mt-3">
       <summary class="qj-toggle">
-        <span class="section-title">Подробнее</span>
+        <span class="section-title">👁️ Подробнее</span>
         <a href="#${escapeHtml(detailsId)}" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел Подробнее">#</a>
       </summary>
       <div class="mt-2">
         <div class="small text-secondary mb-2">
-          Результаты карт группы №${escapeHtml(String(group.groupId))}
+          🗺️ Результаты карт группы №${escapeHtml(String(group.groupId))}
         </div>
         ${blocks}
       </div>
@@ -2945,7 +3127,7 @@ function renderMapsPopularityTable(sectionId, items = [], collapsedByDefault = f
     <section class="mb-4">
       <details id="${escapeHtml(sectionId)}" class="sub-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Частота назначений карт</span>
+          <span class="section-title">🔂 Частота назначений карт</span>
           <a href="#${escapeHtml(sectionId)}" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
           <span class="qj-badge ms-auto">${stats.length}</span>
         </summary>
@@ -2983,7 +3165,7 @@ function renderTournamentDescSection(tournament, containerClass, collapsedByDefa
     <section class="mb-4">
       <details id="section-desc" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Описание турнира</span>
+          <span class="section-title">ℹ️ Описание турнира</span>
           <a href="#section-desc" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
         </summary>
         <div class="mt-2">
@@ -3032,7 +3214,7 @@ function renderTournamentStatsSection(statsUrl, containerClass, collapsedByDefau
     <section class="mb-5">
       <details id="section-stats" class="stage-collapse"${openAttr}>
         <summary class="qj-toggle">
-          <span class="section-title">Статистика турнира</span>
+          <span class="section-title">📈 Статистика турнира</span>
           <a href="#section-stats" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
         </summary>
         <div class="mt-2">
@@ -3054,7 +3236,7 @@ function renderTournamentStatsSection(statsUrl, containerClass, collapsedByDefau
 function renderSection(title, items, scope, screensMap, ptsMap = null, collapsedByDefault = false, achIndex = null, resultsByGroup = new Map()) {
   if (!items?.length) return '<div class="text-muted">Нет данных</div>';
 
-  const label = (scope === 'group') ? 'Квалификация' : (scope === 'final') ? 'Финал' : 'Суперфинал';
+  const label = (scope === 'group') ? '🎯 Квалификация' : (scope === 'final') ? '🏆 Финал' : '👑 Суперфинал';
   const openAttr = collapsedByDefault ? '' : ' open';
 
   const cells = items.map(g => {
@@ -3341,13 +3523,19 @@ function renderPage({
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
 
+  // НОВОЕ: построить индексы стран игроков для флагов
+  initPlayerCountryIndexes(signups, users);
+
   const faviconLink = logoUrl
     ? `<link rel="icon" type="${escapeHtml(logoMime)}" href="${logoUrl}">`
     : `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23007bff'/%3E%3Ctext x='32' y='39' font-family='Arial' font-size='28' text-anchor='middle' fill='white'%3EQ%3C/text%3E%3C/svg%3E'>`;
 
   const logoBlock = logoUrl ? `<img src="${logoUrl}" alt="Логотип турнира" class="hero-logo me-3" />` : '';
   const siteLink = tournament.site
-    ? `<a href="${escapeHtml(tournament.site)}" target="_blank" rel="noopener" class="small text-muted text-decoration-none">${escapeHtml(tournament.site)}</a>`
+    ? `<a href="${escapeHtml(tournament.site)}" target="_blank" rel="noopener" class="small text-muted text-decoration-none" title="Этот сайт">${escapeHtml('🏠Этот сайт')}</a>`
+    : '';
+  const siteWiki = tournament.wiki
+    ? `<a href="${escapeHtml(tournament.wiki)}" target="_blank" rel="noopener" class="text-decoration-none" title="WiKi турнира">${escapeHtml('📖WiKi')}</a>`
     : '';
 
   const newsChannelLink = tournament.newsChannel
@@ -3356,7 +3544,8 @@ function renderPage({
       const handle = h.replace(/^@/, '');
       const href = `https://t.me/${encodeURIComponent(handle)}`;
       // оборачиваем так же, как siteLink (под твой стиль ссылок)
-      return `<a href="${href}" target="_blank" rel="noopener" class="link-success link-underline-opacity-0 link-underline-opacity-50-hover">${escapeHtml(h)}</a>`;
+      //return `<a href="${href}" target="_blank" rel="noopener" class="link-success link-underline-opacity-0 link-underline-opacity-50-hover">${escapeHtml(h)}</a>`;
+      return `<a href="${href}" target="_blank" rel="noopener" class="link-success link-underline-opacity-0 link-underline-opacity-50-hover" title="Новости в Telegram">${escapeHtml('✈️Telegram')}</a>`;
     })()
     : '';
 
@@ -3367,7 +3556,7 @@ function renderPage({
 
   // Бейдж "A" для мобильной шапки
   const analyticsBadgeMobile = analyticsUrl
-    ? `<a href="${escapeAttr(analyticsUrl)}" class="qj-badge-circle qj-badge-analytics" title="Аналитика по турниру">A</a>`
+    ? `<a href="${escapeAttr(analyticsUrl)}" class="qj-badge-circle qj-badge-analytics" title="Аналитика по турниру">📊</a>`
     : '';
 
   const containerClass = useQ2Css ? 'container-fluid px-0' : 'container';
@@ -3401,43 +3590,43 @@ function renderPage({
 
   const descSection = renderTournamentDescSection(tournament, containerClass, collapseAll);
 
-  const groupsCards = renderSection('Квалификации', groups, 'group', groupScreens, groupPtsMap, collapseAll, achievementsIndex, groupResultsByGroup);
-  const finalsCards = renderSection('Финальный раунд', finals, 'final', finalScreens, finalPtsMap, collapseAll, achievementsIndex, finalResultsByGroup);
-  const superCards = renderSection('Суперфинал', superfinals, 'superfinal', superScreens, superFinalPtsMap, collapseAll, achievementsIndex, superResultsByGroup);
+  const groupsCards = renderSection('🎯 Квалификации', groups, 'group', groupScreens, groupPtsMap, collapseAll, achievementsIndex, groupResultsByGroup);
+  const finalsCards = renderSection('🏆 Финальный раунд', finals, 'final', finalScreens, finalPtsMap, collapseAll, achievementsIndex, finalResultsByGroup);
+  const superCards = renderSection('👑 Суперфинал', superfinals, 'superfinal', superScreens, superFinalPtsMap, collapseAll, achievementsIndex, superResultsByGroup);
 
   const groupsMapsRatingSec = renderMapsPopularityTable('maps-groups', groups, collapseAll);
   const finalsMapsRatingSec = renderMapsPopularityTable('maps-finals', finals, collapseAll);
   const superMapsRatingSec = renderMapsPopularityTable('maps-superfinals', superfinals, collapseAll);
 
-  const groupsNewsSec = renderNewsList('Новости квалификаций', groupsNews, collapseAll, 'section-news-groups');
-  const finalsNewsSec = renderNewsList('Новости финального раунда', finalsNews, collapseAll, 'section-news-finals');
-  const superNewsSec = renderNewsList('Новости суперфинала', superNews, collapseAll, 'section-news-super');
+  const groupsNewsSec = renderNewsList('📰 Новости квалификаций', groupsNews, collapseAll, 'section-news-groups');
+  const finalsNewsSec = renderNewsList('📰 Новости финального раунда', finalsNews, collapseAll, 'section-news-finals');
+  const superNewsSec = renderNewsList('📰 Новости суперфинала', superNews, collapseAll, 'section-news-super');
 
   const groupsRatingSec = renderStageRating(
-    'Результаты квалификации',
+    '📋 Результаты квалификации',
     groups, groupPtsMap, 'rating-groups', collapseAll, achievementsIndex, groupResultsByGroup
   );
   const finalsRatingSec = renderStageRating(
-    'Результаты финального раунда',
+    '📋 Результаты финального раунда',
     finals, finalPtsMap, 'rating-finals', collapseAll, achievementsIndex, finalResultsByGroup
   );
   const superRatingSec = renderStageRating(
-    'Результаты суперфинала',
+    '📋 Результаты суперфинала',
     superfinals, superFinalPtsMap, 'rating-superfinals', collapseAll, achievementsIndex, superResultsByGroup
   );
 
   const groupsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг квалификации',
+    '🥇 Рейтинг квалификации',
     definedGroupRating, 'rating-groups-defined', collapseAll, achievementsIndex
   );
   const finalsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг финального раунда',
+    '🥇 Рейтинг финального раунда',
     definedFinalRating, 'rating-finals-defined', collapseAll, achievementsIndex
   );
 
   // Новый блок: окончательный рейтинг суперфинала
   const superfinalsDefinedRatingSec = renderDefinedRating(
-    'Рейтинг суперфинала',
+    '🥇 Рейтинг суперфинала',
     definedSuperFinalRating, 'rating-superfinals-defined', collapseAll, achievementsIndex
   );
 
@@ -3458,10 +3647,10 @@ function renderPage({
     </section>
   ` : '';
 
-  const achievementsAchSec = renderAchievementsSectionTitled('Ачивки (оплачиваемые достижения)', 'section-achievements', achievementsAch, collapseAll);
-  const perksSec = renderAchievementsSectionTitled('Перки', 'section-perks', achievementsPerc, collapseAll);
+  const achievementsAchSec = renderAchievementsSectionTitled('🏅 Ачивки (оплачиваемые достижения)', 'section-achievements', achievementsAch, collapseAll);
+  const perksSec = renderAchievementsSectionTitled('⚡ Перки', 'section-perks', achievementsPerc, collapseAll);
 
-  const tournamentNewsSecHtml = renderNewsList('Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
+  const tournamentNewsSecHtml = renderNewsList('📰 Новости турнира', tournamentNews, collapseAll, 'section-news-tournament');
 
   // Статистика (если включена и есть URL)
   const statsBaseNorm = (PLAYER_STATS_ENABLED && statsBaseUrl) ? statsBaseUrl : '';
@@ -3469,7 +3658,7 @@ function renderPage({
 
   // Бейдж "C" (Статистика) для мобильной шапки — по тем же условиям, что и меню "Статистика"
   const statsBadgeMobile = statsBaseNorm
-    ? `<a href="#section-stats" class="qj-badge-circle qj-badge-stats" title="Статистика турнира">C</a>`
+    ? `<a href="#section-stats" class="qj-badge-circle qj-badge-stats" title="Статистика турнира">📈</a>`
     : '';
 
   // Стримеры
@@ -3489,7 +3678,7 @@ function renderPage({
       <section class="mb-5">
         <details id="section-superfinals" class="stage-collapse"${openAttr}>
           <summary class="qj-toggle">
-            <span class="section-title">Суперфинал</span>
+            <span class="section-title">👑 Суперфинал 👑</span>
             <a href="#section-superfinals" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
             <span class="qj-badge ms-auto">${superfinals?.length || 0}</span>
           </summary>
@@ -3507,7 +3696,7 @@ function renderPage({
       <section class="mb-5">
         <details id="section-finals" class="stage-collapse"${openAttr}>
           <summary class="qj-toggle">
-            <span class="section-title">Финальный раунд</span>
+            <span class="section-title">🏆 Финальный раунд 🏆</span>
             <a href="#section-finals" class="qj-anchor ms-2 text-secondary text-decoration:none" aria-label="Ссылка на раздел">#</a>
             <span class="qj-badge ms-auto">${finals?.length || 0}</span>
           </summary>
@@ -3525,7 +3714,7 @@ function renderPage({
       <section class="mb-5">
         <details id="section-groups" class="stage-collapse"${openAttr}>
           <summary class="qj-toggle">
-            <span class="section-title">Квалификации</span>
+            <span class="section-title">🎯 Квалификации 🎯</span>
             <a href="#section-groups" class="qj-anchor ms-2 text-secondary text-decoration-none" aria-label="Ссылка на раздел">#</a>
             <span class="qj-badge ms-auto">${groups?.length || 0}</span>
           </summary>
@@ -4335,32 +4524,24 @@ function renderPage({
         <div class="d-flex align-items-start">
           ${logoBlock}
           <div class="ms-3 flex-grow-1">
-            <div class="d-flex flex-column align-items-start">
               <h1 class="title h5 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
-              ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
-
-              ${(newsChannelLink || analyticsBadgeMobile || statsBadgeMobile)
-      ? `<div class="site-link mt-1 d-flex align-items-center flex-wrap gap-2">
-                       ${newsChannelLink ? `<span class="me-1">${newsChannelLink}</span>` : ''}
-                       ${analyticsBadgeMobile || ''}
-                       ${statsBadgeMobile || ''}
-                     </div>`
-      : ''
-    }
-            </div>
+              <div class="site-link mt-1">
+                ${siteLink ? `${siteLink}` : ''} ${siteWiki ? `${siteWiki} ` : ''} 
+                ${newsChannelLink ? `<span class="me-1">${newsChannelLink} </span>` : ''}
+                ${analyticsBadgeMobile ? `${analyticsBadgeMobile} ` : ''} 
+                ${statsBadgeMobile ? `${statsBadgeMobile}` : ''} 
+              </div>  
           </div>
         </div>
-
         ${tournamentSelectHtml
-      ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
-      : ''}
-
+          ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
+          : ''}
         <!-- Кнопки: Меню + Q2CSS + Свернуть все -->
         <div class="qj-controls mt-2">
           <div class="d-flex justify-content-start gap-2">
             <button type="button" class="mobile-menu-trigger btn btn-sm btn-secondary" title="Меню">≡ Меню</button>
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
-            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
+            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">🔽 Свернуть все</button>
           </div>
         </div>
 
@@ -4376,14 +4557,16 @@ function renderPage({
           <div class="d-flex justify-content-end gap-2 mb-2 qj-controls">
             ${tournamentSelectHtml}
             <button type="button" class="js-btn-toggle-q2 ${q2BtnClass}" title="Переключить Q2CSS">Q2CSS</button>
-            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">Свернуть все</button>
-            <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">Вернуть порядок</button>
-            <button type="button" class="js-btn-toggle-dnd btn btn-sm btn-outline-warning" title="Включить/выключить редактирование разделов">Редактировать разделы</button>
+            <button type="button" class="js-btn-toggle-collapse ${collBtnClass}" title="Свернуть/раскрыть все">🔽 Свернуть все</button>
+            <button type="button" class="js-btn-reset-sections ${resetBtnClass}" title="Вернуть порядок разделов по умолчанию">↩️ Вернуть порядок</button>
+            <button type="button" class="js-btn-toggle-dnd btn btn-sm btn-outline-warning" title="Включить/выключить редактирование разделов">✏️ Редактировать разделы</button>
           </div>
           <div class="d-flex flex-column align-items-start">
             <h1 class="title h3 my-0">${escapeHtml(tournament.name || 'Турнир')}</h1>
-            ${siteLink ? `<div class="site-link mt-1">${siteLink}</div>` : ''}
-            ${newsChannelLink ? `<div class="site-link mt-1">${newsChannelLink}</div>` : ''}
+            <div class="site-link mt-1">
+                ${siteLink ? `${siteLink}` : ''} ${siteWiki ? `${siteWiki} ` : ''} 
+                ${newsChannelLink ? `<span class="me-1">${newsChannelLink} </span>` : ''}
+              </div> 
             ${topMenuHtml || ''}
           </div>
         </div>
@@ -5057,7 +5240,7 @@ function renderPage({
           document.querySelectorAll('.js-btn-toggle-dnd').forEach(btn => {
             btn.classList.toggle('btn-warning', dndEnabled);
             btn.classList.toggle('btn-outline-warning', !dndEnabled);
-            btn.textContent = dndEnabled ? 'Готово (закончить редактирование)' : 'Редактировать разделы';
+            btn.textContent = dndEnabled ? '✔️ Готово (закончить редактирование)' : '✏️ Редактировать разделы';
           });
         }
         applyDndState();
@@ -5208,7 +5391,7 @@ function renderPage({
           const resetBtn = document.createElement('button');
           resetBtn.type = 'button';
           resetBtn.className = 'btn btn-sm btn-outline-secondary w-100';
-          resetBtn.textContent = mainResetBtn?.textContent?.trim() || 'Вернуть порядок разделов по умолчанию';
+          resetBtn.textContent = mainResetBtn?.textContent?.trim() || '↩️ Вернуть порядок разделов по умолчанию';
           resetBtn.addEventListener('click', (e) => {
             e.preventDefault();
             if (mainResetBtn) mainResetBtn.click();
@@ -5674,6 +5857,62 @@ async function main() {
       const mapsList = await getMaps(selectedChatId);
       const feedbackEntries = await getFeedback(selectedChatId);
 
+      // ... после загрузки groups, finals, superfinals и рейтингов:
+      const usersList = await colUsers.find({}).toArray();
+      const userMap = new Map();
+      usersList.forEach(u => {
+        // Нормализация ключа: убрать регистр и спецсимволы
+        const norm = (u.nickNorm || u.nick || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+        if (norm) {
+          userMap.set(norm, u.country?.toLowerCase() || '');
+        }
+      });
+
+      // Привязка country к каждому игроку в группах
+      for (const g of groups) {
+        if (Array.isArray(g.players)) {
+          g.players.forEach(p => {
+            const key = (p.nameNorm || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+            p.country = userMap.get(key) || '';
+          });
+        }
+      }
+      for (const g of finals) {
+        if (Array.isArray(g.players)) {
+          g.players.forEach(p => {
+            const key = (p.nameNorm || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+            p.country = userMap.get(key) || '';
+          });
+        }
+      }
+      for (const g of superfinals) {
+        if (Array.isArray(g.players)) {
+          g.players.forEach(p => {
+            const key = (p.nameNorm || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+            p.country = userMap.get(key) || '';
+          });
+        }
+      }
+      // То же для кастомных групп, если используется:
+      for (const g of customGroups) {
+        if (Array.isArray(g.players)) {
+          g.players.forEach(p => {
+            const key = (p.nameNorm || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+            p.country = userMap.get(key) || '';
+          });
+        }
+      }
+
+      // Привязка country к игрокам в определенных рейтингах (если они есть)
+      for (const rating of [definedGroupRating, definedFinalRating, definedSuperFinalRating]) {
+        if (rating && Array.isArray(rating.players)) {
+          rating.players.forEach(p => {
+            const key = (p.nameNorm || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+            p.country = userMap.get(key) || '';
+          });
+        }
+      }
+
       const html = renderPage({
         tournament, groups, finals, superfinals,
         groupScreens, finalScreens, superScreens,
@@ -5752,7 +5991,32 @@ async function main() {
       }
 
       const registrationSettings = await colRegistrationSettings.findOne({ chatId });
+      //const signups = await colSignups.find({ chatId }).sort({ createdAt: 1 }).toArray();
+
+      const allUsers = await colUsers.find({}).toArray();
+      const idMap = new Map();
+      const nameMap = new Map();
+      // Подготовим поиск по userId и по nickNorm
+      allUsers.forEach(u => {
+        idMap.set(String(u._id), u.country?.toLowerCase() || '');
+        const norm = (u.nickNorm || u.nick || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+        if (norm) nameMap.set(norm, u.country?.toLowerCase() || '');
+      });
+
       const signups = await colSignups.find({ chatId }).sort({ createdAt: 1 }).toArray();
+      // Для каждой заявки определим страну:
+      signups.forEach(s => {
+        let country = '';
+        if (s.userId && idMap.has(String(s.userId))) {
+          country = idMap.get(String(s.userId));
+        }
+        if (!country) {
+          const nameKey = (s.playerNick || s.teamName || '').toString().trim().toLowerCase().replace(/[^a-z0-9а-яё]/gi, '');
+          country = nameMap.get(nameKey) || '';
+        }
+        s.country = country;
+      });
+
       const html = renderSignupsModalBody(registrationSettings, signups);
 
       res.type('text/html').send(html);
@@ -5766,30 +6030,30 @@ async function main() {
     try {
       const rawChatId = req.query.chatId;
       const chatId = Number(rawChatId);
-  
+
       if (!Number.isFinite(chatId)) {
         res.status(400).type('text/plain; charset=utf-8').send('chatId is required');
         return;
       }
-  
+
       const [groups, finals, superfinals] = await Promise.all([
         getGroups(chatId),
         getFinals(chatId),
         getSuperfinals(chatId),
       ]);
-  
+
       // helper: получить список имён игроков для группы/финала/суперфинала
       function getPlayerNamesFromGroupDoc(g) {
         const playersArr = Array.isArray(g?.players) ? g.players : [];
         const names = [];
-  
+
         for (const p of playersArr) {
           if (!p) continue;
           const name = (p.nameOrig || p.nameNorm || '').trim();
           if (!name) continue;
           names.push(name);
         }
-  
+
         // на всякий случай уберём дубли
         const uniq = [];
         const seen = new Set();
@@ -5801,9 +6065,9 @@ async function main() {
         }
         return uniq;
       }
-  
+
       const rows = [];
-  
+
       function collect(stageLabel, items) {
         if (!Array.isArray(items)) return;
         for (const g of items) {
@@ -5811,19 +6075,19 @@ async function main() {
           const urls = Array.isArray(g?.demos)
             ? g.demos.map(u => String(u || '').trim()).filter(Boolean)
             : [];
-  
+
           const players = getPlayerNamesFromGroupDoc(g);
-  
+
           for (const url of urls) {
             rows.push({ stage: stageLabel, groupId, url, players });
           }
         }
       }
-  
+
       collect('Квалификация', groups);
       collect('Финал', finals);
       collect('Суперфинал', superfinals);
-  
+
       const stageOrder = { 'Квалификация': 1, 'Финал': 2, 'Суперфинал': 3 };
       rows.sort((a, b) => {
         const sa = stageOrder[a.stage] || 99;
@@ -5833,9 +6097,9 @@ async function main() {
         const gb = b.groupId ?? 0;
         return ga - gb;
       });
-  
+
       const html = renderDemosModalBody(rows);
-  
+
       res
         .status(200)
         .type('text/html; charset=utf-8')
@@ -5848,8 +6112,8 @@ async function main() {
         .send('INTERNAL_ERROR');
     }
   });
-  
-  
+
+
   // Healthcheck
   const server = app.listen(PORT, () => {
     console.log(`Site started on http://localhost:${PORT}`);

@@ -38,6 +38,11 @@ const OWNER_IDS = (process.env.OWNER_IDS || '')
   .map(s => Number(s));
 
 
+// ДОПОЛНИТЕЛЬНЫЙ .env ДЛЯ СТРАН
+require('dotenv').config({
+  path: path.resolve(process.cwd(), '.env.countries'),
+});
+
 if (!BOT_TOKEN) {
   console.error('BOT_TOKEN is required');
   process.exit(1);
@@ -188,6 +193,54 @@ async function findUserByNick(nick, excludeTelegramId = null) {
   return colUsers.findOne(query);
 }
 
+// --- Countries: helpers, читаем из .env.countries ---
+
+// Формат в .env.countries:
+// COUNTRY_ALIAS_RU=ru,rus,rur,russia,rossiya,россия,российская федерация
+// COUNTRY_ALIAS_US=us,usa,united states,united states of america,штаты,сша
+// и т.п.
+const COUNTRY_ALIASES = buildCountryAliasesFromEnv();
+
+function buildCountryAliasesFromEnv() {
+  const aliases = {};
+  const prefix = 'COUNTRY_ALIAS_';
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith(prefix)) continue;
+    if (!value) continue;
+
+    const code = key.slice(prefix.length).toLowerCase(); // из COUNTRY_ALIAS_RU -> 'ru'
+    const list = String(value)
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+      .map(v => v.toLowerCase());
+
+    if (!list.length) continue;
+    aliases[code] = list;
+  }
+
+  return aliases;
+}
+
+function normalizeCountryCode(input) {
+  if (!input) return null;
+  const v = String(input).trim().toLowerCase();
+  if (!v) return null;
+
+  // 1) Пользователь ввёл двухбуквенный код — принимаем как есть.
+  // Это и есть наша "максимальная поддержка стран":
+  // любые 2 буквы, соответствующие ISO-коду, работают без алиасов.
+  if (/^[a-z]{2}$/.test(v)) return v;
+
+  // 2) Ищем по алиасам из .env.countries
+  for (const [code, aliases] of Object.entries(COUNTRY_ALIASES)) {
+    if (aliases.includes(v)) return code;
+  }
+
+  return null;
+}
+
 function formatUserProfileForDisplay(u) {
   if (!u) return 'Профиль не найден.';
   const lines = [];
@@ -198,6 +251,12 @@ function formatUserProfileForDisplay(u) {
   lines.push(`Telegram ID: ${u.telegramId}`);
   const username = u.username ? `@${u.username}` : '(нет username)';
   lines.push(`Telegram: ${username}`);
+
+  if (u.country) {
+    lines.push(`Страна: ${String(u.country).toUpperCase()}`);
+  } else {
+    lines.push('Страна: (не указана)');
+  }
 
   if (u.nick) {
     lines.push(`Ник: ${u.nick}`);
@@ -234,6 +293,7 @@ function formatUsersListForDisplay(users = []) {
     const parts = [];
     if (u.nick) parts.push(`"${u.nick}"`);
     if (u.username) parts.push(`@${u.username}`);
+    if (u.country) parts.push(`[${String(u.country).toUpperCase()}]`);
     parts.push(`#${u.telegramId}`);
     let line = `${i}. ${parts.join(' ')}`;
     if (u.bio) {
@@ -346,6 +406,13 @@ function formatRegistrationSettingsForDisplay(reg) {
 
   lines.push(`- maxPlayers: ${reg.maxPlayers != null ? reg.maxPlayers : '(not set)'}`);
   lines.push(`- deadline: ${reg.deadline ? formatMoscowDateTime(reg.deadline) : '(not set)'}`);
+
+  const mode = reg.sgAddMode || 'all';
+  if (mode === 'signed') {
+    lines.push('- режим добавления в скилл-группы: signed (добавлять можно только игроков из заявок /signup)');
+  } else {
+    lines.push('- режим добавления в скилл-группы: all (добавлять можно любых игроков по никам)');
+  }
 
   return lines.join('\n');
 }
@@ -875,6 +942,7 @@ async function getChatSettings(chatId) {
     // Турнир
     tournamentName: doc?.tournamentName || null,
     tournamentSite: doc?.tournamentSite || null,
+    tournamentWiki: doc?.tournamentWiki || null,
     tournamentDesc: doc?.tournamentDesc || null,
 
     // Новые поля турнира
@@ -916,10 +984,15 @@ async function getRegistrationSettings(chatId) {
     registrationClosedAt: doc?.registrationClosedAt || null,
     maxPlayers: doc?.maxPlayers ?? null,
     deadline: doc?.deadline || null,
+    // NEW: режим добавления игроков в SG:
+    // 'all'   — можно добавлять любых игроков (как сейчас)
+    // 'signed' — только игроков из заявок /signup
+    sgAddMode: doc?.sgAddMode || 'all',
     createdAt: doc?.createdAt || null,
     updatedAt: doc?.updatedAt || null,
   };
 }
+
 
 async function updateRegistrationSettings(chatId, patch = {}) {
   const now = new Date();
@@ -1512,6 +1585,7 @@ async function listGameGroups(chatId) {
 async function getGameGroup(chatId, groupId) {
   return colGameGroups.findOne({ chatId, groupId: Number(groupId) });
 }
+
 async function upsertGameGroup(chatId, groupId, data) {
   await colGameGroups.updateOne(
     { chatId, groupId: Number(groupId) },
@@ -1519,6 +1593,7 @@ async function upsertGameGroup(chatId, groupId, data) {
     { upsert: true }
   );
 }
+
 async function deleteGameGroup(chatId, groupId) {
   await colGameGroups.deleteOne({ chatId, groupId: Number(groupId) });
 }
@@ -1571,15 +1646,19 @@ async function getRating(chatId) {
   const doc = await colRatings.findOne({ chatId });
   return doc?.players || [];
 }
+
 async function setRating(chatId, players) {
   // players: [{ nameOrig, nameNorm }]
-  const rated = players.map((p, i) => ({ ...p, rank: i + 1 }));
+  const withIds = await addSignupIdToPlayerList(chatId, players || []);
+  const rated = withIds.map((p, i) => ({ ...p, rank: i + 1 }));
   await colRatings.updateOne(
     { chatId },
     { $set: { chatId, players: rated, updatedAt: new Date() } },
     { upsert: true }
   );
 }
+
+
 function formatRatingList(players = []) {
   if (!players.length) return 'Rating: (none)';
   const sorted = players.slice().sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
@@ -1598,6 +1677,42 @@ async function findSkillGroupForPlayer(chatId, nameNorm) {
 async function playerExistsInAnyGameGroup(chatId, nameNorm) {
   const gg = await colGameGroups.findOne({ chatId, 'players.nameNorm': nameNorm });
   return Boolean(gg);
+}
+
+// --- Helpers для связи с заявками /signup ---
+
+async function addSignupIdToPlayerList(chatId, players) {
+  if (!Array.isArray(players) || !players.length) return players || [];
+
+  const result = [];
+  const cache = new Map(); // nameNorm -> signupDoc | null
+
+  for (const p of players) {
+    const copy = { ...p };
+
+    if (!copy.signupId) {
+      const nameNorm = (copy.nameNorm || norm(copy.nameOrig || '')).trim();
+      if (nameNorm) {
+        let signupDoc = cache.get(nameNorm);
+        if (signupDoc === undefined) {
+          // Ищем заявку типа "player" по нормализованному нику
+          signupDoc = await colSignups.findOne({
+            chatId,
+            kind: 'player',
+            playerNickNorm: nameNorm,
+          });
+          cache.set(nameNorm, signupDoc || null);
+        }
+        if (signupDoc && signupDoc.signupId) {
+          copy.signupId = signupDoc.signupId;
+        }
+      }
+    }
+
+    result.push(copy);
+  }
+
+  return result;
 }
 
 // Parsers
@@ -2079,7 +2194,11 @@ async function collectGroupResultsPlayers(chatId) {
   for (const g of ggs) {
     for (const p of (g.players || [])) {
       if (typeof p.pos === 'number' && p.pos >= 1) {
-        arr.push({ nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: p.sg ?? null, pos: p.pos });
+        arr.push({
+          ...p,
+          sg: p.sg ?? null,
+          pos: p.pos,
+        });
       }
     }
   }
@@ -2109,11 +2228,19 @@ async function collectPlayersFromGameGroups(chatId) {
   const m = new Map();
   for (const g of ggs) {
     for (const p of (g.players || [])) {
-      if (!m.has(p.nameNorm)) m.set(p.nameNorm, { nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: p.sg ?? null });
+      if (!p?.nameNorm) continue;
+      if (!m.has(p.nameNorm)) {
+        // Сохраняем все поля игрока (включая signupId), только нормализуем sg
+        m.set(p.nameNorm, {
+          ...p,
+          sg: p.sg ?? null,
+        });
+      }
     }
   }
   return m;
 }
+
 
 // Игроки, присутствующие в текущих финалах (Map by nameNorm)
 async function collectPlayersFromFinalGroups(chatId) {
@@ -2121,7 +2248,13 @@ async function collectPlayersFromFinalGroups(chatId) {
   const m = new Map();
   for (const g of fgs) {
     for (const p of (g.players || [])) {
-      if (!m.has(p.nameNorm)) m.set(p.nameNorm, { nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: p.sg ?? null });
+      if (!m.has(p.nameNorm)) {
+        // Сохраняем все поля (включая signupId), но нормализуем sg
+        m.set(p.nameNorm, {
+          ...p,
+          sg: p.sg ?? null,
+        });
+      }
     }
   }
   return m;
@@ -2160,14 +2293,19 @@ async function makeFinals(chatId, C) {
 
   await deleteAllFinalGroups(chatId);
   const groups = [];
+
   for (let i = 0; i < placed.length; i++) {
-    const players = placed[i].map(p => ({ nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: p.sg ?? null }));
+    const players = placed[i].map(p => ({
+      ...p,                 // здесь сохранится signupId и любые другие поля
+      sg: p.sg ?? null,     // гарантируем наличие sg
+    }));
     const mapsPick = shuffle(mapNames).slice(0, C);
     const groupId = i + 1;
     // eslint-disable-next-line no-await-in-loop
     await upsertFinalGroup(chatId, groupId, { players, maps: mapsPick, createdAt: new Date() });
     groups.push({ groupId, players, maps: mapsPick });
   }
+
   return { groups };
 }
 
@@ -2211,14 +2349,19 @@ async function makeSuperFinals(chatId, C) {
 
   await deleteAllSuperFinalGroups(chatId);
   const groups = [];
+
   for (let i = 0; i < placed.length; i++) {
-    const players = placed[i].map(p => ({ nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: p.sg ?? null }));
+    const players = placed[i].map(p => ({
+      ...p,                 // сохраняем signupId и прочие поля
+      sg: p.sg ?? null,
+    }));
     const mapsPick = shuffle(mapNames).slice(0, C);
     const groupId = i + 1;
     // eslint-disable-next-line no-await-in-loop
     await upsertSuperFinalGroup(chatId, groupId, { players, maps: mapsPick, createdAt: new Date() });
     groups.push({ groupId, players, maps: mapsPick });
   }
+
   return { groups };
 }
 
@@ -2806,23 +2949,56 @@ async function customHandler(ctx) {
     if (action === 'addp') {
       if (!(await requireAdminGuard(ctx))) return;
       const list = dedupByNorm(cleanListParam(tail));
-      if (!list.length) { await ctx.reply('Укажите игроков через запятую. Пример: /c 1 addp ly,test1,test2'); return; }
+      if (!list.length) {
+        await ctx.reply('Укажите игроков через запятую. Пример: /c 1 addp ly,test1,test2');
+        return;
+      }
+
       const g = await getCustomGroup(chatId, N);
-      if (!g) { await ctx.reply(`Custom ${N} not found.`); return; }
+      if (!g) {
+        await ctx.reply(`Custom ${N} not found.`);
+        return;
+      }
+
       const present = new Set((g.players || []).map(p => p.nameNorm));
       const added = [];
       const skipped = [];
+
       const nextPlayers = (g.players || []).slice();
+      const toAppend = [];
+
       for (const p of list) {
-        if (present.has(p.nameNorm)) { skipped.push(p.nameOrig); continue; }
-        nextPlayers.push({ nameOrig: p.nameOrig, nameNorm: p.nameNorm });
+        if (present.has(p.nameNorm)) {
+          skipped.push(p.nameOrig);
+          continue;
+        }
+        // базовые данные игрока
+        toAppend.push({ nameOrig: p.nameOrig, nameNorm: p.nameNorm });
         present.add(p.nameNorm);
         added.push(p.nameOrig);
       }
-      await upsertCustomGroup(chatId, N, { ...g, players: nextPlayers });
+
+      // ДОБАВЛЯЕМ signupId, если есть заявка /signup
+      const withSignup = await addSignupIdToPlayerList(chatId, toAppend);
+      nextPlayers.push(...withSignup);
+
+      const updatedGroup = { ...g, players: nextPlayers };
+      await upsertCustomGroup(chatId, N, updatedGroup);
+
       // показать обновлённую инфу
       const ptsArr = await getCustomPoints(chatId, N);
-      await replyPre(ctx, formatCustomGroupsList([{ ...g, players: nextPlayers }], new Map([[N, customPointsToMap(ptsArr)]])));
+      const txt = formatCustomGroupsList(
+        [updatedGroup],
+        new Map([[N, customPointsToMap(ptsArr)]])
+      );
+      await replyPre(ctx, txt);
+
+      const lines = [];
+      if (added.length) lines.push(`Добавлены в Custom ${N}: ${added.join(', ')}`);
+      if (skipped.length) lines.push(`Уже были в Custom ${N}: ${skipped.join(', ')}`);
+      if (lines.length) {
+        await replyChunked(ctx, lines.join('\n'));
+      }
       return;
     }
 
@@ -2896,7 +3072,14 @@ async function customHandler(ctx) {
       const missing = parsed.filter(p => !present.has(p.nameNorm)).map(p => p.nameOrig);
       if (missing.length) { await ctx.reply(`Не найдены в Custom ${N}: ${missing.join(', ')}`); return; }
 
-      const toSave = parsed.map(p => ({ nameNorm: p.nameNorm, nameOrig: present.get(p.nameNorm), pts: p.pts }));
+      const basePoints = parsed.map(p => ({
+        nameNorm: p.nameNorm,
+        nameOrig: present.get(p.nameNorm),
+        pts: p.pts,
+      }));
+
+      // ДОБАВЛЯЕМ signupId в custom_points
+      const toSave = await addSignupIdToPlayerList(chatId, basePoints);
       await setCustomPoints(chatId, N, toSave);
 
       // Отсортируем игроков группы по возрастанию points
@@ -3026,6 +3209,71 @@ async function usersHandler(ctx) {
   const args = parseCommandArgs(ctx.message.text || '');
   const tokens = args.split(' ').filter(Boolean);
   const sub = (tokens[0] || '').toLowerCase();
+
+  // /u country [<country>] — просмотр/установка страны
+  if (sub === 'country') {
+    const current = await findUserByTelegramId(userId);
+    const countryArgRaw = tokens[1];
+
+    // без параметров — просто показать текущую страну
+    if (!countryArgRaw) {
+      if (!current) {
+        await ctx.reply('Вы ещё не зарегистрированы. Сначала выполните /u add.');
+        return;
+      }
+
+      if (current.country) {
+        await ctx.reply(
+          `В вашем профиле указана страна: ${String(current.country).toUpperCase()}.\n` +
+          'Изменить: /u country <код страны>',
+        );
+      } else {
+        await ctx.reply(
+          'В вашем профиле страна пока не указана.\n' +
+          'Задать: /u country <код страны>, например: /u country ru',
+        );
+      }
+      return;
+    }
+
+    // есть параметр — меняем страну, но только в личке с ботом
+    if (!isPrivate) {
+      await ctx.reply('Для изменения страны напишите боту в личку и выполните там команду /u country <код>.');
+      return;
+    }
+
+    if (!current) {
+      await ctx.reply('Вы ещё не зарегистрированы. Сначала выполните /u add.');
+      return;
+    }
+
+    const normCode = normalizeCountryCode(countryArgRaw);
+    if (!normCode) {
+      await ctx.reply(
+        'Не удалось распознать страну.\n\n' +
+        'Примеры:\n' +
+        '  /u country ru\n' +
+        '  /u country rus\n' +
+        '  /u country russia\n\n' +
+        'Также поддерживаются двухбуквенные коды стран: ru, ua, us, de, fr, ...',
+      );
+      return;
+    }
+
+    await colUsers.updateOne(
+      { telegramId: Number(userId) },
+      {
+        $set: {
+          country: normCode,
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    await ctx.reply(`Страна в вашем профиле обновлена: ${normCode.toUpperCase()}`);
+    return;
+  }
+
 
   // /users all — только для админов/владельцев
   if (sub === 'all') {
@@ -4142,6 +4390,7 @@ async function helpText() {
   return [
     'Команды (публичные):',
     '/help (/h) — это меню',
+    '/commands - разрешенные общие команды',
     '/info (/i) — сводная информация (турнир, SG, карты, рейтинги, игровые/финальные/суперфинальные группы — вывод в 2 колонки)',
     '/tournament (/t) info — сводка турнира',
     '/custom (/c) — список всех произвольных групп; /c N — показать группу N',
@@ -4369,6 +4618,7 @@ async function helpText() {
     'Административные команды регистрации на турнир:',
     '/registration (/reg) enabled true|false — открыть/закрыть регистрацию',
     '/reg maxplayers <N> — установить лимит игроков регистрации',
+    '/reg type [all|signed] — режим добавления игроков в скилл-группы: all — любые ники; signed — только из заявок /signup (по умолчанию: all)',
     '/reg deadline [YYYY-MM-DD HH:mm] — показать/установить дедлайн регистрации',
     '/reg addp <nick> — добавить игрока в список регистрации',
     '/reg addt <team> — добавить команду в список регистрации (TDM)',
@@ -4398,9 +4648,116 @@ async function helpText() {
   ].join('\n');
 }
 
-
 bot.command(['help', 'h'], async ctx => {
+  const chat = ctx.chat || {};
+  const isPrivate = chat.type === 'private';
+  if (!isPrivate) {
+    await ctx.reply('Используйте /commands (/cmds) для получения доступных команд.\nДля получения спрвки по всем командам зайдите в личку к боту и выполните там команду /help (/h).');
+    return;
+  }
   await replyChunked(ctx, await helpText());
+});
+
+async function commandsText() {
+  return [
+    'Команды (публичные):',
+    '/info (/i) — сводная информация (турнир, SG, карты, рейтинги, игровые/финальные/суперфинальные группы — вывод в 2 колонки)',
+    '/tournament (/t) info — сводка турнира',
+    '',
+    '--------------------------',
+    '1) Скилл-группы:',
+    '/skillgroup (/sg) — список всех скилл-групп с игроками',
+    '',
+    '2) Карты:',
+    '/map (/m) — список карт',
+    '',
+    '3) Игровые группы:',
+    '/groups (/g) — показать все группы (и Waiting при algo=2/3) — в один столбец',
+    '/groups (/g) N — показать группу N',
+    '',
+    '4) Финалы:',
+    '/finals (/f) — список финальных групп (в столбик)',
+    '/finals (/f) N — показать финальную группу N',
+    '',
+    '5) Суперфиналы:',
+    '/superfinal (/s) — список суперфинальных групп',
+    '/superfinal (/s) N — показать суперфинальную группу N',
+    '',
+    '6) Произвольные группы (custom):',
+    '/custom (/c) — список всех custom-групп (публично)',
+    '/custom (/c) N — показать custom-группу N (публично)',
+    '',
+    '7) Отзывы',
+    '/feedback (/fb) add <текст> — оставить отзыв (можно в несколько сообщений, завершить /done)',
+    '/feedback (/fb) edit <текст> — отредактировать ранее оставленный отзыв (если был)',
+    '/feedback (/fb) del — удалить свой отзыв (если был)',
+    '',
+    '8) Регистрация на турнир',
+    '/signup (/sup) — подать / отозвать заявку на участие в турнире и посмотреть статус',
+    '',
+    '9) Диагностика:',
+    '/whoami — показать ваш ID и username',
+    '/chatid — показать ID текущего чата и ID темы (если есть)',
+    '',
+    'Разработка / поддержка: ly (@AlexCpto), @QuakeJourney, 2025.',
+  ].join('\n');
+}
+
+bot.command(['commands', 'cmds'], async ctx => {
+  //const chat = ctx.chat || {};
+  //const isPrivate = chat.type === 'private';
+  await replyChunked(ctx, await commandsText());
+});
+
+async function commandsText() {
+  return [
+    'Команды (публичные):',
+    '/info (/i) — сводная информация (турнир, SG, карты, рейтинги, игровые/финальные/суперфинальные группы — вывод в 2 колонки)',
+    '/tournament (/t) info — сводка турнира',
+    '',
+    '--------------------------',
+    '1) Скилл-группы:',
+    '/skillgroup (/sg) — список всех скилл-групп с игроками',
+    '',
+    '2) Карты:',
+    '/map (/m) — список карт',
+    '',
+    '3) Игровые группы:',
+    '/groups (/g) — показать все группы (и Waiting при algo=2/3) — в один столбец',
+    '/groups (/g) N — показать группу N',
+    '',
+    '4) Финалы:',
+    '/finals (/f) — список финальных групп (в столбик)',
+    '/finals (/f) N — показать финальную группу N',
+    '',
+    '5) Суперфиналы:',
+    '/superfinal (/s) — список суперфинальных групп',
+    '/superfinal (/s) N — показать суперфинальную группу N',
+    '',
+    '6) Произвольные группы (custom):',
+    '/custom (/c) — список всех custom-групп (публично)',
+    '/custom (/c) N — показать custom-группу N (публично)',
+    '',
+    '7) Отзывы',
+    '/feedback (/fb) add <текст> — оставить отзыв (можно в несколько сообщений, завершить /done)',
+    '/feedback (/fb) edit <текст> — отредактировать ранее оставленный отзыв (если был)',
+    '/feedback (/fb) del — удалить свой отзыв (если был)',
+    '',
+    '8) Регистрация на турнир',
+    '/signup (/sup) — подать / отозвать заявку на участие в турнире и посмотреть статус',
+    '',
+    '9) Диагностика:',
+    '/whoami — показать ваш ID и username',
+    '/chatid — показать ID текущего чата и ID темы (если есть)',
+    '',
+    'Разработка / поддержка: ly (@AlexCpto), @QuakeJourney, 2025.',
+  ].join('\n');
+}
+
+bot.command(['commands', 'cmds'], async ctx => {
+  const chat = ctx.chat || {};
+  const isPrivate = chat.type === 'private';
+  await replyChunked(ctx, await commandsText());
 });
 
 // INFO
@@ -4436,6 +4793,7 @@ bot.command(['info', 'i'], async ctx => {
   lines.push('Tournament:');
   lines.push(`- name: ${settings.tournamentName || '(not set)'}`);
   lines.push(`- site: ${settings.tournamentSite || '(not set)'}`);
+  lines.push(`- WiKi: ${settings.tournamentWiki || '(not set)'}`);
   lines.push(`- desc: ${settings.tournamentDesc || '(not set)'}`);
   lines.push(`- type: ${regSettings.tournamentType || '(not set)'}`);
   lines.push('');
@@ -4718,37 +5076,134 @@ async function skillGroupHandler(ctx) {
       return;
     }
 
-    // Validate duplicates across all SG
+    const reg = await getRegistrationSettings(chatId);
+    const mode = reg.sgAddMode || 'all';
+
+    // Смотрим, кто уже есть в любых SG
     const existingSGs = await listSkillGroups(chatId);
-    const taken = new Set();
+    const taken = new Map(); // nameNorm -> groupNumber
     for (const sg of existingSGs) {
-      for (const p of sg.players || []) taken.add(p.nameNorm);
+      const gnum = sg.groupNumber;
+      for (const p of sg.players || []) {
+        if (!taken.has(p.nameNorm)) taken.set(p.nameNorm, gnum);
+      }
     }
 
-    const sgDoc = (await getSkillGroup(chatId, N)) || { players: [] };
+    const sgDoc = (await getSkillGroup(chatId, N)) || { groupNumber: N, players: [] };
     const current = new Set((sgDoc.players || []).map(p => p.nameNorm));
 
     const added = [];
-    const skipped = [];
-    for (const player of list) {
-      if (taken.has(player.nameNorm) || current.has(player.nameNorm)) {
-        skipped.push(player.nameOrig);
-      } else {
-        sgDoc.players.push(player);
-        added.push(player.nameOrig);
-        taken.add(player.nameNorm);
-        current.add(player.nameNorm);
-      }
+    const skippedSame = [];            // уже в этой же SG
+    const skippedOther = [];           // уже в другой SG
+    const notInSignups = [];           // нет заявки
+
+    let signupIndex = null;
+    if (mode === 'signed') {
+      const signupDocs = await colSignups.find({ chatId, kind: 'player' }).toArray();
+      signupIndex = new Map(signupDocs.map(d => [d.playerNickNorm, d]));
     }
+
+    for (const player of list) {
+      const nn = player.nameNorm;
+
+      if (mode === 'signed') {
+        const doc = signupIndex.get(nn);
+        if (!doc) {
+          notInSignups.push(player.nameOrig);
+          continue;
+        }
+      }
+
+      const otherSG = taken.get(nn);
+      if (otherSG && otherSG !== N) {
+        skippedOther.push({ nameOrig: player.nameOrig, groupNumber: otherSG });
+        continue;
+      }
+
+      if (current.has(nn)) {
+        skippedSame.push(player.nameOrig);
+        continue;
+      }
+
+      if (mode === 'signed') {
+        const doc = signupIndex.get(nn);
+        sgDoc.players.push({
+          nameOrig: doc.playerNick,
+          nameNorm: doc.playerNickNorm,
+          signupId: doc.signupId,
+        });
+      } else {
+        sgDoc.players.push({
+          nameOrig: player.nameOrig,
+          nameNorm: player.nameNorm,
+        });
+      }
+
+      added.push(player.nameOrig);
+      current.add(nn);
+      taken.set(nn, N);
+    }
+
+    // Гарантированно подставим signupId туда, где это возможно
+    sgDoc.players = await addSignupIdToPlayerList(chatId, sgDoc.players);
     await upsertSkillGroup(chatId, N, sgDoc.players);
 
-    let msg = '';
-    if (added.length) msg += `Added to SG ${N}: ${added.join(', ')}\n`;
-    if (skipped.length) msg += `Skipped (already present in some SG): ${skipped.join(', ')}`;
-    if (!msg) msg = 'Нечего добавлять.';
-    await replyChunked(ctx, msg.trim());
+    const parts = [];
+    if (added.length) {
+      parts.push(`Added to SG ${N}: ${added.join(', ')}`);
+    }
+    if (skippedSame.length) {
+      parts.push(`Skipped (already present in SG ${N}): ${skippedSame.join(', ')}`);
+    }
+    if (skippedOther.length) {
+      parts.push(
+        'Skipped (already present in other SGs): ' +
+        skippedOther.map(x => `${x.nameOrig} (SG ${x.groupNumber})`).join(', ')
+      );
+    }
+    if (mode === 'signed') {
+      if (notInSignups.length) {
+        parts.push('Не найдены в заявках /signup: ' + notInSignups.join(', '));
+
+        // Список всех игроков из заявок, которые ещё не входят ни в одну SG
+        const allSignupDocs = signupIndex ? Array.from(signupIndex.values()) : [];
+        const available = [];
+        for (const doc of allSignupDocs) {
+          if (!taken.has(doc.playerNickNorm)) {
+            available.push(doc.playerNick);
+          }
+        }
+        if (available.length) {
+          parts.push(
+            'Доступные игроки из заявок, которых ещё нет ни в одной скилл-группе:\n' +
+            available.join(', ')
+          );
+        } else {
+          parts.push('Все игроки из заявок уже распределены по скилл-группам.');
+        }
+      } else {
+        // Если никого не потеряли, всё равно можно подсказать, кто ещё свободен
+        const allSignupDocs = signupIndex ? Array.from(signupIndex.values()) : [];
+        const available = [];
+        for (const doc of allSignupDocs) {
+          if (!taken.has(doc.playerNickNorm)) {
+            available.push(doc.playerNick);
+          }
+        }
+        if (available.length) {
+          parts.push(
+            'Доступные игроки из заявок, которых ещё нет ни в одной скилл-группе:\n' +
+            available.join(', ')
+          );
+        }
+      }
+    }
+
+    if (!parts.length) parts.push('Нечего добавлять.');
+    await replyChunked(ctx, parts.join('\n'));
     return;
   }
+
 
   if (action === 'del') {
     if (!tail) {
@@ -4971,6 +5426,7 @@ async function tournamentHandler(ctx) {
     lines.push('Tournament:');
     lines.push(`- name: ${settings.tournamentName || '(not set)'}`);
     lines.push(`- site: ${settings.tournamentSite || '(not set)'}`);
+    lines.push(`- WiKi: ${settings.tournamentWiki || '(not set)'}`);
     lines.push(`- desc: ${settings.tournamentDesc || '(not set)'}`);
     lines.push(`- type: ${regSettings.tournamentType || '(not set)'}`);
     lines.push(`- news channel: ${settings.tournamentNewsChannel || '(not set)'}`);
@@ -5076,6 +5532,19 @@ async function tournamentHandler(ctx) {
     const value = stripQuotes(tail);
     await setChatSettings(chatId, { tournamentSite: value || null });
     await ctx.reply(`Tournament site is set: ${value || '(cleared)'}`);
+    return;
+  }
+
+  if (sub === 'wiki') {
+    if (!tail) {
+      const s = await getChatSettings(chatId);
+      await ctx.reply(`Tournament Wiki: ${s.tournamentWiki || '(not set)'}`);
+      return;
+    }
+    if (!(await requireAdminGuard(ctx))) return;
+    const value = stripQuotes(tail);
+    await setChatSettings(chatId, { tournamentWiki: value || null });
+    await ctx.reply(`Tournament Wiki is set: ${value || '(cleared)'}`);
     return;
   }
 
@@ -5413,7 +5882,7 @@ async function tournamentHandler(ctx) {
     if (!(await requireAdminGuard(ctx))) return;
     const existing = await getTournamentLogo(chatId);
     await setChatSettings(chatId, {
-      tournamentName: null, tournamentSite: null, tournamentDesc: null, tournamentLogo: null,
+      tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,
       tournamentServers: [], tournamentPack: null, tournamentStreams: [], tournamentNewsChannel: null,
       tournamentStatsUrl: null, tournamentStatsEnabled: false,
     });
@@ -6345,8 +6814,14 @@ async function groupsHandler(ctx) {
       return;
     }
 
-    const toSave = parsed.map(p => ({ nameNorm: p.nameNorm, nameOrig: present.get(p.nameNorm), pts: p.pts }));
-    await setGroupPoints(chatId, toSave);
+    const toSave = parsed.map(p => ({
+      nameNorm: p.nameNorm,
+      nameOrig: present.get(p.nameNorm),
+      pts: p.pts,
+    }));
+    const toSaveWithIds = await addSignupIdToPlayerList(chatId, toSave);
+    await setGroupPoints(chatId, toSaveWithIds);
+
     await ctx.reply('Group points are set.');
     return;
   }
@@ -6588,10 +7063,12 @@ async function groupsHandler(ctx) {
       }
 
       // Нормализуем оригинальные имена по группе
-      const storedPlayers = players.map(p => ({
+      let storedPlayers = players.map(p => ({
         ...p,
         nameOrig: groupPlayersMap.get(p.nameNorm) || p.nameOrig,
       }));
+
+      storedPlayers = await addSignupIdToPlayerList(chatId, storedPlayers);
 
       const matchDateTimeIso = toMoscowIso(datePart, timePart);
       const matchTs = toUnixTsFromMoscow(datePart, timePart);
@@ -6945,8 +7422,14 @@ async function finalsHandler(ctx) {
     const missing = parsed.filter(p => !present.has(p.nameNorm)).map(p => p.nameOrig);
     if (missing.length) { await ctx.reply(`Не найдены в финалах: ${missing.join(', ')}`); return; }
 
-    const toSave = parsed.map(p => ({ nameNorm: p.nameNorm, nameOrig: present.get(p.nameNorm), pts: p.pts }));
-    await setFinalPoints(chatId, toSave);
+    const toSave = parsed.map(p => ({
+      nameNorm: p.nameNorm,
+      nameOrig: present.get(p.nameNorm),
+      pts: p.pts,
+    }));
+    const toSaveWithIds = await addSignupIdToPlayerList(chatId, toSave);
+    await setFinalPoints(chatId, toSaveWithIds);
+
     await ctx.reply('Final points are set.');
     return;
   }
@@ -7188,10 +7671,12 @@ async function finalsHandler(ctx) {
         return;
       }
 
-      const storedPlayers = players.map(p => ({
+      let storedPlayers = players.map(p => ({
         ...p,
         nameOrig: finalPlayersMap.get(p.nameNorm) || p.nameOrig,
       }));
+
+      storedPlayers = await addSignupIdToPlayerList(chatId, storedPlayers);
 
       const matchDateTimeIso = toMoscowIso(datePart, timePart);
       const matchTs = toUnixTsFromMoscow(datePart, timePart);
@@ -7315,6 +7800,7 @@ async function getFinalRating(chatId) {
   const doc = await colFinalRatings.findOne({ chatId });
   return doc?.players || [];
 }
+
 async function setFinalRating(chatId, players) {
   const rated = players.map((p, i) => ({ ...p, rank: i + 1 }));
   await colFinalRatings.updateOne(
@@ -7323,6 +7809,8 @@ async function setFinalRating(chatId, players) {
     { upsert: true }
   );
 }
+
+
 function formatFinalRatingList(players = []) {
   if (!players.length) return 'Finals rating: (none)';
   const sorted = players.slice().sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
@@ -7420,13 +7908,15 @@ async function getSuperFinalRating(chatId) {
 }
 
 async function setSuperFinalRating(chatId, players) {
-  const rated = players.map((p, i) => ({ ...p, rank: i + 1 }));
+  const withIds = await addSignupIdToPlayerList(chatId, players || []);
+  const rated = withIds.map((p, i) => ({ ...p, rank: i + 1 }));
   await colSuperFinalRatings.updateOne(
     { chatId },
     { $set: { chatId, players: rated, updatedAt: new Date() } },
     { upsert: true }
   );
 }
+
 
 function formatSuperFinalRatingList(players = []) {
   if (!players.length) return 'Superfinal rating: (none)';
@@ -7543,10 +8033,12 @@ async function superfinalHandler(ctx) {
         return;
       }
 
-      const storedPlayers = players.map(p => ({
+      let storedPlayers = players.map(p => ({
         ...p,
         nameOrig: sfPlayersMap.get(p.nameNorm) || p.nameOrig,
       }));
+
+      storedPlayers = await addSignupIdToPlayerList(chatId, storedPlayers);
 
       const matchDateTimeIso = toMoscowIso(datePart, timePart);
       const matchTs = toUnixTsFromMoscow(datePart, timePart);
@@ -7885,8 +8377,14 @@ async function superfinalHandler(ctx) {
       return;
     }
 
-    const toSave = parsed.map(p => ({ nameNorm: p.nameNorm, nameOrig: present.get(p.nameNorm), pts: p.pts }));
-    await setSuperFinalPoints(chatId, toSave);
+    const toSave = parsed.map(p => ({
+      nameNorm: p.nameNorm,
+      nameOrig: present.get(p.nameNorm),
+      pts: p.pts,
+    }));
+    const toSaveWithIds = await addSignupIdToPlayerList(chatId, toSave);
+    await setSuperFinalPoints(chatId, toSaveWithIds);
+
     await ctx.reply('Superfinal points are set.');
     return;
   }
@@ -8123,7 +8621,7 @@ bot.command('delall', async ctx => {
       colGroupPoints.deleteOne({ chatId }),
       colFinalPoints.deleteOne({ chatId }),
       setChatSettings(chatId, {
-        tournamentName: null, tournamentSite: null, tournamentDesc: null, tournamentLogo: null,
+        tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,
       }),
       colFinalRatings.deleteOne({ chatId }),
     ]);
@@ -8899,6 +9397,57 @@ async function registrationHandler(ctx) {
     }
     await updateRegistrationSettings(chatId, { maxPlayers: n });
     await ctx.reply(`Максимальное количество игроков для регистрации установлено: ${n}`);
+    return;
+  }
+
+  // /reg type [all|signed]
+  if (sub === 'type') {
+    const reg = await getRegistrationSettings(chatId);
+
+    // Публичный просмотр текущего значения
+    if (!tokens[1]) {
+      const mode = reg.sgAddMode || 'all';
+      let text = 'Текущий режим добавления игроков в скилл-группы:\n';
+      if (mode === 'signed') {
+        text += 'signed — разрешено добавлять только игроков из заявок /signup.';
+      } else {
+        text += 'all — разрешено добавлять любых игроков (даже без заявок /signup).';
+      }
+      await ctx.reply(text);
+      return;
+    }
+
+    // Изменение — только админы
+    if (!(await requireAdminGuard(ctx))) return;
+
+    const valueRaw = (tokens[1] || '').toLowerCase();
+    let value;
+    if (!valueRaw || valueRaw === 'all') {
+      value = 'all';
+    } else if (valueRaw === 'signed') {
+      value = 'signed';
+    } else {
+      await ctx.reply(
+        'Некорректное значение.\n' +
+        'Использование: /reg type [all|signed]\n' +
+        'all — можно добавлять любых игроков по никам;\n' +
+        'signed — можно добавлять только игроков из заявок /signup.'
+      );
+      return;
+    }
+
+    await updateRegistrationSettings(chatId, { sgAddMode: value });
+    if (value === 'signed') {
+      await ctx.reply(
+        'Режим добавления в скилл-группы установлен: signed.\n' +
+        'Теперь в /sg N add можно добавлять только игроков, на которых есть заявки /signup.'
+      );
+    } else {
+      await ctx.reply(
+        'Режим добавления в скилл-группы установлен: all.\n' +
+        'В /sg N add снова можно добавлять любых игроков по никам.'
+      );
+    }
     return;
   }
 
