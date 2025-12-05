@@ -950,6 +950,12 @@ async function getChatSettings(chatId) {
     tournamentPack: doc?.tournamentPack || null,
     tournamentStreams: Array.isArray(doc?.tournamentStreams) ? doc.tournamentStreams : [],
 
+    // Список дочерних турниров (effectiveChatId тем)
+    subTournaments: Array.isArray(doc?.subTournaments) ? doc.subTournaments : [],
+
+    // Короткий код текущего турнира (например, Q2DM1 для дочернего турнира)
+    tournamentSubCode: doc?.tournamentSubCode || null,
+
     // Привязанный новостной канал
     tournamentNewsChannel: doc?.tournamentNewsChannel || null,
 
@@ -4369,6 +4375,12 @@ bot.command(['chatid', 'cid'], async ctx => {
   const threadId = typeof msg.message_thread_id === 'number' ? msg.message_thread_id : null;
 
   const lines = [];
+
+  // Новая строка — «логический» ID, который реально используется в БД
+  const effectiveId = getEffectiveChatId(ctx);
+  if (effectiveId != null) {
+    lines.push(`Effective Chat ID: ${effectiveId}`);
+  }
   lines.push(`Chat ID: ${chat.id ?? '(unknown)'}`);
   lines.push(`Type: ${chat.type ?? '(unknown)'}`);
   if (chat.title) lines.push(`Title: ${chat.title}`);
@@ -4422,6 +4434,8 @@ async function helpText() {
     '/tournament (/t) desc [text] — показать/задать описание',
     '/tournament (/t) logo — показать текущий логотип турнира',
     '/tournament (/t) logo add — загрузить логотип (JPG/PNG/WEBP/GIF, завершить: /done, отменить: /cancel) (только админы)',
+    '/tournament (/t) back — показать текущий бэкграунд турнира',
+    '/tournament (/t) back add — загрузить бэкграунд (JPG/PNG/WEBP/GIF, завершить: /done, отменить: /cancel) (только админы)',
     '/tournament (/t) news — показать новости турнира (с ID)',
     '/tournament (/t) news add <text> — добавить новость (только админы; при привязанном канале пост автоматически публикуется в канале)',
     '/tournament (/t) news edit <id> <text> — изменить новость по ID (только админы)',
@@ -4441,6 +4455,12 @@ async function helpText() {
     // Новые команды персональной статистики
     '/tournament (/t) stats_url [url] — показать/задать URL персональной статистики турнира (по умолчанию пусто)',
     '/tournament (/t) stats_enabled [true|false] — включить/выключить персональную статистику (по умолчанию: false)',
+    // Связь с дочерними турнирами и короткий код
+    '/tournament (/t) sub — показать дочерние турниры (effectiveChatId) для текущего турнира',
+    '/tournament (/t) sub add <id1,id2,...> — добавить дочерние турниры (effectiveChatId, только админы)',
+    '/tournament (/t) sub delall — удалить все дочерние турниры (только админы)',
+    '/tournament (/t) subcode — показать короткий код текущего турнира (публично)',
+    '/tournament (/t) subcode <name> — задать короткий код текущего турнира (только админы)',
     '',
     '--------------------------',
     '1) Скилл-группы:',
@@ -4612,7 +4632,7 @@ async function helpText() {
     '--------------------------',
     '10) Регистрация на турнир',
     '/signup (/sup) — подать / отозвать заявку на участие в турнире и посмотреть статус',
-
+    '',
     '/registration (/reg) — сводка по настройкам регистрации и списку заявок',
     '----------',
     'Административные команды регистрации на турнир:',
@@ -4647,6 +4667,7 @@ async function helpText() {
     'Разработка / поддержка: ly (@AlexCpto), @QuakeJourney, 2025.',
   ].join('\n');
 }
+
 
 bot.command(['help', 'h'], async ctx => {
   const chat = ctx.chat || {};
@@ -5449,6 +5470,13 @@ async function tournamentHandler(ctx) {
       lines.push('  (none)');
     }
 
+    // Дочерние турниры (effectiveChatId тем)
+    const subs = Array.isArray(settings.subTournaments) ? settings.subTournaments : [];
+    lines.push(`- sub tournaments: ${subs.length ? subs.join(', ') : '(none)'}`);
+
+    // Короткий код текущего турнира (для тем удобно: Q2DM1, Q2DUEL1 и т.д.)
+    lines.push(`- subcode: ${settings.tournamentSubCode || '(not set)'}`);
+
     lines.push('');
     lines.push('Settings:');
     lines.push(`- groups algo: ${settings.groupsAlgo}`);
@@ -5589,6 +5617,34 @@ async function tournamentHandler(ctx) {
     return;
   }
 
+  if (sub === 'back') {
+    const op = (tokens[1] || '').toLowerCase();
+    if (op === 'add') {
+      if (!(await requireAdminGuard(ctx))) return;
+
+      const key = ssKey(chatId, ctx.from.id);
+      screenshotSessions.set(key, {
+        chatId,
+        userId: ctx.from.id,
+        mode: 'tback',
+        groupId: 0,
+        runId: 'tback',
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        count: 0,
+      });
+
+      await ctx.reply(
+        'Пришлите изображение для бэкграунда турнира (JPG/PNG/WEBP/GIF). ' +
+        'Можно отправить одно или несколько — сохранится последний как текущий логотип. ' +
+        'Завершить: /done. Отмена: /cancel.'
+      );
+      return;
+    }
+    await showTournamentBack(ctx, chatId);
+    return;
+  }
+
   // Управление новостным каналом турнира
   if (sub === 'newschannel') {
     const op = (tokens[1] || '').toLowerCase();
@@ -5676,6 +5732,120 @@ async function tournamentHandler(ctx) {
     await ctx.reply(`Tournament player stats enabled set to: ${parsed.value ? 'true' : 'false'}`);
     return;
   }
+
+  if (sub === 'sub') {
+    // /t sub — публично показать список дочерних турниров (effectiveChatId)
+    if (!tail) {
+      const s = await getChatSettings(chatId);
+      const subs = Array.isArray(s.subTournaments) ? s.subTournaments : [];
+      if (!subs.length) {
+        await ctx.reply('Для этого турнира не заданы дочерние турниры (sub chat IDs).');
+      } else {
+        const lines = [];
+        lines.push('Дочерние турниры (effectiveChatId):');
+        for (const id of subs) {
+          lines.push(`- ${id}`);
+        }
+        await ctx.reply(lines.join('\n'));
+      }
+      return;
+    }
+
+    const op = (tokens[1] || '').toLowerCase();
+
+    // /t sub add <id1,id2,...> — добавить дочерние effectiveChatId (только админы)
+    if (op === 'add') {
+      if (!(await requireAdminGuard(ctx))) return;
+
+      const listRaw = tokens.slice(2).join(' ').trim();
+      if (!listRaw) {
+        await ctx.reply('Использование: /t sub add <id1,id2,id3>');
+        return;
+      }
+
+      const parts = listRaw.split(/[,\s]+/).filter(Boolean);
+      if (!parts.length) {
+        await ctx.reply('Укажите хотя бы один numeric effectiveChatId через запятую или пробел.');
+        return;
+      }
+
+      const parsed = [];
+      for (const p of parts) {
+        if (!/^-?\d+$/.test(p)) {
+          await ctx.reply(`Неверный ID: "${p}". Используйте только целые числа.`);
+          return;
+        }
+        const n = Number(p);
+        if (!Number.isSafeInteger(n)) {
+          await ctx.reply(`Слишком большой ID: "${p}".`);
+          return;
+        }
+        parsed.push(n);
+      }
+
+      const s = await getChatSettings(chatId);
+      const prev = Array.isArray(s.subTournaments) ? s.subTournaments : [];
+      const mergedSet = new Set(prev);
+      for (const n of parsed) mergedSet.add(n);
+      const merged = Array.from(mergedSet);
+
+      await setChatSettings(chatId, { subTournaments: merged });
+      await ctx.reply(
+        'Список дочерних турниров обновлён.\n' +
+        (merged.length
+          ? 'Текущий список:\n' + merged.map(id => `- ${id}`).join('\n')
+          : 'Список теперь пуст.')
+      );
+      return;
+    }
+
+    // /t sub delall — удалить все дочерние effectiveChatId (только админы)
+    if (op === 'delall') {
+      if (!(await requireAdminGuard(ctx))) return;
+      await setChatSettings(chatId, { subTournaments: [] });
+      await ctx.reply('Все дочерние турниры удалены.');
+      return;
+    }
+
+    // Неизвестная опция
+    await ctx.reply(
+      'Неизвестная опция /t sub.\n' +
+      'Использование:\n' +
+      '/t sub — показать список\n' +
+      '/t sub add <id1,id2,...> — добавить\n' +
+      '/t sub delall — удалить все'
+    );
+    return;
+  }
+
+  if (sub === 'subcode') {
+    const raw = tail.trim();
+
+    // /t subcode — публичный просмотр текущего кода турнира
+    if (!raw) {
+      const s = await getChatSettings(chatId);
+      await ctx.reply(
+        `Tournament subcode: ${s.tournamentSubCode ? s.tournamentSubCode : '(not set)'}`
+      );
+      return;
+    }
+
+    // /t subcode <name> — установка кода, только для админов бота
+    if (!(await requireAdminGuard(ctx))) return;
+
+    const value = stripQuotes(raw);
+    // Можно слегка ограничить формат, чтобы избежать прям откровенно странных строк.
+    // Но если хочешь вообще без ограничений — этот блок проверки можно убрать/упростить.
+    if (!value || value.length > 32) {
+      await ctx.reply('Использование: /t subcode <name>, где <name> — непустой код длиной до 32 символов.');
+      return;
+    }
+
+    await setChatSettings(chatId, { tournamentSubCode: value });
+    await ctx.reply(`Tournament subcode set to: ${value}`);
+    return;
+  }
+
 
   if (sub === 'news') {
     const op = (tokens[1] || '').toLowerCase();
@@ -5880,14 +6050,18 @@ async function tournamentHandler(ctx) {
 
   if (sub === 'delall') {
     if (!(await requireAdminGuard(ctx))) return;
-    const existing = await getTournamentLogo(chatId);
+    const existingLogo = await getTournamentLogo(chatId);
+    const existingBack = await getTournamentBack(chatId);
     await setChatSettings(chatId, {
-      tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,
+      tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,  tournamentBack: null,
       tournamentServers: [], tournamentPack: null, tournamentStreams: [], tournamentNewsChannel: null,
       tournamentStatsUrl: null, tournamentStatsEnabled: false,
     });
-    if (existing?.relPath) {
-      try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, existing.relPath)); } catch (_) { }
+    if (existingLogo?.relPath) {
+      try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, existingLogo.relPath)); } catch (_) { }
+    }
+    if (existingBack?.relPath) {
+      try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, existingBack.relPath)); } catch (_) { }
     }
     const n = await delAllNews(chatId, 'tournament');
     await ctx.reply(`Tournament settings and logo cleared. Deleted tournament news: ${n}.`);
@@ -5914,8 +6088,62 @@ function makeOverrideKey(ctx) {
   return `${srcChatId}:${userId}`;
 }
 
+
+function getThreadId(ctx) {
+  const msg =
+    ctx.message ||
+    ctx.channelPost ||
+    ctx.editedMessage ||
+    ctx.editedChannelPost ||
+    (ctx.callbackQuery && ctx.callbackQuery.message) ||
+    null;
+
+  if (msg && typeof msg.message_thread_id === 'number') {
+    return msg.message_thread_id;
+  }
+  return null;
+}
+
 /** Возвращает целевой chatId для операций (переключённый через /setid) или текущий ctx.chat.id */
+
 function getEffectiveChatId(ctx) {
+  //console.log('getEffectiveChatId');
+  const key = makeOverrideKey(ctx);
+  if (key) {
+    const override = userTargetChat.get(key);
+    if (Number.isInteger(override)) {
+      //console.log('getEffectiveChatId - override: ', override);
+      return override;
+    }
+  }
+
+  const chatId = ctx.chat?.id;
+  if (!chatId) return undefined;
+
+  const threadId = getThreadId(ctx);
+
+  // 1) General / обычные группы / личка — как раньше
+  if (threadId == null) {
+    //console.log('getEffectiveChatId - chatId: ', chatId);
+    return chatId;
+  }
+
+  // 2) Темы — считаем составной ID "чат + тема"
+  const BASE = 1000; // "шаг" между темами одного чата
+
+  const composite = chatId * BASE + threadId;
+
+  if (!Number.isSafeInteger(composite)) {
+    // На всякий случай лог и откат к старому поведению
+    console.error('Composite chatId overflow', { chatId, threadId, composite });
+    return chatId;
+  }
+  //console.log('getEffectiveChatId - composite: ', composite);
+  return composite;
+}
+
+
+function getEffectiveChatIdOld(ctx) {
   const key = makeOverrideKey(ctx);
   if (key) {
     const override = userTargetChat.get(key);
@@ -6086,6 +6314,33 @@ async function showTournamentLogo(ctx, chatId) {
   await ctx.replyWithPhoto(media);
 }
 
+// --------- Tournament back helpers ---------
+
+async function getTournamentBack(chatId) {
+  const doc = await colChats.findOne({ chatId }, { projection: { tournamentBack: 1 } });
+  return doc?.tournamentBack || null; // { relPath, mime, size, tgFileId, tgUniqueId, uploaderId, uploaderUsername, updatedAt }
+}
+
+async function setTournamentBack(chatId, back) {
+  await colChats.updateOne(
+    { chatId },
+    { $set: { chatId, tournamentBack: { ...back, updatedAt: new Date() } } },
+    { upsert: true }
+  );
+}
+
+async function showTournamentBack(ctx, chatId) {
+  const back = await getTournamentBack(chatId);
+  if (!back?.relPath && !back?.tgFileId) {
+    await ctx.reply('Бэкграунд турнира не задан. Используйте /tournament back add (только для админов).');
+    return;
+  }
+  const media = back.tgFileId
+    ? back.tgFileId
+    : { source: fs.createReadStream(path.join(SCREENSHOTS_DIR, back.relPath)) };
+  await ctx.replyWithPhoto(media);
+}
+
 
 async function showSuperFinalScreenshots(ctx, chatId, groupId) {
   const g = await getSuperFinalGroup(chatId, groupId);
@@ -6243,6 +6498,9 @@ async function handleIncomingScreenshot(ctx) {
   } else if (sess.mode === 'tlogo') {
     scope = 'tlogo';
     relDir = path.join(String(chatId), 'tournament', 'logo');
+  } else if (sess.mode === 'tback') {
+    scope = 'tback';
+    relDir = path.join(String(chatId), 'tournament', 'back');
   } else if (sess.mode === 'achv' || sess.mode === 'achv_logo') {
     scope = 'achv';
     relDir = path.join(String(chatId), 'achievements');
@@ -6273,6 +6531,32 @@ async function handleIncomingScreenshot(ctx) {
     // Турнирный логотип — один «текущий» на чат; старый файл удаляем
     const prev = await getTournamentLogo(chatId);
     await setTournamentLogo(chatId, {
+      relPath: saved.relPath,
+      mime,
+      size: size || saved.size,
+      tgFileId: fileId,
+      tgUniqueId: fileUniqueId,
+      uploaderId: userId,
+      uploaderUsername: ctx.from?.username || null,
+    });
+    if (prev?.relPath && prev.relPath !== saved.relPath) {
+      fs.promises.unlink(path.join(SCREENSHOTS_DIR, prev.relPath)).catch(() => { });
+    }
+
+    // Продлеваем сессию
+    sess.count = (sess.count || 0) + 1;
+    sess.expiresAt = Date.now() + 10 * 60 * 1000;
+    screenshotSessions.set(key, sess);
+
+    try { await ctx.reply('✅ Сохранено'); } catch (_) { }
+    return;
+  }
+
+  // Обработка по scope
+  if (scope === 'tback') {
+    // Турнирный бэкграунд — один «текущий» на чат; старый файл удаляем
+    const prev = await getTournamentBack(chatId);
+    await setTournamentBack(chatId, {
       relPath: saved.relPath,
       mime,
       size: size || saved.size,
@@ -8621,7 +8905,7 @@ bot.command('delall', async ctx => {
       colGroupPoints.deleteOne({ chatId }),
       colFinalPoints.deleteOne({ chatId }),
       setChatSettings(chatId, {
-        tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,
+        tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null, tournamentBack: null
       }),
       colFinalRatings.deleteOne({ chatId }),
     ]);
@@ -8873,7 +9157,7 @@ bot.command('done', async ctx => {
     }
 
     // 5) Обычные сценарии: группы/финалы/кастомы/логотип турнира — просто закрываем сессию
-    if (['group', 'final', 'superfinal', 'custom', 'tlogo'].includes(sess.mode)) {
+    if (['group', 'final', 'superfinal', 'custom', 'tlogo', 'tback'].includes(sess.mode)) {
       screenshotSessions.delete(sKey);
       await ctx.reply(`Готово. Принято файлов: ${count}.`);
       return;
