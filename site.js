@@ -23,6 +23,9 @@ const TOURNAMENT_QUERY_PARAM = 'tournamentId';
 // новый alias-параметр из SITE_NAMES
 const TOURNAMENT_NAME_PARAM = 'T';
 
+// Новый query-параметр для выбора "подтурнира" (subTournament)
+const SUB_TOURNAMENT_PARAM = 'Sub';
+
 // Cookies для сохранения пользовательских предпочтений
 const Q2CSS_COOKIE = 'qj_q2css';
 const COLLAPSE_COOKIE = 'qj_collapse';
@@ -1340,9 +1343,9 @@ function renderSignupsModalBody(registrationSettings, signups = []) {
         <tr>
           <td class="small fw-semibold">
             ${s.country
-              ? `<img src="/media/flags/1x1/${escapeHtml(s.country)}.svg" alt="" 
+          ? `<img src="/media/flags/1x1/${escapeHtml(s.country)}.svg" alt="" 
                       style="height:14px; vertical-align:middle; margin-right:4px;">`
-              : `<img src="/media/flags/1x1/question.svg" alt="?" 
+          : `<img src="/media/flags/1x1/question.svg" alt="?" 
                       style="height:14px; vertical-align:middle; margin-right:4px;">`}
             ${escapeHtml(name)}
           </td>
@@ -1483,6 +1486,124 @@ async function getTournamentsMeta(chatIds = []) {
   });
 }
 
+// Построение контекста подтурниров для текущего chatId + параметра ?Sub=...
+// Возвращает:
+//   { effectiveChatId, items, rootChatId, rootAlias }
+// где items = [{ id, name, code }] — корневой турнир + его подтурниры.
+async function buildSubTournamentsContext(chatId, subCodeRaw) {
+  const chatIdNum = Number(chatId);
+  if (!Number.isFinite(chatIdNum)) {
+    return {
+      effectiveChatId: chatId,
+      items: null,
+      rootChatId: null,
+      rootAlias: null,
+    };
+  }
+
+  // Текущий турнир
+  const current = await colChats.findOne(
+    { chatId: chatIdNum },
+    { projection: { chatId: 1, tournamentName: 1, subTournaments: 1 } },
+  );
+
+  // Родительский турнир, у которого в subTournaments есть текущий
+  const parent = await colChats.findOne(
+    { subTournaments: chatIdNum },
+    { projection: { chatId: 1, tournamentName: 1, subTournaments: 1 } },
+  );
+
+  let root = null;
+
+  if (parent && Array.isArray(parent.subTournaments) && parent.subTournaments.length > 0) {
+    // Мы находимся внутри дочернего турнира — корневой это parent
+    root = parent;
+  } else if (current && Array.isArray(current.subTournaments) && current.subTournaments.length > 0) {
+    // Мы на корневом турнире, у которого есть subTournaments
+    root = current;
+  }
+
+  if (!root) {
+    return {
+      effectiveChatId: chatIdNum,
+      items: null,
+      rootChatId: null,
+      rootAlias: null,
+    };
+  }
+
+  const subIds = (root.subTournaments || [])
+    .map(x => Number(x))
+    .filter(Number.isFinite);
+
+  if (!subIds.length) {
+    return {
+      effectiveChatId: chatIdNum,
+      items: null,
+      rootChatId: null,
+      rootAlias: null,
+    };
+  }
+
+  const childDocs = await colChats.find(
+    { chatId: { $in: subIds } },
+    { projection: { chatId: 1, tournamentName: 1, tournamentSubCode: 1 } },
+  ).toArray();
+
+  const byId = new Map();
+  const byCode = new Map();
+
+  for (const d of childDocs) {
+    const cid = Number(d.chatId);
+    if (!Number.isFinite(cid)) continue;
+
+    const name = String(d.tournamentName || '').trim() || `Чат ${cid}`;
+    const code = (d.tournamentSubCode || '').toString().trim();
+
+    const item = { id: cid, name, code };
+    byId.set(cid, item);
+    if (code) byCode.set(code.toLowerCase(), item);
+  }
+
+  let effectiveChatId = chatIdNum;
+  const subCode = subCodeRaw && String(subCodeRaw).trim()
+    ? String(subCodeRaw).trim()
+    : '';
+
+  // Если в URL есть ?Sub=КОД — пробуем найти по tournamentSubCode
+  if (subCode && byCode.size) {
+    const found = byCode.get(subCode.toLowerCase());
+    if (found) {
+      effectiveChatId = found.id;
+    }
+  }
+
+  // Формируем список: сначала корневой, потом дети в порядке subIds
+  const items = [];
+  const rootId = Number(root.chatId);
+  const rootName = String(root.tournamentName || '').trim() || `Чат ${rootId}`;
+
+  // Корневой турнир (без кода — означает "нет Sub")
+  items.push({ id: rootId, name: rootName, code: '' });
+
+  for (const id of subIds) {
+    const it = byId.get(id);
+    if (!it) continue;
+    items.push(it);
+  }
+
+  const rootAlias = getSiteNameForChatId(rootId);
+
+  return {
+    effectiveChatId,
+    items,
+    rootChatId: rootId,
+    rootAlias,
+  };
+}
+
+
+
 // Безопасные утилиты для Telegram-ссылок и текстов
 
 function escapeHtml(s = '') {
@@ -1551,6 +1672,7 @@ async function getTournament(chatId) {
     wiki: doc?.tournamentWiki || '',
     desc: doc?.tournamentDesc || '',
     logo: doc?.tournamentLogo || null, // { relPath, ... }
+    back: doc?.tournamentBack || null, // { relPath, ... }
     // Новые поля для верхнего блока
     servers: Array.isArray(doc?.tournamentServers) ? doc.tournamentServers : [],
     pack: doc?.tournamentPack || '',
@@ -3509,6 +3631,10 @@ function renderPage({
   // НОВОЕ:
   tournamentsMeta = [],           // [{id, name}], для селектора
   selectedChatId = null,          // текущий выбранный chatId
+  // НОВОЕ: селектор подтурниров
+  subTournamentsMeta = null,      // [{ id, name, code }]
+  subRootChatId = null,           // chatId корневого турнира
+  subRootAlias = null,            // алиас корневого турнира (T)
   // НОВОЕ: результаты карт по стадиям (Map<groupId, Array<result>>)
   groupResultsByGroup = new Map(),
   finalResultsByGroup = new Map(),
@@ -3522,6 +3648,10 @@ function renderPage({
 }) {
   const logoUrl = tournament.logo?.relPath ? `/media/${relToUrl(tournament.logo.relPath)}` : null;
   const logoMime = tournament.logo?.mime || 'image/png';
+
+  const tournamentBackUrl = tournament.back?.relPath ? `/media/${relToUrl(tournament.back.relPath)}` : SITE_BG_IMAGE;
+
+  const editTimeout = parseInt(process.env.SECTIONS_EDIT_TIMEOUT_SECONDS || '3600', 10);
 
   // НОВОЕ: построить индексы стран игроков для флагов
   initPlayerCountryIndexes(signups, users);
@@ -3564,16 +3694,24 @@ function renderPage({
   // НОВОЕ: селектор турниров (показываем только если турниров > 1)
   const tournamentSelectHtml = Array.isArray(tournamentsMeta) && tournamentsMeta.length > 1
     ? (() => {
+      // Если есть корневой турнир для текущего подтурнира — считаем выбранным его.
+      const effectiveSelectedId = (subRootChatId != null && !Number.isNaN(Number(subRootChatId)))
+        ? Number(subRootChatId)
+        : (selectedChatId != null ? Number(selectedChatId) : null);
+
       const opts = tournamentsMeta.map(t => {
-        const isSelected = (Number(t.id) === Number(selectedChatId));
+        const tIdNum = Number(t.id);
+        const isSelected = (effectiveSelectedId != null && tIdNum === effectiveSelectedId);
+
         const alias = getSiteNameForChatId(t.id);
         const value = alias || String(t.id);              // то, что пойдёт в ?T=
         const label = t.name || alias || `Чат ${t.id}`;   // текст для пользователя
         const sel = isSelected ? ' selected' : '';
         return `<option value="${escapeAttr(value)}" data-chat-id="${escapeAttr(String(t.id))}"${sel}>${escapeHtml(label)}</option>`;
       }).join('');
+
       return `
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex align-items-center gap-2 qj-tournament-select-wrapper">
             <span class="small text-secondary"></span>
             <select class="form-select form-select-sm js-tournament-select" style="min-width: 240px;">
               ${opts}
@@ -3582,6 +3720,34 @@ function renderPage({
         `;
     })()
     : '';
+
+
+  // НОВОЕ: селектор подтурнира (subTournaments)
+  let subTournamentSelectHtml = '';
+  if (Array.isArray(subTournamentsMeta) && subTournamentsMeta.length > 0) {
+    const options = subTournamentsMeta.map(item => {
+      const id = Number(item.id);
+      const selected = (Number(selectedChatId) === id) ? ' selected' : '';
+      const name = String(item.name || '').trim() || `Турнир ${id}`;
+      const code = (item.code || '').toString();
+      const valueAttr = escapeAttr(code);
+      return `<option value="${valueAttr}"${selected}>${escapeHtml(name)}</option>`;
+    }).join('');
+
+    const rootAliasSafe = subRootAlias ? escapeAttr(subRootAlias) : '';
+    const rootIdSafe = Number.isFinite(Number(subRootChatId)) ? Number(subRootChatId) : '';
+
+    subTournamentSelectHtml = `
+        <div class="qj-subtournament-select-wrapper mt-2">
+          <label class="form-label mb-1 small text-muted">Подтурнир</label>
+          <select class="form-select form-select-sm js-subtournament-select"
+                  ${rootAliasSafe ? `data-root-alias="${rootAliasSafe}"` : ''}
+                  ${rootIdSafe ? `data-root-chat-id="${rootIdSafe}"` : ''}>
+            ${options}
+          </select>
+        </div>
+      `;
+  }
 
   // Верхние отдельные секции
   const serversSec = renderServersSection(tournament, containerClass, collapseAll);
@@ -3816,6 +3982,16 @@ function renderPage({
     header.hero { background: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); }
     .hero .title { font-weight: 800; letter-spacing: .2px; }
 
+    body:not(.q2css-active) {
+      background-color: #0b0d10 !important;
+      background-image: url('${escapeHtml(tournamentBackUrl)}') !important; /* новый фон */
+      background-position: center center;
+      background-repeat: no-repeat;
+      background-size: cover;
+      background-attachment: fixed;
+    }    
+
+
     /* Sticky header: только для десктопа и только в modern-режиме (не Q2CSS) */
     @media (min-width: 768px) {
       body:not(.q2css-active) .hero--sticky {
@@ -3839,7 +4015,7 @@ function renderPage({
         box-shadow: none !important;
       }
     }
-
+    
     /* NEW: компактная кнопка-скрепка */
     .qj-pin-btn { line-height: 1; }
 
@@ -3855,6 +4031,26 @@ function renderPage({
     .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
     @media (min-width: 1200px) { .cards-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
     @media (min-width: 1920px) { .cards-grid { gap: 1.5rem; } }
+
+        /* Селекторы турниров и подтурниров под шапкой */
+    .qj-tournament-select-wrapper,
+    .qj-subtournament-select-wrapper {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .qj-subtournament-select-wrapper .form-label {
+      font-size: .8rem;
+      font-weight: 500;
+      color: rgba(71,85,105,.95);
+    }
+
+    .qj-subtournament-select-wrapper .form-select,
+    .qj-tournament-select-wrapper .form-select {
+      font-size: .86rem;
+      padding-top: .25rem;
+      padding-bottom: .25rem;
+    }
 
     /* Для стадий (квалификации/финалы/суперфинал): не больше двух карточек в ряд на десктопе */
     .cards-grid--stage {
@@ -4251,6 +4447,15 @@ function renderPage({
       scroll-margin-top: var(--qj-sticky-offset, 0px);
     }
 
+    /* FIX: выравнивание кнопок в qj-controls (desktop + mobile) */
+    .qj-controls {
+      align-items: center !important;
+    }
+    .qj-controls > * {
+      height: auto !important;
+      line-height: 1 !important;
+    }
+
     /* Мобильные улучшения */
     @media (max-width: 767.98px) {
       html, body { overflow-x: hidden; }
@@ -4481,7 +4686,7 @@ function renderPage({
   const animatedBgCss = !useQ2Css ? `
     body:not(.q2css-active) {
       background-color: #0b0d10 !important;
-      background-image: url('${escapeHtml(SITE_BG_IMAGE)}') !important;
+      background-image: url('${escapeHtml(tournamentBackUrl)}') !important;
       background-position: center center;
       background-repeat: no-repeat;
       background-size: cover;
@@ -4534,8 +4739,14 @@ function renderPage({
           </div>
         </div>
         ${tournamentSelectHtml
-          ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
-          : ''}
+      ? `<div class="mt-2 w-100">${tournamentSelectHtml}</div>`
+      : ''}
+
+       ${subTournamentSelectHtml
+      ? `<div class="mt-2">${subTournamentSelectHtml}</div>`
+      : ''
+    }
+
         <!-- Кнопки: Меню + Q2CSS + Свернуть все -->
         <div class="qj-controls mt-2">
           <div class="d-flex justify-content-start gap-2">
@@ -4566,7 +4777,13 @@ function renderPage({
             <div class="site-link mt-1">
                 ${siteLink ? `${siteLink}` : ''} ${siteWiki ? `${siteWiki} ` : ''} 
                 ${newsChannelLink ? `<span class="me-1">${newsChannelLink} </span>` : ''}
-              </div> 
+            </div> 
+
+            ${subTournamentSelectHtml
+      ? `<div class="mt-2 w-100" style="max-width:360px;">${subTournamentSelectHtml}</div>`
+      : ''
+    }
+
             ${topMenuHtml || ''}
           </div>
         </div>
@@ -5135,6 +5352,7 @@ function renderPage({
 
       // НОВОЕ: параметр выбора турнира по alias-имени (?T=OpenFFA2025)
       const TOURN_PARAM = ${JSON.stringify(TOURNAMENT_NAME_PARAM)};
+      const SUB_PARAM = ${JSON.stringify(SUB_TOURNAMENT_PARAM)};
 
       function toggleParam(name, current) {
         const url = new URL(location.href);
@@ -5199,6 +5417,35 @@ function renderPage({
           const url = new URL(location.href);
           if (id) url.searchParams.set(TOURN_PARAM, id);
           else url.searchParams.delete(TOURN_PARAM);
+          // при смене турнира сбрасываем выбранный подтурнир
+          url.searchParams.delete(SUB_PARAM);
+          location.href = url.toString();
+        });
+      });
+
+      // Обработчик выбора подтурнира
+      document.querySelectorAll('.js-subtournament-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const code = sel.value || '';
+          const url = new URL(location.href);
+
+          const rootAlias = sel.getAttribute('data-root-alias') || '';
+          const rootChatId = sel.getAttribute('data-root-chat-id') || '';
+
+          // Привязываемся к корневому турниру:
+          if (rootAlias) {
+            url.searchParams.set(TOURN_PARAM, rootAlias);
+            url.searchParams.delete(${JSON.stringify(TOURNAMENT_QUERY_PARAM)});
+          } else if (rootChatId) {
+            url.searchParams.set(${JSON.stringify(TOURNAMENT_QUERY_PARAM)}, rootChatId);
+          }
+
+          if (code) {
+            url.searchParams.set(SUB_PARAM, code);
+          } else {
+            url.searchParams.delete(SUB_PARAM);
+          }
+
           location.href = url.toString();
         });
       });
@@ -5222,9 +5469,42 @@ function renderPage({
         const COOKIE_NAME = ${JSON.stringify(SECTIONS_COOKIE)};
         const ONE_YEAR = 60*60*24*365;
         const STORAGE_KEY = 'qj_dnd_enabled';
+        const STORAGE_LAST_ON_KEY = 'qj_dnd_last_on'; // когда последний раз включили редактирование
+        const AUTO_DISABLE_SECONDS = ${editTimeout}; 
         const isTouch = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
 
-        let dndEnabled = (localStorage.getItem(STORAGE_KEY) ?? (isTouch ? '0' : '1')) === '1';
+        function nowSeconds() {
+          return Math.floor(Date.now() / 1000);
+        }
+
+        function readLastOn() {
+          const v = parseInt(localStorage.getItem(STORAGE_LAST_ON_KEY) || '0', 10);
+          return Number.isFinite(v) ? v : 0;
+        }
+
+        let dndEnabled;
+        const stored = localStorage.getItem(STORAGE_KEY);
+        const lastOn = readLastOn();
+
+        if (stored == null) {
+          // Первичная инициализация: как и раньше
+          // по умолчанию включаем DnD на десктопе и выключаем на touch
+          dndEnabled = !isTouch;
+          localStorage.setItem(STORAGE_KEY, dndEnabled ? '1' : '0');
+          if (dndEnabled) {
+            localStorage.setItem(STORAGE_LAST_ON_KEY, String(nowSeconds()));
+          } else {
+            localStorage.removeItem(STORAGE_LAST_ON_KEY);
+          }
+        } else {
+          dndEnabled = stored === '1';
+          // Если режим редактирования завис включённым слишком долго — сразу выключаем
+          if (dndEnabled && lastOn && nowSeconds() - lastOn > AUTO_DISABLE_SECONDS) {
+            dndEnabled = false;
+            localStorage.setItem(STORAGE_KEY, '0');
+            localStorage.removeItem(STORAGE_LAST_ON_KEY);
+          }
+        }
 
         function saveOrder() {
           const ids = Array.from(root.querySelectorAll('.js-draggable-section'))
@@ -5240,17 +5520,60 @@ function renderPage({
           document.querySelectorAll('.js-btn-toggle-dnd').forEach(btn => {
             btn.classList.toggle('btn-warning', dndEnabled);
             btn.classList.toggle('btn-outline-warning', !dndEnabled);
-            btn.textContent = dndEnabled ? '✔️ Готово (закончить редактирование)' : '✏️ Редактировать разделы';
+            btn.textContent = dndEnabled
+              ? '✔️ Готово (закончить редактирование)'
+              : '✏️ Редактировать разделы';
           });
         }
+
+        let autoDisableTimer = null;
+        function setupAutoDisableTimer() {
+          if (autoDisableTimer) {
+            clearTimeout(autoDisableTimer);
+            autoDisableTimer = null;
+          }
+          if (!dndEnabled) return;
+
+          const last = readLastOn() || nowSeconds();
+          const elapsed = nowSeconds() - last;
+          const remaining = AUTO_DISABLE_SECONDS - elapsed;
+
+          if (remaining <= 0) {
+            // На всякий случай сразу выключим
+            dndEnabled = false;
+            localStorage.setItem(STORAGE_KEY, '0');
+            localStorage.removeItem(STORAGE_LAST_ON_KEY);
+            applyDndState();
+            return;
+          }
+
+          autoDisableTimer = setTimeout(() => {
+            const storedVal = localStorage.getItem(STORAGE_KEY);
+            const last2 = readLastOn();
+            if (storedVal === '1' && last2 && nowSeconds() - last2 >= AUTO_DISABLE_SECONDS) {
+              dndEnabled = false;
+              localStorage.setItem(STORAGE_KEY, '0');
+              localStorage.removeItem(STORAGE_LAST_ON_KEY);
+              applyDndState();
+            }
+          }, remaining * 1000);
+        }
+
         applyDndState();
+        setupAutoDisableTimer();
 
         document.querySelectorAll('.js-btn-toggle-dnd').forEach(btn => {
           btn.addEventListener('click', (e) => {
             e.preventDefault();
             dndEnabled = !dndEnabled;
             localStorage.setItem(STORAGE_KEY, dndEnabled ? '1' : '0');
+            if (dndEnabled) {
+              localStorage.setItem(STORAGE_LAST_ON_KEY, String(nowSeconds()));
+            } else {
+              localStorage.removeItem(STORAGE_LAST_ON_KEY);
+            }
             applyDndState();
+            setupAutoDisableTimer();
           });
         });
 
@@ -5266,6 +5589,7 @@ function renderPage({
           }
           return closest;
         }
+
         root.addEventListener('dragstart', (e) => {
           if (!dndEnabled) return;
           const sec = e.target.closest('.js-draggable-section'); if (!sec) return;
@@ -5768,6 +6092,17 @@ async function main() {
         }
       }
 
+      // 3.1) Подтурниры: обрабатываем параметр ?Sub=... и связи subTournaments
+      const rawSubParam = req.query?.[SUB_TOURNAMENT_PARAM];
+      const subCtx = await buildSubTournamentsContext(selectedChatId, rawSubParam);
+
+      let effectiveChatId = subCtx.effectiveChatId;
+      if (!ALLOWED_CHAT_IDS.includes(effectiveChatId)) {
+        // на всякий случай, если вдруг дочерний турнир не входит в ALLOWED_CHAT_IDS
+        effectiveChatId = selectedChatId;
+      }
+      selectedChatId = effectiveChatId;
+
       // Если alias не передан или невалиден — читаем старый numeric-параметр ?tournamentId=...
       if (selectedChatId == null) {
         const rawParamId = req.query?.[TOURNAMENT_QUERY_PARAM];
@@ -5781,6 +6116,13 @@ async function main() {
 
       // 4) Метаданные для селектора турниров
       const tournamentsMeta = await getTournamentsMeta(ALLOWED_CHAT_IDS);
+
+      // 4.1) Подготовим данные для селектора подтурниров
+      const subTournamentsMeta = Array.isArray(subCtx.items) && subCtx.items.length > 0
+        ? subCtx.items
+        : null;
+      const subRootChatId = subCtx.rootChatId || null;
+      const subRootAlias = subCtx.rootAlias || null;
 
       // 5) Загружаем данные по выбранному турниру
       const [
@@ -5814,6 +6156,28 @@ async function main() {
         //colRegistrationSettings.findOne({ chatId: selectedChatId }),
         //colSignups.find({ chatId: selectedChatId }).sort({ createdAt: 1 }).toArray(),
       ]);
+
+      //--------------------------------------------------------------------
+      // SUB-TOURNAMENT HANDLING (правильный selectedChatId)
+      //--------------------------------------------------------------------
+      const subCode = req.query?.Sub ? String(req.query.Sub).trim() : null;
+
+      if (subCode) {
+        // ищем турнир с соответствующим tournamentSubCode
+        const subTournament = await colChats.findOne({ tournamentSubCode: subCode });
+
+        // подменяем selectedChatId, ЕСЛИ такой подтурнир реально есть
+        if (subTournament && subTournament.chatId) {
+          selectedChatId = subTournament.chatId;
+
+          // заново загружаем tournament уже дочерний
+          const newTournament = await getTournament(selectedChatId);
+          if (newTournament) {
+            Object.assign(tournament, newTournament);
+          }
+        }
+      }
+
 
       PLAYER_STATS_ENABLED = tournament.tournamentStatsEnabled;
       PLAYER_STATS_URL = tournament.tournamentStatsUrl;
@@ -5937,6 +6301,10 @@ async function main() {
         // НОВОЕ:
         tournamentsMeta,
         selectedChatId,
+        // НОВОЕ: селектор подтурниров
+        subTournamentsMeta,
+        subRootChatId,
+        subRootAlias,
         // НОВОЕ:
         groupResultsByGroup,
         finalResultsByGroup,
