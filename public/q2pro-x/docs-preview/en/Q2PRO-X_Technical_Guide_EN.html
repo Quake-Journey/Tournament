@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 - Technical Guide</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 - Technical Guide</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.0</p><p>Technical Guide</p><p>English edition for the public website</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>Release 1.0 architectural updates relative to beta 0.99</li><li>Release 1.0 updates (architecture)</li><li>Modern Cvar Browser: final UI architecture</li><li>Overlay settings return flow</li><li>LAGHAX HUD: separate alpha + runtime snapshot</li><li>Packaging layer for 1.0</li><li>Multiplayer fairness note</li><li>1. The role of Q2PRO-X relative to upstream Q2PRO</li><li>2. Packaging and release philosophy</li><li>3. Menu overlay architecture</li><li>4. Config architecture: split by ownership and scope</li><li>5. Movement, predict, and feel compatibility</li><li>6. Weapon predict architecture</li><li>7. LAGHAX internals</li><li>8. Renderer architecture</li><li>8.1. win32egl and desktop fullscreen</li><li>8.2. Internal render scale paths</li><li>8.3. Visual FX stack</li><li>9. Modern server browser</li><li>10. Visibility/highlighting architecture</li><li>11. Sound architecture</li><li>11.1. OpenAL profiles, reverb and routing</li><li>11.2. Resamplers and high-precision output</li><li>11.3. Binaural layer and OpenAL Soft</li><li>12. Mod command overlay internals</li><li>13. Restart policy and live-apply policy</li><li>14. Known limitations and honest boundaries</li><li>15. Donor map of the project</li><li>16. 0.96: 4:3 pillarbox, resolution picker, and fullscreen semantics</li><li>16.1. Practical logic of the modes</li><li>16.2. Why this matters for the beta/release layer</li><li>17. 0.97: OLED protection architecture</li><li>18. 0.97: weapon prediction follow-up and accepted limitations</li><li>19. 0.97: LAGHAX HUD as a live diagnostic surface</li><li>20. 0.97: step smoothing lift jitter fix</li><li>16. Architectural updates in beta 0.98 relative to 0.97</li><li>16.1. Display mode state: windowed / desktop / exclusive</li><li>16.2. Runtime audio gain instead of a crude mute toggle</li><li>16.3. Weapon predict: new stabilized architecture</li><li>16.4. Weapon switch and continuous fire: why this now behaves better</li><li>16.5. HyperBlaster and rockets: precise pairing instead of crude suppression</li><li>16.6. LAGHAX: starvation detector hardening</li><li>16.7. Server Browser Favorites: composite persistence model</li><li>16.8. UI correctness: single-predicate visibility for Favorites action</li><li>0.99 updates (architecture)</li></ul><div class="doc-rule"></div><h1>Release 1.0 architectural updates relative to beta 0.99</h1><p>Release 1.0 locks in the final architecture of the modern cvar browser and the overlay UX wave. Browser-local EN/RU font rendering, UTF-8 wrapping, detail scrolling, and browser-local scale are now finished rather than experimental.</p><p>Overlay settings buttons now use tracked return flow, LAGHAX HUD owns a separate alpha model and runtime snapshot path, and the release package explicitly includes the menu pair plus the browser-local font atlas as mandatory runtime data.</p><div class="doc-rule"></div><h1>Release 1.0 updates (architecture)</h1><p>The defining technical result of 1.0 is that several formerly scattered beta systems now have clear ownership and clear public behavior. This applies to overlays, metadata, diagnostics, packaging, and documentation-facing tooling.</p><h2>Modern Cvar Browser: final UI architecture</h2><p>The browser no longer piggybacks on an ASCII console text path. It now owns browser-local text rendering, a unified EN/RU atlas, UTF-8-safe wrapping, independent alpha, independent scale, and clipboard-oriented interaction.</p><h2>Overlay settings return flow</h2><p>Opening settings from an overlay is now a tracked UI flow. When the menu closes, the client can return to the original overlay instead of leaving the user in detached menu state.</p><h2>LAGHAX HUD: separate alpha + runtime snapshot</h2><p>The HUD now uses its own alpha cvar and can display read-only weapon-predict runtime state through a snapshot API instead of peeking into internal predictor state directly.</p><h2>Packaging layer for 1.0</h2><p>Release 1.0 makes the mandatory runtime data explicit: q2pro-x.menu, q2pro-x.menu2, q2pro.modhelp, and q2prox_cvar_font.png all belong to the product layer.</p><h2>Multiplayer fairness note</h2><p>The release keeps a clear fairness line: responsiveness, diagnostics, and readability are allowed, but server authority over actual gameplay state remains intact.</p><div class="doc-rule"></div><h1>1. The role of Q2PRO-X relative to upstream Q2PRO</h1><p>Q2PRO-X is not a full rewrite. It is an additive layer on top of Q2PRO, extending the upstream client through focused subsystems rather than replacing everything with a new architecture.</p><div class="doc-rule"></div><h1>2. Packaging and release philosophy</h1><p>The release package should deliver the Q2PRO-X layer itself, not a developer&#x27;s generated personal config or a destructive replacement of the user&#x27;s installation. This philosophy shaped how the beta line was shipped and remains true in 1.0.</p><div class="doc-rule"></div><h1>3. Menu overlay architecture</h1><p>The project deliberately maintains both classic additive menu integration and the guided menu mode. The modern overlays exist beside those menus and provide browser-like product surfaces for discovery, inspection, and diagnostics.</p><div class="doc-rule"></div><h1>4. Config architecture: split by ownership and scope</h1><p>Q2PRO-X does not flatten every setting into one anonymous stream. It distinguishes between Q2PRO-X-owned state and ordinary upstream config behavior, and it further separates global and mod-local scope where that improves real workflow.</p><div class="doc-rule"></div><h1>5. Movement, predict, and feel compatibility</h1><p>Movement feel is implemented as a compatibility layer. Q2PRO-X supports newer Q2PRO-X/Q2PRO behavior together with legacy-inspired and R1Q2-like expectations, but keeps those choices on the client-experience side rather than turning them into server cheats.</p><div class="doc-rule"></div><h1>6. Weapon predict architecture</h1><p>Weapon predict lives in a ghost layer responsible for immediate local response while the server remains authoritative for actual fire cadence, ammo, projectile creation, hit logic, and damage.</p><p>This architecture allows stronger responsiveness without compromising the rule that the server defines the real game state.</p><div class="doc-rule"></div><h1>7. LAGHAX internals</h1><p>LAGHAX is an adaptive comfort layer for unstable delivery conditions. It reacts to loss, jitter, timing gaps, and correction debt, but does not attempt to replace server authority or invent a new transport model.</p><div class="doc-rule"></div><h1>8. Renderer architecture</h1><p>Q2PRO-X rendering changes are not one giant rewrite. Architecturally, this is a stack of layers: modern video backend behavior, render scale handling, visual FX, transparency rules, and overlay-aware UI display paths.</p><h2>8.1. win32egl and desktop fullscreen</h2><p>win32egl matters not only as an alternate video backend but as a supported path for modern desktop, capture, and Alt-Tab workflows. Desktop fullscreen therefore belongs to documented release behavior, not to a hidden technical curiosity.</p><h2>8.2. Internal render scale paths</h2><p>Internal render scale is not reduced to one crude bilinear collapse. Q2PRO-X includes higher-quality resolve logic to avoid unnecessary shimmer and seam artifacts at non-trivial scale factors.</p><h2>8.3. Visual FX stack</h2><p>Visual FX remain integrated into the existing scene/postprocess pipeline so the client can preserve live-apply behavior and consistent diagnostics instead of spawning a separate renderer branch.</p><div class="doc-rule"></div><h1>9. Modern server browser</h1><p>The modern browser is a new UI/frontend layer over the existing server discovery information. This lowers risk while allowing the browser itself to evolve as a modern product surface.</p><div class="doc-rule"></div><h1>10. Visibility/highlighting architecture</h1><p>Visibility and highlighting systems evolved in stages: items first, then players, then more contextual logic. That sequence reduced risk by building on stronger classification truth before moving into more sensitive heuristics.</p><div class="doc-rule"></div><h1>11. Sound architecture</h1><p>Sound in Q2PRO-X is no longer just OpenAL on/off. The client now has multiple axes: OpenAL profile, reverb/acoustics, routing choices, sound profiles, per-weapon or per-category volume shaping, resamplers, high-precision output, and the binaural layer.</p><h2>11.1. OpenAL profiles, reverb and routing</h2><p>Profiles, reverb, and routing form the practical acoustics layer. They let the player treat sound as spatial information and comfort, not just as one master-volume slider.</p><h2>11.2. Resamplers and high-precision output</h2><p>Resampler and output-precision choices matter for players who care about audio clarity and modern playback devices. Q2PRO-X exposes these paths as documented user-facing options.</p><h2>11.3. Binaural layer and OpenAL Soft</h2><p>The binaural/HRTF layer builds on OpenAL Soft and is treated as a real product area with menu pages, cvar metadata, and documentation.</p><div class="doc-rule"></div><h1>12. Mod command overlay internals</h1><p>The mod command overlay is implemented as a focused command-surface layer with prompt handling, grouped actions, and confirmation logic for dangerous operations. It is not only a visual list of aliases.</p><div class="doc-rule"></div><h1>13. Restart policy and live-apply policy</h1><p>A practical technical rule in Q2PRO-X is that not every change should require a restart and not every change should pretend to be live-safe. The project documents and exposes these differences instead of hiding them.</p><div class="doc-rule"></div><h1>14. Known limitations and honest boundaries</h1><p>Release 1.0 is meant to feel modern, but it is not built on false promises. The project keeps honest boundaries around fairness, server authority, visibility policy, and the limits of what client-side comfort systems are allowed to do.</p><div class="doc-rule"></div><h1>15. Donor map of the project</h1><p>Q2PRO-X openly acknowledges donor ideas and compatible traditions. Useful user-facing behavior may come from Q2PRO history, R1Q2 habits, or long testing feedback, but it is still integrated into one controlled client layer.</p><div class="doc-rule"></div><h1>16. 0.96: 4:3 pillarbox, resolution picker, and fullscreen semantics</h1><p>The 0.96 wave clarified what fullscreen modes really mean in practice: windowed, desktop fullscreen, and exclusive fullscreen became explicit product states rather than loosely inherited assumptions.</p><h2>16.1. Practical logic of the modes</h2><p>The client lets the user choose the display model intentionally, which is especially important for classic 4:3 presentation on modern widescreen desktops.</p><h2>16.2. Why this matters for the beta/release layer</h2><p>This work mattered because display semantics directly affect user trust. A release client must make resolution and fullscreen behavior understandable rather than mysterious.</p><div class="doc-rule"></div><h1>17. 0.97: OLED protection architecture</h1><p>The OLED branch grew from a niche idea into a wider display-care subsystem, including pillarbox animation, idle protection, and UI-related opacity behavior.</p><div class="doc-rule"></div><h1>18. 0.97: weapon prediction follow-up and accepted limitations</h1><p>0.97 was important because it closed several visible prediction problems while preserving the rule that continuous-fire and handoff behavior must remain honest even when local prediction is desirable.</p><div class="doc-rule"></div><h1>19. 0.97: LAGHAX HUD as a live diagnostic surface</h1><p>By this stage the HUD was no longer only a developer toy. It had become a live diagnostic surface that could explain active network comfort state to real users and testers.</p><div class="doc-rule"></div><h1>20. 0.97: step smoothing lift jitter fix</h1><p>The lift jitter fix matters because movement compatibility becomes untrustworthy very quickly if stair and lift edge cases remain obviously broken.</p><div class="doc-rule"></div><h1>16. Architectural updates in beta 0.98 relative to 0.97</h1><p>Beta 0.98 pushed several architectural areas forward at once: display state handling, runtime audio control, stabilized weapon prediction, stronger browser persistence, and harder LAGHAX starvation detection.</p><h2>16.1. Display mode state: windowed / desktop / exclusive</h2><p>The display model became explicit, with distinct states for windowed, desktop fullscreen, and exclusive fullscreen behavior.</p><h2>16.2. Runtime audio gain instead of a crude mute toggle</h2><p>Audio behavior moved toward smoother gain handling instead of only binary mute-style reactions in inactivity scenarios.</p><h2>16.3. Weapon predict: new stabilized architecture</h2><p>This wave moved weapon predict further away from ad hoc behavior toward a stabilized and testable subsystem with clearer handoff and classification rules.</p><h2>16.4. Weapon switch and continuous fire: why this now behaves better</h2><p>The client became better at handling weapon switch timing and continuous-fire cases without drifting into visually wrong guesses.</p><h2>16.5. HyperBlaster and rockets: precise pairing instead of crude suppression</h2><p>HyperBlaster and rocket-related logic were refined so that matching and suppression became more precise and less brute-force.</p><h2>16.6. LAGHAX: starvation detector hardening</h2><p>Starvation detection was hardened so low-ping but badly delivered traffic patterns could be recognized more consistently.</p><h2>16.7. Server Browser Favorites: composite persistence model</h2><p>Favorites moved to a cleaner persistence model, turning what used to be awkward user maintenance into a proper browser feature.</p><h2>16.8. UI correctness: single-predicate visibility for Favorites action</h2><p>The browser UI was also hardened so favorites-related actions appear only when their visibility logic is truly satisfied.</p><div class="doc-rule"></div><h1>0.99 updates (architecture)</h1><p>Beta 0.99 brought guided menu mode, stronger cvar-reference surfaces, better overlay ergonomics, and the product-presentation discipline that later became part of release 1.0 itself.</p></section>  </article></div>
+</body>
+</html>

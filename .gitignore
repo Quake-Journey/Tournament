@@ -137,3 +137,15 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Local credentials and regenerable dependencies
+.env
+.env.*
+!.env.example
+!.env.countries
+!.env.nicks
+node_modules/
+*.key
+*.pem
+*.pfx
+Backup/

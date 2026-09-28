@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: демки, Demo Browser и Demo Player</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: демки, Demo Browser и Demo Player</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: демки, Demo Browser и Demo Player</p><p>Демки, браузер, проигрыватель, аналитика и таймеры</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Какие форматы поддерживаются</li><li>2. Demo Browser</li><li>3. Вкладки и организация</li><li>4. Playlist flow</li><li>5. Demo Player Overlay</li><li>6. Pause, seek и keys</li><li>7. Demo volume, gun и skins</li><li>8. MVD Director</li><li>9. Demo Analytics</li><li>10. Trail mode</li><li>11. Analytics colors</li><li>12. Demo Item Timers</li><li>13. Какие предметы отслеживаются</li><li>14. Item timer colors</li><li>15. Demo visual cfg</li><li>16. Практические сценарии</li><li>Просто смотреть демки</li><li>Смотреть MVD дуэль с аналитикой</li><li>Разбирать контроль предметов</li><li>Делать красивый demo capture</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: демки, Demo Browser и Demo Player</h1><p>В 1.2 просмотр демок стал отдельной большой областью клиента. Этот документ</p><p>объясняет modern demo browser, demo player overlay, MVD/DM2 особенности,</p><p>analytics, trail mode, director mode, item timers и demo-visual cfg.</p><h2>1. Какие форматы поддерживаются</h2><p>Основные форматы:</p><ul><li>.dm2 - обычная single-POV демка;</li><li>.mvd2 - multi-view demo с дополнительной информацией для MVD playback.</li></ul><p>Часть функций работает в обоих форматах, часть только в MVD2:</p><ul><li>demo browser - оба формата;</li><li>demo player overlay - оба формата;</li><li>pause/seek - оба, с разной внутренней реализацией;</li><li>analytics traffic/frags/pickups - полноценно MVD2, DM2 fallback через live</li></ul><p>POV sampling;</p><ul><li>director mode - MVD2;</li><li>item timers - MVD2.</li></ul><h2>2. Demo Browser</h2><p>Путь:</p><ul><li>Options -&gt; Demo Browser;</li><li>команда demo_browser_open;</li><li>bind demo_browser_toggle.</li></ul><p>Главные настройки:</p><ul><li>cl_demo_browser_alpha;</li><li>cl_demo_browser_scale;</li><li>cl_demo_browser_fullscreen;</li><li>cl_demo_browser_show_details;</li><li>cl_demo_browser_row_colors;</li><li>cl_demo_browser_show_broken;</li><li>cl_demo_browser_show_packed;</li><li>cl_demo_browser_remember_tab;</li><li>cl_demo_browser_last_tab.</li></ul><p>Browser использует центральный индекс:</p><ul><li>demo_index_rebuild - полный rescan;</li><li>demo_index_refresh - incremental refresh.</li></ul><p>Индекс не должен быть частью релизного пакета. Он создаётся у пользователя</p><p>локально.</p><h2>3. Вкладки и организация</h2><p>Modern demo browser группирует демки по рабочим представлениям, например:</p><ul><li>All;</li><li>Favorites;</li><li>Date;</li><li>Mod;</li><li>Map;</li><li>POV.</li></ul><p>Точная видимость зависит от найденных демо и metadata. remember tab</p><p>возвращает browser на последнюю вкладку при следующем открытии.</p><p>Partial/unreadable демки можно показывать или скрывать. Packed demos из</p><p>engine-visible паков по умолчанию скрыты, чтобы не смешивать пользовательскую</p><p>библиотеку с содержимым pak, если это не нужно.</p><h2>4. Playlist flow</h2><p>Demo browser поддерживает выбор нескольких демок и playlist-поведение.</p><p>Полезные действия:</p><ul><li>отметить демки;</li><li>запустить selected queue;</li><li>перейти к следующей / предыдущей;</li><li>очистить playlist.</li></ul><p>Binds в Demo Player:</p><ul><li>demo_playlist_next;</li><li>demo_playlist_prev;</li><li>demo_playlist_clear.</li></ul><p>Если playlist активен, demo player overlay показывает соответствующий</p><p>кластер управления.</p><h2>5. Demo Player Overlay</h2><p>Путь:</p><ul><li>Options -&gt; Demo Player;</li><li>команда demo_player_open;</li><li>bind demo_player_toggle.</li></ul><p>Ключевые настройки:</p><ul><li>cl_demoplayer_overlay;</li><li>cl_demoplayer_overlay_alpha;</li><li>cl_demoplayer_overlay_scale;</li><li>cl_demoplayer_overlay_autohide_sec;</li><li>cl_demoplayer_overlay_seek_step_sec;</li><li>cl_demoplayer_overlay_seek_jump_sec;</li><li>cl_demoplayer_overlay_y;</li><li>cl_demoplayer_overlay_show_score;</li><li>cl_demoplayer_hide_draws;</li><li>cl_demoplayer_volume;</li><li>cl_demoplayer_gun;</li><li>cl_demoplayer_noskins.</li></ul><p>Overlay показывает playback controls, timeline, текущие mode pills и</p><p>popup-меню для частей управления.</p><h2>6. Pause, seek и keys</h2><p>Основные binds:</p><ul><li>demo_pause_toggle;</li><li>+demo_seek_back;</li><li>+demo_seek_forward;</li><li>demo_player_toggle;</li><li>demo_browser_toggle.</li></ul><p>По умолчанию:</p><ul><li>Space - pause/resume;</li><li>Left Arrow - seek back;</li><li>Right Arrow - seek forward.</li></ul><p>Seek step и jump настраиваются отдельно. Для длинных MVD лучше поднять jump,</p><p>для коротких дуэлей - оставить небольшой шаг.</p><h2>7. Demo volume, gun и skins</h2><p>cl_demoplayer_volume - временный volume override во время demo playback.</p><p>После окончания демки обычная игровая громкость восстанавливается.</p><p>cl_demoplayer_gun:</p><ul><li>show gun;</li><li>hide gun.</li></ul><p>Это demo-playback override, он не меняет обычный cl_gun.</p><p>cl_demoplayer_noskins:</p><ul><li>original;</li><li>no skins.</li></ul><p>Это тоже playback override, он не меняет обычный cl_noskins.</p><h2>8. MVD Director</h2><p>MVD-only director помогает автоматически выбирать POV.</p><p>Режим:</p><ul><li>cl_demoplayer_mvd_director_mode;</li></ul><p>Значения:</p><ul><li>off;</li><li>next frag;</li><li>quad;</li><li>penta;</li><li>leader.</li></ul><p>Lead time:</p><ul><li>cl_demoplayer_mvd_director_lead_sec.</li></ul><p>Debug:</p><ul><li>cl_demoplayer_nextfrag_debug.</li></ul><p>next frag использует pre-scanned frag timeline, чтобы переключиться до</p><p>события. Manual POV override временно ставит director на cooldown, чтобы он</p><p>не отбирал управление мгновенно обратно.</p><h2>9. Demo Analytics</h2><p>Путь:</p><ul><li>Options -&gt; Demo Player -&gt; Demo Analytics.</li></ul><p>Главный mode:</p><ul><li>cl_demo_analytics_mode: off / traffic / frags / pickups / all.</li></ul><p>Style:</p><ul><li>cl_demo_analytics_style: overview / world / both.</li></ul><p>Time scope:</p><ul><li>cl_demo_analytics_time_scope: full / elapsed / window;</li><li>cl_demo_analytics_window_sec.</li></ul><p>MVD/DM2:</p><ul><li>cl_demo_analytics_mvd_autoscan;</li><li>cl_demo_analytics_dm2_mode.</li></ul><p>Density/performance:</p><ul><li>cl_demo_analytics_sample_ms;</li><li>cl_demo_analytics_cell_size;</li><li>cl_demo_analytics_draw_max_cells;</li><li>cl_demo_analytics_draw_max_events.</li></ul><p>Visibility:</p><ul><li>cl_demo_analytics_overview_alpha;</li><li>cl_demo_analytics_world_alpha;</li><li>cl_demo_analytics_world_scale;</li><li>cl_demo_analytics_show_legend.</li></ul><p>Commands:</p><ul><li>demo_analytics_rescan;</li><li>demo_analytics_info.</li></ul><h2>10. Trail mode</h2><p>Trail mode включается, когда:</p><ul><li>cl_demo_analytics_world_lifetime_sec &gt; 0.</li></ul><p>Вместо агрегированной heatmap рисуются per-sample точки, которые живут N</p><p>секунд и могут соединяться линиями.</p><p>Настройки:</p><ul><li>cl_demo_analytics_trail_stride;</li><li>cl_demo_analytics_trail_lines;</li><li>cl_demo_analytics_trail_height_mode;</li><li>cl_demo_analytics_trail_feet_z;</li><li>cl_demo_analytics_trail_hover_z;</li><li>cl_demo_analytics_trail_outline;</li><li>cl_demo_analytics_trail_outline_alpha;</li><li>cl_demo_analytics_trail_outline_scale.</li></ul><p>trail_height_mode feet рисует след ближе к ногам игрока, учитывая прыжки,</p><p>падения и перемещения по ящикам. hover_z поднимает точки чуть выше, чтобы</p><p>они не клиппились в пол.</p><h2>11. Analytics colors</h2><p>Цвета analytics редактируются через отдельный menu editor:</p><ul><li>Analytics colors....</li></ul><p>Ключевые cvar:</p><ul><li>cl_demo_analytics_traffic_low_color;</li><li>cl_demo_analytics_traffic_high_color;</li><li>cl_demo_analytics_frag_color;</li><li>cl_demo_analytics_pickup_color;</li><li>cl_demo_analytics_trail_line_color;</li><li>cl_demo_analytics_trail_outline_color;</li><li>cl_demo_analytics_world_adaptive_colors.</li></ul><p>В меню используется preset-style выбор цветов, как в редакторах моделей и</p><p>item timers. Hex-значения также можно менять через console/cvar browser.</p><h2>12. Demo Item Timers</h2><p>Item timers показывают respawn timers для важных предметов в MVD2.</p><p>Master:</p><ul><li>cl_demo_item_timers_world: off / world only / strip only / both.</li></ul><p>World view:</p><ul><li>translucent ghost item models;</li><li>countdown labels над местом предмета;</li><li>отключение countdown, когда предмет появился.</li></ul><p>Strip:</p><ul><li>demo player strip с item icons;</li><li>полупрозрачное состояние, когда item ждёт respawn;</li><li>timer поверх icon;</li><li>full-color icon, когда item доступен.</li></ul><p>Настройки:</p><ul><li>cl_demo_item_timers_world_alpha;</li><li>cl_demo_item_timers_world_scale;</li><li>cl_demo_item_timers_strip_alpha;</li><li>cl_demo_item_timers_strip_pillarbox_workspace;</li><li>demo_item_timers_strip_edit;</li><li>demo_item_timers_strip_reset;</li><li>demo_item_timers_info.</li></ul><h2>13. Какие предметы отслеживаются</h2><p>Armor:</p><ul><li>green jacket armor;</li><li>yellow combat armor;</li><li>red body armor.</li></ul><p>Powerups/items:</p><ul><li>Quad Damage;</li><li>Invulnerability;</li><li>Silencer;</li><li>Rebreather;</li><li>Environment Suit;</li><li>Adrenaline;</li><li>Mega Health;</li><li>Power Screen;</li><li>Power Shield.</li></ul><p>Weapons, off by default:</p><ul><li>Rocket Launcher;</li><li>BFG10K;</li><li>Railgun.</li></ul><p>Per-item toggles:</p><ul><li>cl_demo_item_timers_show_armor_green;</li><li>cl_demo_item_timers_show_armor_yellow;</li><li>cl_demo_item_timers_show_armor_red;</li><li>cl_demo_item_timers_show_quad;</li><li>cl_demo_item_timers_show_invuln;</li><li>cl_demo_item_timers_show_silencer;</li><li>cl_demo_item_timers_show_breather;</li><li>cl_demo_item_timers_show_enviro;</li><li>cl_demo_item_timers_show_adrenal;</li><li>cl_demo_item_timers_show_megahealth;</li><li>cl_demo_item_timers_show_power_screen;</li><li>cl_demo_item_timers_show_power_shield;</li><li>cl_demo_item_timers_show_rl;</li><li>cl_demo_item_timers_show_bfg;</li><li>cl_demo_item_timers_show_rail.</li></ul><h2>14. Item timer colors</h2><p>Item timer colors редактируются через:</p><ul><li>Items colors....</li></ul><p>Есть adaptive mode:</p><ul><li>cl_demo_item_timers_adaptive_colors.</li></ul><p>Когда adaptive включён, цвета могут наследоваться из item-highlight palette.</p><p>Когда выключен, manual per-item text/ring colors управляются отдельно.</p><h2>15. Demo visual cfg</h2><p>Все demo visual настройки должны сохраняться в:</p><p>baseq2/q2pro-x/demo_visual/q2pro-x.demo.cfg</p><p>Это важно для:</p><ul><li>visibility highlights;</li><li>model color overrides;</li><li>analytics;</li><li>trail;</li><li>item timers;</li><li>item timer colors.</li></ul><p>Идея: демка из opentdm, k1, xatrix или другого mod не должна внезапно</p><p>подменять вашу графику просмотра только потому, что playback временно вошёл</p><p>в gamedir этой демки.</p><h2>16. Практические сценарии</h2><h3>Просто смотреть демки</h3><ul><li>открыть Demo Browser;</li><li>rebuild index один раз;</li><li>включить Demo Player overlay;</li><li>cl_demoplayer_volume настроить под запись;</li><li>gun/skins по вкусу.</li></ul><h3>Смотреть MVD дуэль с аналитикой</h3><ul><li>cl_demo_analytics_mode all;</li><li>cl_demo_analytics_style both;</li><li>cl_demo_analytics_time_scope elapsed;</li><li>trail lifetime 3-10 sec;</li><li>trail_height_mode feet;</li><li>trail_outline 1.</li></ul><h3>Разбирать контроль предметов</h3><ul><li>item timers = both;</li><li>включить armor, megahealth, quad, invuln, power shield;</li><li>weapons оставить off, если они засоряют strip;</li><li>переместить strip через demo_item_timers_strip_edit.</li></ul><h3>Делать красивый demo capture</h3><ul><li>использовать demo-visual cfg;</li><li>cl_vis_players_mode model;</li><li>настроить player model colors;</li><li>trail outline включить;</li><li>item timers включать только если они нужны в кадре.</li></ul></section>  </article></div>
+</body>
+</html>

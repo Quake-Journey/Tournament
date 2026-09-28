@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: cvars, конфиги и Cvar Browser</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: cvars, конфиги и Cvar Browser</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: cvars, конфиги и Cvar Browser</p><p>Cvars, конфиги и встроенный справочник переменных</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Что такое cvar</li><li>2. Три основных scope Q2PRO-X</li><li>Global</li><li>Mod-local</li><li>Demo visual</li><li>3. Почему релиз не поставляет q2pro-x.cfg</li><li>4. Миграция схемы 1.2</li><li>5. Команды сохранения и сброса</li><li>6. Почему не стоит вручную чистить cfg без причины</li><li>7. Что умеет Cvar Browser</li><li>8. Favorites</li><li>9. Commands tab</li><li>10. Поиск</li><li>11. Язык и шрифты</li><li>12. Как понять, где сохранится значение</li><li>13. Мини-рецепты</li><li>Сохранить всё перед выходом</li><li>Сбросить только demo visuals</li><li>Найти все demo cvar</li><li>Проверить, почему значение не сохраняется</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: cvars, конфиги и Cvar Browser</h1><p>Этот документ объясняет, как в Q2PRO-X 1.2 устроены переменные, scopes,</p><p>сохранение настроек и встроенный cvar browser.</p><h2>1. Что такое cvar</h2><p>cvar - console variable. Это именованная переменная движка, которую можно:</p><ul><li>читать через консоль;</li><li>менять через консоль;</li><li>менять через меню;</li><li>сохранять в cfg;</li><li>использовать как состояние для UI и runtime-логики.</li></ul><p>Примеры:</p><ul><li>sensitivity;</li><li>vid_driver;</li><li>cl_vis_enable;</li><li>vc_enable;</li><li>cl_demo_analytics_mode.</li></ul><p>В 1.2 большая часть пользовательских Q2PRO-X cvar имеет понятный scope,</p><p>чтобы настройки сохранялись в правильное место.</p><h2>2. Три основных scope Q2PRO-X</h2><h3>Global</h3><p>Global-настройки пишутся в:</p><p>baseq2/q2pro-x/q2pro-x.cfg</p><p>Это вещи, которые обычно одинаковы везде:</p><ul><li>меню и UI;</li><li>язык / типографика;</li><li>мышь и zoom;</li><li>видео backend;</li><li>voice;</li><li>server browser;</li><li>demo browser/player общие настройки;</li><li>cvar browser;</li><li>сетевые инструменты.</li></ul><h3>Mod-local</h3><p>Mod-local настройки пишутся в:</p><p>&lt;game&gt;/q2pro-x/q2pro-x.cfg</p><p>Это вещи, которые могут зависеть от мода:</p><ul><li>visibility highlights;</li><li>визуальные эффекты;</li><li>item/weapon/player highlight colors;</li><li>часть render-профиля;</li><li>mod-local binds.</li></ul><h3>Demo visual</h3><p>Во время просмотра .dm2 / .mvd2 mod-local визуальные настройки могут</p><p>писаться не в папку мода, а в единый профиль:</p><p>baseq2/q2pro-x/demo_visual/q2pro-x.demo.cfg</p><p>Он нужен, чтобы демки из разных модов выглядели одинаково.</p><h2>3. Почему релиз не поставляет q2pro-x.cfg</h2><p>Релизный пакет 1.2 не кладёт пользовательский q2pro-x.cfg в baseq2.</p><p>Это сделано намеренно:</p><ul><li>не перетирать существующий конфиг пользователя;</li><li>не привозить чужие local/demo состояния;</li><li>не смешивать release runtime с personal profile;</li><li>позволить движку создать чистый cfg на первом запуске.</li></ul><p>Если cfg отсутствует, Q2PRO-X стартует с compiled defaults и создаёт свои</p><p>файлы при сохранении настроек.</p><h2>4. Миграция схемы 1.2</h2><p>В 1.2 добавлен internal marker:</p><p>cl_q2prox_cfg_version</p><p>Если маркер отсутствует или старее 1.2, движок применяет только безопасные</p><p>рекомендованные настройки интерфейса, например:</p><ul><li>guided menu as default;</li><li>autosave Q2PRO-X config;</li><li>современный autoscale меню.</li></ul><p>После этого в global cfg пишется:</p><p>set cl_q2prox_cfg_version &quot;1.2&quot;</p><p>На следующем запуске эта миграция не повторяется.</p><p>Важно: это не defaults all. Пользовательская чувствительность, звук, voice,</p><p>мышь, zoom и другие настройки не должны сбрасываться полностью.</p><h2>5. Команды сохранения и сброса</h2><p>Основные команды:</p><ul><li>q2prox_cfg_save - сохранить global + local;</li><li>q2prox_cfg_save_global - сохранить global profile;</li><li>q2prox_cfg_save_local - сохранить mod-local profile, а во время demo</li></ul><p>playback - demo-visual profile;</p><ul><li>q2prox_cfg_save_demo_visual - явно сохранить demo-visual profile;</li><li>q2prox_cfg_defaults - сбросить все Q2PRO-X настройки;</li><li>q2prox_cfg_defaults_global - сбросить только global scope;</li><li>q2prox_cfg_defaults_local - сбросить local scope, а во время demo</li></ul><p>playback - только demo visual cvar, binds сохраняются;</p><ul><li>q2prox_cfg_defaults_demo_visual - сбросить только demo-visual cvar.</li></ul><p>Autosave управляется:</p><ul><li>cl_q2prox_cfg_autosave.</li></ul><p>По умолчанию в 1.2 autosave включён.</p><h2>6. Почему не стоит вручную чистить cfg без причины</h2><p>Q2PRO-X 1.2 уже умеет не перезаписывать чужие значения полным reset-ом при</p><p>обычном старте. Если что-то выглядит странно, лучше сначала:</p><ol><li>открыть соответствующую страницу меню;</li><li>проверить значение в cvar browser;</li><li>использовать scope-specific defaults, например</li></ol><p>q2prox_cfg_defaults_demo_visual, а не удалять весь baseq2.</p><p>Полное удаление cfg полезно только когда вы действительно хотите начать с</p><p>чистого профиля.</p><h2>7. Что умеет Cvar Browser</h2><p>Cvar Browser - это встроенный справочник и редактор переменных.</p><p>Путь:</p><ul><li>Options -&gt; Cvar Browser;</li><li>или bind на cvar_browser_toggle;</li><li>или console command cvar_help.</li></ul><p>Основные возможности:</p><ul><li>вкладки: All, Favorites, Demo, Visual, Audio, Input, Network, Gameplay,</li></ul><p>HUD/UI, Server, System;</p><ul><li>commands tab;</li><li>поиск по имени, описанию и values;</li><li>RU/EN отображение в зависимости от общего режима русской локализации;</li><li>value column с текущим live значением;</li><li>detail pane с описанием и допустимыми значениями;</li><li>mouse selection и copy;</li><li>Ctrl+A, Backspace/Delete clear;</li><li>favorites state;</li><li>resize / drag / fullscreen;</li><li>remember last tab.</li></ul><h2>8. Favorites</h2><p>Favorites - это локальный список часто используемых cvar.</p><p>Состояние хранится отдельно:</p><p>baseq2/q2pro-x/cvar_browser_state.txt</p><p>Полезно добавить туда:</p><ul><li>vid_driver;</li><li>vid_resolution;</li><li>sensitivity;</li><li>cl_mouse_behavior_mode;</li><li>cl_zoom_fov;</li><li>cl_vis_enable;</li><li>cl_demo_analytics_mode;</li><li>vc_enable;</li><li>cl_laghax.</li></ul><h2>9. Commands tab</h2><p>Commands tab - это способ быстро найти и выполнить связанные команды:</p><ul><li>открыть menu page;</li><li>выполнить action;</li><li>открыть overlay;</li><li>запустить helper-команду;</li><li>перейти в console command with prefilled text.</li></ul><p>Когда команда требует консольного ввода, browser открывает консоль поверх</p><p>себя и затем может вернуться в прежнее состояние.</p><h2>10. Поиск</h2><p>Поиск работает не только по имени cvar. Он также ищет по описаниям,</p><p>категориям и command metadata. В русской локализации поддерживается</p><p>кириллический ввод.</p><p>Практические примеры:</p><ul><li>demo - найти demo browser/player/analytics cvar;</li><li>voice или голос - voice chat;</li><li>mouse, zoom, мышь - управление;</li><li>highlight, подсвет - visibility highlights;</li><li>порт, clientport, xq3a - advanced network.</li></ul><h2>11. Язык и шрифты</h2><p>Cvar Browser следует общему режиму русской локализации, а не отдельному</p><p>старому cl_cvar_browser_lang. Старый cvar сохранён для совместимости, но</p><p>его значение больше не является главным переключателем языка.</p><p>Связанные UI cvar:</p><ul><li>cl_browser_font_mode - типографика browser/UI chrome;</li><li>cl_cvar_browser_alpha;</li><li>cl_cvar_browser_scale;</li><li>cl_cvar_browser_remember_tab;</li><li>cl_cvar_browser_last_tab.</li></ul><h2>12. Как понять, где сохранится значение</h2><p>Простое правило:</p><ul><li>мышь, звук, voice, сеть, browser UI - global;</li><li>визуал мода, highlights, render look - mod-local;</li><li>те же визуальные настройки во время demo playback - demo visual.</li></ul><p>Если сомневаетесь, откройте cvar browser и прочитайте описание. Для новых</p><p>Q2PRO-X cvar в 1.2 metadata обычно прямо указывает назначение и смысл.</p><h2>13. Мини-рецепты</h2><h3>Сохранить всё перед выходом</h3><p>В консоли:</p><p>q2prox_cfg_save</p><h3>Сбросить только demo visuals</h3><p>В консоли:</p><p>q2prox_cfg_defaults_demo_visual</p><p>Затем при необходимости:</p><p>q2prox_cfg_save_demo_visual</p><h3>Найти все demo cvar</h3><p>Откройте cvar browser и перейдите на вкладку Demo, либо введите demo в</p><p>поиск.</p><h3>Проверить, почему значение не сохраняется</h3><ol><li>Убедитесь, что cl_q2prox_cfg_autosave 1.</li><li>Проверьте, что меняете не debug/internal cvar.</li><li>Проверьте scope: global, local или demo visual.</li><li>Выполните явный q2prox_cfg_save* для нужного scope.</li></ol></section>  </article></div>
+</body>
+</html>

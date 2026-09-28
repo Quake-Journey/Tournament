@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: индекс документации</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: индекс документации</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: индекс документации</p><p>Карта пользовательских документов релиза</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>Что читать в первую очередь</li><li>Пары документов</li><li>Как устроено сохранение настроек</li><li>Что не входит в этот каталог</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: документация релиза</h1><p>Этот каталог - пользовательская документация к релизу Q2PRO-X 1.2. Документы идут парами на русском и английском языках и лежат в подпапках ru и en.</p><h2>Что читать в первую очередь</h2><ol><li>Q2PRO-X_1.2_Release_Notes_RU.docx - короткая карта релиза 1.2 и рекомендации по обновлению с 1.0 / 1.1 / 1.1A.</li><li>Q2PRO-X_1.2_Interface_Menu_Console_Guide_RU.docx - режимы меню, modern renderer, язык, шрифты, scale/alpha и сохранение настроек.</li><li>Q2PRO-X_1.2_Controls_Mouse_Zoom_Guide_RU.docx - перенос старых r1q2/q2pro конфигов, mouse behavior, zoom FOV, zoom crosshair.</li><li>Q2PRO-X_1.2_Video_Visuals_Guide_RU.docx - video backend, разрешение, render scale, подсветки предметов / игроков / моделей.</li><li>Q2PRO-X_1.2_Sound_Guide_RU.docx - OpenAL, HRTF, реверберация и громкости.</li><li>Q2PRO-X_1.2_Network_Play_Guide_RU.docx - server browser, laghax, predict, OpenTDM HUD, порт-сканер, русский ввод, автотранслит и /en перевод.</li><li>Q2PRO-X_1.2_Demo_Browser_Player_Guide_RU.docx - demo browser, demo player, MVD/DM2, analytics, trail, director, item timers.</li><li>Q2PRO-X_1.2_Cvars_Cvar_Browser_Guide_RU.docx - cvars, scopes, save/default commands и встроенный справочник переменных.</li><li>Q2PRO-X_1.2_Voice_Chat_Guide_RU.docx - встроенный voice chat, автоподключение, микрофон, PTT/VAD.</li></ol><h2>Пары документов</h2><ul><li>Release Notes: RU / EN</li><li>Interface, Menu, Console: RU / EN</li><li>Video &amp; Visuals: RU / EN</li><li>Cvars &amp; Cvar Browser: RU / EN</li><li>Voice Chat: RU / EN</li><li>Network Play: RU / EN</li><li>Controls, Mouse, Zoom: RU / EN</li><li>Demo Browser &amp; Player: RU / EN</li><li>Sound Guide: RU / EN</li></ul><h2>Как устроено сохранение настроек</h2><ul><li>GLOBAL настройки сохраняются в baseq2/q2pro-x/q2pro-x.cfg.</li><li>LOCAL настройки сохраняются в baseq2/q2pro-x/q2pro-x.local.cfg или &lt;gamedir&gt;/q2pro-x/q2pro-x.cfg.</li><li>Demo visual настройки сохраняются в baseq2/q2pro-x/demo_visual/q2pro-x.demo.cfg.</li><li>cl_q2prox_cfg_autosave по умолчанию включён; явные команды q2prox_cfg_save* остаются доступны.</li><li>cl_q2prox_cfg_version 1.2 защищает recommended defaults migration от повторного срабатывания.</li></ul><h2>Что не входит в этот каталог</h2><p>Каталог docs не содержит пользовательских конфигов, demo index, crash reports или временных файлов. Это документация релиза, которую можно прикладывать к публичному пакету.</p></section>  </article></div>
+</body>
+</html>

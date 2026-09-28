@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: сетевая игра</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: сетевая игра</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: сетевая игра</p><p>Сетевая игра, predict, laghax и server browser</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Где находятся настройки</li><li>2. Server Browser</li><li>3. Advanced Network: автоподбор UDP client port</li><li>RTT mode</li><li>XQ3A mode</li><li>4. Laghax</li><li>5. Weapon Predicts и Player Predict</li><li>6. Weapon Parts Visibility</li><li>7. OpenTDM Team HUD</li><li>8. Visibility Highlights в live play</li><li>9. Weapon and player volumes</li><li>10. Практические профили</li><li>Чистый соревновательный baseline</li><li>High ping test</li><li>Диагностика проблемного маршрута</li></ul><ul><li>11. Русский ввод, автотранслит и /en перевод</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: сетевая игра</h1><p>Этот документ описывает настройки, которые относятся к сетевой игре:</p><p>браузер серверов, advanced network, OpenTDM Team HUD, laghax, weapon/player</p><p>predict, видимость частей оружия, weapon volumes и подсветки.</p><h2>1. Где находятся настройки</h2><p>Guided menu:</p><ul><li>Options -&gt; Online Play Setup;</li><li>Options -&gt; Server Browser;</li><li>Options -&gt; Advanced Network;</li><li>Options -&gt; Laghax;</li><li>Options -&gt; Weapon Predicts;</li><li>Options -&gt; Weapon Parts Visibility;</li><li>Options -&gt; Visibility Highlights;</li><li>Options -&gt; Sound &amp; Acoustics -&gt; weapon / player volumes.</li></ul><p>Classic Q2PRO-X menu:</p><ul><li>Q2PRO-X -&gt; server browser;</li><li>Q2PRO-X -&gt; advanced network;</li><li>Q2PRO-X -&gt; laghax;</li><li>Q2PRO-X -&gt; weapon predicts;</li><li>Q2PRO-X -&gt; weapon parts visibility;</li><li>Q2PRO-X -&gt; visibility highlights;</li><li>Q2PRO-X -&gt; sound volumes.</li></ul><h2>2. Server Browser</h2><p>Modern server browser - это overlay для поиска и подключения к серверам.</p><p>Главные настройки:</p><ul><li>cl_serverbrowser_ui - modern / legacy;</li><li>cl_serverbrowser_alpha;</li><li>cl_serverbrowser_scale;</li><li>cl_serverbrowser_compact;</li><li>cl_serverbrowser_fullscreen;</li><li>cl_serverbrowser_show_details;</li><li>cl_serverbrowser_show_badges;</li><li>cl_serverbrowser_row_colors;</li><li>cl_serverbrowser_hide_empty;</li><li>cl_serverbrowser_hide_full;</li><li>cl_serverbrowser_only_players;</li><li>cl_serverbrowser_max_ping;</li><li>cl_serverbrowser_show_passworded;</li><li>cl_serverbrowser_show_down;</li><li>cl_serverbrowser_default_source;</li><li>cl_serverbrowser_custom_source;</li><li>cl_serverbrowser_pillarbox_workspace.</li></ul><p>Источники:</p><ul><li>q2servers.com;</li><li>favorites;</li><li>LAN;</li><li>custom source.</li></ul><p>Практический baseline:</p><ul><li>modern browser включён;</li><li>details и row colors включены;</li><li>hide empty по вкусу;</li><li>max ping 0, если не хотите фильтровать;</li><li>fullscreen включать на маленьком экране или при большом списке.</li></ul><h2>3. Advanced Network: автоподбор UDP client port</h2><p>Некоторые маршруты/провайдеры/серверы могут вести себя по-разному в</p><p>зависимости от UDP source port клиента. Q2PRO-X 1.2 имеет experimental</p><p>автоподбор client port.</p><p>Ключевой cvar:</p><p>cl_net_clientport_autoprobe</p><p>Режимы:</p><ul><li>off - ничего не делать;</li><li>RTT - быстрый pre-connect challenge-RTT probe;</li><li>XQ3A - live-session scan по 20 слотам, адаптация xq3e-like подхода.</li></ul><p>Связанные cvar:</p><ul><li>cl_net_clientport_autoprobe_time - safety watchdog;</li><li>cl_net_clientport_autoprobe_ports - число кандидатов для RTT mode;</li><li>cl_net_clientport_autoprobe_indicator - экранный индикатор XQ3A scan;</li><li>cl_net_clientport_autoprobe_verbose - подробный лог в консоль;</li><li>cl_net_clientport_autoprobe_settle_ms - pre-scan grace для XQ3A.</li></ul><h3>RTT mode</h3><p>RTT mode открывает независимые probe sockets, шлёт challenge и выбирает</p><p>кандидат по reply RTT. Это быстро и безопасно, но метрика не равна</p><p>gameplay ping из HUD.</p><h3>XQ3A mode</h3><p>XQ3A mode намеренно intrusive: во время активной сессии socket может</p><p>перебиндиться до 20 раз. Пока scan идёт, игрок может чувствовать jitter.</p><p>Используйте его как диагностический инструмент, а не как default для каждого</p><p>матча.</p><p>Рекомендация:</p><ul><li>обычным игрокам оставить off;</li><li>для разового подключения использовать RTT;</li><li>XQ3A включать только если вы понимаете, что временный jitter во время</li></ul><p>скана нормален.</p><h2>4. Laghax</h2><p>cl_laghax управляет сглаживанием сетевого ощущения.</p><p>Режимы:</p><ul><li>0 - off;</li><li>1 - fixed window;</li><li>2 - adaptive smoothing.</li></ul><p>Связанные настройки:</p><ul><li>cl_laghax_hud - overlay;</li><li>cl_laghax_hud_alpha;</li><li>cl_laghax_hud_show_predict_params;</li><li>cl_laghax_hud_show_physics_params;</li><li>cl_laghax_hud_show_predict_runtime;</li><li>cl_laghax_hud_hide_deathmatch0;</li><li>cl_laghax_hud_hide_demo;</li><li>cl_laghax_maxms;</li><li>cl_laghax_maxwindow;</li><li>cl_laghax_minerror;</li><li>cl_laghax_ping_weight;</li><li>cl_laghax_jitter_weight;</li><li>cl_laghax_loss_weight;</li><li>cl_laghax_debt_weight;</li><li>cl_laghax_gap_weight.</li></ul><p>Laghax не делает сервер ближе и не меняет авторитет сервера. Он меняет</p><p>локальную подачу сетевого движения, чтобы часть микродёрганий ощущалась</p><p>мягче.</p><p>Для теста включите HUD, включите adaptive mode, сыграйте несколько минут и</p><p>сравните ощущение с off. Если картинка кажется &quot;ватной&quot;, уменьшайте окно и</p><p>weights или вернитесь к fixed/off.</p><h2>5. Weapon Predicts и Player Predict</h2><p>Weapon predict рисует часть локального feedback раньше прихода серверного</p><p>подтверждения. Это важно для high ping: вы нажали fire, и клиент сразу</p><p>показывает локальный эффект.</p><p>Master:</p><ul><li>cl_predict_weapons_enable.</li></ul><p>Per-weapon toggles:</p><ul><li>cl_predict_rockets;</li><li>cl_predict_rockets_explosion;</li><li>cl_predict_railgun;</li><li>cl_predict_shotgun;</li><li>cl_predict_super_shotgun;</li><li>cl_predict_machinegun;</li><li>cl_predict_chaingun;</li><li>cl_predict_blaster;</li><li>cl_predict_grenades;</li><li>cl_predict_hand_grenades;</li><li>cl_predict_hyperblaster.</li></ul><p>Player predict:</p><ul><li>cl_predict_player;</li><li>cl_predict_move_mode.</li></ul><p>Adaptive ping gate:</p><ul><li>cl_predict_ping_min_ms;</li><li>cl_predict_ping_dwell_sec.</li></ul><p>Если cl_predict_ping_min_ms больше 0, predicts включаются/выключаются</p><p>общим gate в зависимости от ping и dwell time. Это помогает не держать</p><p>дополнительный predicted слой при низком ping, где он может быть лишним.</p><h2>6. Weapon Parts Visibility</h2><p>Эта страница управляет видимостью составляющих weapon FX, отдельно от</p><p>самого predict.</p><p>Master:</p><ul><li>cl_weaponfx_vis_enable.</li></ul><p>Группы:</p><ul><li>cl_weaponfx_vis_own_predicted;</li><li>cl_weaponfx_vis_own_server;</li><li>cl_weaponfx_vis_other;</li><li>cl_weaponfx_vis_muzzle;</li><li>cl_weaponfx_vis_muzzle_light;</li><li>cl_weaponfx_vis_hitscan;</li><li>cl_weaponfx_vis_projectiles;</li><li>cl_weaponfx_vis_trails;</li><li>cl_weaponfx_vis_impact_wall;</li><li>cl_weaponfx_vis_impact_flesh;</li><li>cl_weaponfx_vis_explosion_visual;</li><li>cl_weaponfx_vis_explosion_particles;</li><li>cl_weaponfx_vis_explosion_light;</li><li>cl_weaponfx_vis_hit_markers.</li></ul><p>Это полезно, когда нужно оставить gameplay feedback, но убрать визуальный</p><p>шум: например отключить explosion particles, но оставить hit markers.</p><p>Команда:</p><ul><li>weaponfx_info.</li></ul><h2>7. OpenTDM Team HUD</h2><p>OpenTDM Team HUD - passive teammate-state HUD для OpenTDM. Он не требует</p><p>активных команд от тиммейтов: клиент декодирует уже видимую информацию и</p><p>показывает её в отдельном HUD.</p><p>Основные настройки:</p><ul><li>cl_opentdm_team_hud;</li><li>cl_opentdm_team_hud_alpha;</li><li>cl_opentdm_team_hud_scale;</li><li>cl_opentdm_team_hud_width;</li><li>cl_opentdm_team_hud_show_weapon;</li><li>cl_opentdm_team_hud_show_powerarmor;</li><li>cl_opentdm_team_hud_show_freshness;</li><li>cl_opentdm_team_hud_show_teamchat;</li><li>cl_opentdm_team_hud_fresh_sec;</li><li>cl_opentdm_team_hud_stale_sec;</li><li>cl_opentdm_team_hud_pillarbox_workspace.</li></ul><p>Позицию можно редактировать drag-mode:</p><ul><li>opentdm_team_hud_edit;</li><li>opentdm_team_hud_reset.</li></ul><h2>8. Visibility Highlights в live play</h2><p>Для сетевой игры важны два режима подсветки игроков:</p><ul><li>team - friendly/enemy цвета;</li><li>duel - primary/secondary дуэльные цвета;</li><li>auto - попытка выбрать подходящую схему;</li><li>model - скорее demo/FFA сценарий, но может быть полезен и live.</li></ul><p>Связанные cvar:</p><ul><li>cl_vis_players_team_source;</li><li>cl_vis_players_team_friendly_color;</li><li>cl_vis_players_team_enemy_color;</li><li>cl_vis_players_team_fallback;</li><li>cl_vis_players_team_hold_ms;</li><li>cl_vis_players_duel_hold_ms;</li><li>cl_vis_players_auto_fallback.</li></ul><p>Для TDM: начните с team, friendly cyan, enemy red. Для дуэли: duel.</p><p>Для FFA: random FFA или model.</p><h2>9. Weapon and player volumes</h2><p>Sound volume page позволяет отдельно уменьшать/усиливать группы звуков:</p><ul><li>weapons;</li><li>player sounds;</li><li>voice / pain;</li><li>pickup;</li><li>environment;</li><li>monster;</li><li>announcer;</li><li>interface;</li><li>ambient;</li><li>other.</li></ul><p>Для сетевой игры это важно не меньше графики: слишком громкие взрывы могут</p><p>закрывать шаги, а слишком тихие pickups мешают читать контроль карты.</p><p>Подробная теория звука вынесена в:</p><p>Q2PRO-X_1.2_Sound_Guide_RU.md</p><h2>10. Практические профили</h2><h3>Чистый соревновательный baseline</h3><ul><li>server browser modern;</li><li>cl_laghax 0 или 2 после личного теста;</li><li>cl_predict_weapons_enable 1;</li><li>cl_predict_ping_min_ms 20;</li><li>cl_predict_ping_dwell_sec 5;</li><li>weapon FX visibility по умолчанию;</li><li>cl_vis_players_mode team для TDM;</li><li>cl_net_clientport_autoprobe off.</li></ul><h3>High ping test</h3><ul><li>включить weapon predict;</li><li>включить player predict;</li><li>поднять cl_predict_ping_min_ms только если predicted слой мешает на</li></ul><p>низком ping;</p><ul><li>включить laghax HUD;</li><li>сравнить cl_laghax 0, 1, 2 на одном сервере.</li></ul><h3>Диагностика проблемного маршрута</h3><ul><li>включить cl_net_clientport_autoprobe RTT;</li><li>попробовать connect_autoport &lt;server&gt;;</li><li>если нужно глубже, использовать XQ3A с visible indicator и verbose log,</li></ul><p>но не во время важной игры.</p><h2>11. Русский ввод, автотранслит и /en перевод</h2><p>Q2PRO-X 1.2 закрывает две разные задачи: безопасный русский ввод/транслит для Quake II console/chat и отдельную команду /en для перевода русского текста на английский перед отправкой в чат.</p><ul><li>Автотранслит сохраняет ведущий / или \ и command token, чтобы команды вроде say/say_team не превращались в обычный текст.</li><li>Перевод /en не отправляет сообщение автоматически. Это специально: игрок видит английский результат и сам решает, отправлять ли его.</li><li>Default provider в 1.2 - q2prox, hosted Q2PRO-X endpoint. Для него не нужен клиентский API key.</li><li>Дополнительные provider cvars: cl_translate_provider, cl_translate_q2prox_url, cl_translate_google_url, cl_translate_deepl_url, cl_translate_azure_url, cl_translate_libre_url, cl_translate_custom_url, cl_translate_timeout_ms.</li><li>Секреты для сторонних providers хранятся в baseq2/q2pro-x/translate.local. Этот файл не архивируется, не echo-ится и не должен попадать в публичные пакеты.</li><li>Текст, который вы переводите через /en, отправляется выбранному provider. Не используйте эту команду для приватных ключей, паролей или других секретов.</li><li>Одновременно выполняется один перевод. При timeout или ошибке prompt остаётся прежним, чтобы сообщение не потерялось.</li></ul><h3>Практический сценарий</h3><ol><li>Введите /en привет, идём на railgun.</li><li>Дождитесь замены prompt на английский вариант.</li><li>Проверьте текст глазами и нажмите Enter, если хотите отправить.</li><li>Для team chat используйте /en -team ... или обычный say_team workflow, если он уже набран в prompt.</li></ol><h3>Диагностика</h3><ul><li>translate_status показывает invalid provider: проверьте cl_translate_provider.</li><li>Перевод не приходит: проверьте cl_translate_timeout_ms, доступность hosted endpoint или стороннего provider.</li><li>Prompt не заменился: возможно, вы успели изменить строку после запуска /en; клиент не перетирает новый пользовательский ввод.</li><li>Нужен ASCII прямо сейчас без online provider: используйте русский ввод/транслит, а не /en.</li></ul></section>  </article></div>
+</body>
+</html>

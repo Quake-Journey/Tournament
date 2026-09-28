@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: управление, мышь и zoom</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: управление, мышь и zoom</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: управление, мышь и zoom</p><p>Управление, мышь, zoom и перенос старых cfg</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Где находится меню</li><li>2. Главная новая идея: mouse behavior mode</li><li>3. Базовые mouse cvar</li><li>4. m_autosens</li><li>5. Zoom FOV</li><li>6. Zoom sensitivity</li><li>Auto</li><li>Manual</li><li>7. Zoom time</li><li>8. Walk while zoomed</li><li>9. Zoom crosshair</li><li>10. Movement feel</li><li>11. Binds</li><li>12. Перенос r1q2 cfg: практический порядок</li><li>13. Типовые проблемы</li><li>Мышь слишком быстрая после переноса</li><li>Вертикаль инвертирована</li><li>Zoom меняет sens странно</li><li>После сброса появились ??? на bind строках</li><li>14. Хороший baseline</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: управление, мышь и zoom</h1><p>Этот документ помогает настроить управление в Q2PRO-X 1.2, особенно если</p><p>вы переносите старый q2pro, r1q2 или смешанный cfg.</p><h2>1. Где находится меню</h2><p>Guided menu:</p><ul><li>Options -&gt; Controls / Mouse;</li><li>Options -&gt; Movement;</li><li>Options -&gt; Weapon Predicts.</li></ul><p>Classic Q2PRO-X menu:</p><ul><li>Q2PRO-X -&gt; mouse &amp; zoom;</li><li>Q2PRO-X -&gt; movement;</li><li>Q2PRO-X -&gt; weapon predicts.</li></ul><h2>2. Главная новая идея: mouse behavior mode</h2><p>cl_mouse_behavior_mode задаёт общую семантику мыши:</p><ul><li>q2pro - default Q2PRO-X поведение;</li><li>r1q2 - compatibility behavior для старых r1q2 cfg.</li></ul><p>Это не просто косметический переключатель. Он влияет на то, как</p><p>интерпретируются старые переменные и как ощущается мышь при переносе cfg.</p><p>Если вы начинаете с чистого Q2PRO-X:</p><ul><li>оставьте q2pro.</li></ul><p>Если вы переносите старый r1q2 cfg:</p><ul><li>попробуйте r1q2;</li><li>проверьте sensitivity, m_pitch, m_yaw;</li><li>проверьте zoom отдельно.</li></ul><h2>3. Базовые mouse cvar</h2><ul><li>sensitivity - основной multiplier;</li><li>m_pitch - вертикальный gain, отрицательное значение инвертирует Y;</li><li>m_yaw - горизонтальный gain;</li><li>m_accel - Q2PRO-X mouse acceleration, не применяется в r1q2 mode;</li><li>m_filter - сглаживание delta через усреднение с прошлым frame;</li><li>m_autosens - non-zoom FOV-proportional scaling;</li><li>freelook - постоянный свободный обзор.</li></ul><p>Рекомендация для переноса cfg:</p><ol><li>Сначала выставьте cl_mouse_behavior_mode.</li><li>Затем настройте sensitivity.</li><li>Потом проверяйте m_pitch / m_yaw.</li><li>Только после этого трогайте acceleration, autosens и zoom.</li></ol><h2>4. m_autosens</h2><p>m_autosens - это не zoom sensitivity. Это non-zoom FOV-based scaling для</p><p>обычного обзора.</p><p>Значения:</p><ul><li>0 - выключено;</li><li>91..179 - базовый FOV для scaling;</li><li>любое другое non-zero значение - base FOV 90.</li></ul><p>Если вы не понимаете, зачем он нужен, оставьте 0. Для большинства игроков</p><p>zoom лучше настраивать через отдельные cl_zoom_* cvar.</p><h2>5. Zoom FOV</h2><p>Главный cvar:</p><ul><li>cl_zoom_fov.</li></ul><p>Он задаёт horizontal FOV при удержании +zoom. Значение clamp&#x27;ится так, чтобы</p><p>не быть шире live base FOV: zoom должен приближать, а не отдалять.</p><p>Bind:</p><ul><li>+zoom - удерживать zoom;</li><li>-zoom - отпустить zoom.</li></ul><p>В меню есть строка Hold: zoom, где можно назначить клавишу.</p><h2>6. Zoom sensitivity</h2><p>Zoom sensitivity имеет два режима:</p><ul><li>cl_zoom_sensitivity_mode auto;</li><li>cl_zoom_sensitivity_mode manual.</li></ul><h3>Auto</h3><p>Auto использует tangent-space FOV ratio. Это геометрически корректная модель:</p><p>при уменьшении FOV чувствительность масштабируется так, чтобы движение мыши</p><p>ощущалось пропорциональным изменившемуся углу обзора.</p><p>Это recommended default для большинства игроков.</p><h3>Manual</h3><p>Manual использует:</p><ul><li>cl_zoom_sensitivity.</li></ul><p>Это абсолютное значение чувствительности в тех же единицах, что и</p><p>sensitivity. Используйте manual только если хотите конкретную привычную</p><p>цифру.</p><h2>7. Zoom time</h2><p>cl_zoom_time задаёт длительность перехода в секундах.</p><ul><li>0 - instant zoom;</li><li>0.05..0.20 - быстрый, но видимый transition;</li><li>выше - cinematic feel, обычно не для competitive игры.</li></ul><p>FOV и sensitivity идут по одному transition, чтобы не рассинхронизироваться.</p><h2>8. Walk while zoomed</h2><p>cl_zoom_walk удерживает +speed вместе с +zoom.</p><p>Это полезно, если вы хотите автоматически замедляться при zoom. Оно</p><p>сосуществует с обычным +speed bind.</p><p>По умолчанию off.</p><h2>9. Zoom crosshair</h2><p>Отдельный прицел для zoom:</p><ul><li>cl_zoom_crosshair_enable;</li><li>cl_zoom_crosshair;</li><li>cl_zoom_ch_scale;</li><li>cl_zoom_ch_health;</li><li>cl_zoom_ch_red;</li><li>cl_zoom_ch_green;</li><li>cl_zoom_ch_blue;</li><li>cl_zoom_ch_alpha.</li></ul><p>Если master выключен, обычный crosshair остаётся и при zoom.</p><p>Практический вариант:</p><ul><li>cl_zoom_crosshair_enable 1;</li><li>style dot или cross;</li><li>alpha 0.7..1.0;</li><li>color by health off, если нужен стабильный цвет.</li></ul><h2>10. Movement feel</h2><p>Связанные cvar:</p><ul><li>cl_movement_feel_mode;</li><li>cl_predict_move_mode;</li><li>cl_step_smoothing_mode;</li><li>cl_fixedmove;</li><li>cl_predict_player.</li></ul><p>Если вы переносите r1q2 feel, проверьте:</p><ul><li>mouse behavior = r1q2;</li><li>movement feel = r1q2-like;</li><li>step smoothing r1q2 profile;</li><li>fixedmove по вкусу.</li></ul><p>Команда:</p><ul><li>movementfeel_info.</li></ul><p>Она печатает resolved movement feel state и полезна при сравнении cfg.</p><h2>11. Binds</h2><p>Полезные action:</p><ul><li>+zoom;</li><li>+voiceptt;</li><li>voice_mic_toggle;</li><li>demo_pause_toggle;</li><li>+demo_seek_back;</li><li>+demo_seek_forward;</li><li>serverbrowser_toggle;</li><li>cvar_browser_toggle;</li><li>demo_browser_toggle;</li><li>demo_player_toggle.</li></ul><p>Q2PRO-X binds участвуют в scoped config system. В demo-visual defaults binds</p><p>не должны сбрасываться.</p><h2>12. Перенос r1q2 cfg: практический порядок</h2><ol><li>Запустите Q2PRO-X 1.2 без старого cfg и проверьте, что игра стартует.</li><li>Скопируйте только нужные binds и mouse values, не весь старый cfg целиком,</li></ol><p>если можно.</p><ol><li>Выставьте cl_mouse_behavior_mode r1q2.</li><li>Проверьте sensitivity, m_pitch, m_yaw.</li><li>Отключите m_accel, если в старом cfg acceleration не использовался.</li><li>Настройте zoom через cl_zoom_*, не через старые alias hacks.</li><li>Сохраните q2prox_cfg_save_global.</li></ol><h2>13. Типовые проблемы</h2><h3>Мышь слишком быстрая после переноса</h3><ul><li>проверьте cl_mouse_behavior_mode;</li><li>проверьте, не включён ли m_autosens;</li><li>проверьте sensitivity;</li><li>проверьте m_yaw.</li></ul><h3>Вертикаль инвертирована</h3><ul><li>m_pitch отрицательный = invert Y;</li><li>поставьте положительное значение, например 0.022.</li></ul><h3>Zoom меняет sens странно</h3><ul><li>поставьте cl_zoom_sensitivity_mode auto;</li><li>временно выключите m_autosens;</li><li>проверьте cl_zoom_fov;</li><li>если нужен старый ручной feel, используйте manual и</li></ul><p>cl_zoom_sensitivity.</p><h3>После сброса появились ??? на bind строках</h3><p>??? в bind строке означает, что клавиша для action не назначена. Это не</p><p>ошибка команды. Назначьте клавишу в меню или через bind.</p><h2>14. Хороший baseline</h2><p>Для чистого Q2PRO-X:</p><ul><li>cl_mouse_behavior_mode q2pro;</li><li>sensitivity подобрать вручную;</li><li>m_pitch 0.022;</li><li>m_yaw 0.022;</li><li>m_accel 0;</li><li>m_filter 0;</li><li>m_autosens 0;</li><li>freelook 1;</li><li>cl_zoom_sensitivity_mode auto;</li><li>cl_zoom_time 0;</li><li>cl_zoom_walk 0.</li></ul></section>  </article></div>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 — Архитектурный аудит fairness</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 — Архитектурный аудит fairness</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.0</p><p>Архитектурное ревью по мультиплеерной честности</p><p>Русское издание для сайта</p><div class="doc-rule"></div><h1>Q2PRO-X 1.0 Multiplayer Fairness Audit</h1><p>Дата: 2026-04-14 Язык: русский Статус: архитектурно-технический аудит по коду</p><h2>1. Цель проверки</h2><p>Проверить, предоставляет ли текущий Q2PRO-X в `deathmatch &gt; 0` реальные читерские преимущества по сравнению с допустимым клиентским quality-of-life поведением.</p><p>Основной фокус проверки:</p><ol><li>Предиктное оружие: может ли клиент реально стрелять быстрее, точнее или раньше, чем это допускает сервер.</li><li>Клиентские улучшения движения и сетевого отклика: относятся ли они к читам.</li><li>Визуальные системы Q2PRO-X: могут ли они давать gameplay advantage, не нарушая серверную механику напрямую.</li></ol><h2>2. Итоговый вывод</h2><h3>2.1. Серверно-механических читов по результатам проверки не выявлено</h3><p>Текущая архитектура Q2PRO-X не содержит подтверждённого пути, при котором клиент мог бы:</p><ul><li>реально увеличить скорострельность оружия;</li><li>нанести урон раньше серверного разрешения;</li><li>повысить реальную точность попадания сверх серверной модели;</li><li>породить &quot;лишние&quot; projectile/hitscan события вне серверной логики;</li><li>обойти серверную валидацию времени команд за счёт client prediction.</li></ul><p>Иными словами, предиктное оружие в Q2PRO-X является клиентской визуально-реактивной надстройкой и не подменяет серверную механику стрельбы.</p><h3>2.2. Клиентские predict/movement-пути не относятся к читам</h3><p>`cl_fixedmove`, `cl_predict_move_mode`, `cl_movement_feel`, `cl_step_smoothing_mode`, `cl_laghax` и связанные с ними ветки не относятся к читам, поскольку:</p><ul><li>они не изменяют серверную модель стрельбы и урона;</li><li>они не создают серверные fire events самостоятельно;</li><li>они не обходят серверную обработку `usercmd`;</li><li>они не изменяют серверную физику мира;</li><li>они являются клиентскими улучшениями локального управления, нормализации ввода, сглаживания и восприятия задержки.</li></ul><h3>2.3. Остаточный риск относится не к server-authority, а к visibility advantage</h3><p>При этом в Q2PRO-X остаются клиентские системы, которые не ломают серверную честность, но способны менять визуальную читаемость сцены. Для полу-публичного тестирования 1.0 это следует рассматривать как отдельный policy-risk.</p><p>Главный пример: `weapon parts visibility`, позволяющий скрывать часть визуальных эффектов других игроков.</p><h2>3. Предиктное оружие: техническое обоснование</h2><h3>3.1. Клиентский ghost/predict не управляет реальной стрельбой</h3><p>В [input.c](O:/Claude2/q2pro/src/client/input.c) атака сначала попадает в обычный `usercmd`, и только после финализации команды вызывается клиентский `Ghost_OnFireCmd`:</p><ul><li>`BUTTON_ATTACK` выставляется в [input.c](O:/Claude2/q2pro/src/client/input.c:1103)</li><li>финализированный `usercmd` сохраняется в [input.c](O:/Claude2/q2pro/src/client/input.c:1154)</li><li>`Ghost_OnFireCmd(...)` вызывается после этого в [input.c](O:/Claude2/q2pro/src/client/input.c:1162)</li></ul><p>Следовательно, client ghost layer не является источником серверного fire command; он является реакцией на уже сформированный локальный input path.</p><h3>3.2. Сервер валидирует клиентское время команд</h3><p>В [user.c](O:/Claude2/q2pro/src/server/user.c) сервер ведёт учёт `command_msec`:</p><ul><li>инициализация бюджета времени: [user.c](O:/Claude2/q2pro/src/server/user.c:531)</li><li>списание `cmd-&gt;msec`: [user.c](O:/Claude2/q2pro/src/server/user.c:1123)</li><li>underflow check через `sv_enforcetime`: [user.c](O:/Claude2/q2pro/src/server/user.c:1127)</li></ul><p>`sv_enforcetime` по умолчанию включён:</p><ul><li>[main.c](O:/Claude2/q2pro/src/server/main.c:2207)</li></ul><p>Это означает, что даже при клиентских различиях в cadence/packing сервер сохраняет контроль над допустимым временем исполнения команд.</p><h3>3.3. Реальное решение о стрельбе принимает серверный `Think_Weapon`</h3><p>В [p_client.c](O:/Claude2/q2pro/src/game/p_client.c) сервер:</p><ul><li>принимает `ucmd-&gt;buttons` в [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1637)</li><li>вычисляет `latched_buttons` в [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1638)</li><li>вызывает `Think_Weapon(ent)` при атаке в [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1656)</li><li>дополнительно вызывает `Think_Weapon(ent)` в server frame path в [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1709)</li></ul><p>То есть реальная серверная weapon state machine не заменяется клиентским предиктом.</p><h3>3.4. Скорострельность задаётся серверной weapon state machine</h3><p>В [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c) `Weapon_Generic(...)` является авторитарным конечным автоматом оружия:</p><ul><li>вход в `WEAPON_READY`: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:413)</li><li>переход в `WEAPON_FIRING` только при допустимой атаке и наличии ammo: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:414)</li><li>выстрел только на разрешённых `fire_frames[]`: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:458)</li><li>возврат в `WEAPON_READY` по серверной frame logic: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:472)</li></ul><p>Конкретные fire-frame схемы заданы сервером, например:</p><ul><li>Rocket Launcher: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:720)</li><li>Blaster: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:778)</li><li>HyperBlaster: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:843)</li><li>Machinegun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:936)</li><li>Chaingun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1045)</li><li>Shotgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1105)</li><li>Super Shotgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1162)</li><li>Railgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1222)</li><li>BFG: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1294)</li></ul><p>Из этого следует, что `Super Shotgun` не может реально стрелять быстрее серверно разрешённого цикла только из-за клиентского предикта.</p><h3>3.5. Реальные projectile, trace и damage создаются на сервере</h3><p>Настоящая боевая логика находится в [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c):</p><ul><li>`fire_bullet(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:249)</li><li>`fire_shotgun(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:261)</li><li>`fire_blaster(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:312)</li><li>`fire_rocket(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:575)</li><li>`T_Damage(...)`: например [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:202), [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:550)</li><li>`T_RadiusDamage(...)`: например [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:396), [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:562)</li></ul><p>Следовательно:</p><ul><li>клиент не наносит урон самостоятельно;</li><li>клиент не создаёт настоящий серверный projectile;</li><li>клиент не может &quot;ускорить&quot; урон только за счёт ghost-слоя.</li></ul><h3>3.6. Клиентский ghost-слой прямо описан как visual-only</h3><p>В [ghost.c](O:/Claude2/q2pro/src/client/ghost.c:1) система прямо описана как `client-side ghost projectile prediction`, немедленно создающая `visual-only ghosts`.</p><p>Дополнительно:</p><ul><li>[weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:6) фиксирует, что weapon FX layer не трогает admission gate и не dispatch-ит sound;</li><li>[ghost.c](O:/Claude2/q2pro/src/client/ghost.c:2438) фиксирует, что при скрытии predicted visuals bookkeeping handoff/suppress path продолжает работать, а меняется только визуальная часть.</li></ul><p>Итог: клиентский predict-слой не является альтернативной системой урона или скорострельности.</p><h2>4. Movement / Laghax / Fixedmove</h2><p>Эти механизмы не относятся к читам, поскольку по коду они не создают отдельную серверную физику и не подменяют weapon authority.</p><p>Даже если `cl_fixedmove` меняет способ клиентского разбиения команд по времени, сервер всё равно:</p><ul><li>получает обычные `usercmd`;</li><li>считает `command_msec`;</li><li>применяет стандартную game DLL weapon/movement logic.</li></ul><p>Следовательно, данные механизмы относятся к категории client experience improvements, а не к server-authority bypass.</p><h2>5. Визуальные системы: где проходит граница</h2><h2>5.1. Visibility highlights в текущем виде не дают wallhack</h2><p>Ветка `visibility / highlights` уже содержит multiplayer-safe ограничения:</p><ul><li>увеличение item/dropped weapon scale выше `1.0` в multiplayer режется в [vis_items.c](O:/Claude2/q2pro/src/client/vis_items.c:537)</li><li>для увеличенной модели кулинг всё равно считается по исходному размеру через `ent.cull_scale = base` в [entities.c](O:/Claude2/q2pro/src/client/entities.c:945)</li><li>renderer использует `entcullscale` при sphere cull в [main.c](O:/Claude2/q2pro/src/refresh/main.c:199) и получает его из entity в [main.c](O:/Claude2/q2pro/src/refresh/main.c:309)</li><li>толщина player shell ограничена малым диапазоном `0.0 .. 0.05` в [vis_items.c](O:/Claude2/q2pro/src/client/vis_items.c:953)</li></ul><p>Это означает, что данная система не должна позволять &quot;вытаскивать&quot; pickup или player silhouette из-за геометрии только за счёт увеличения масштаба.</p><p>Однако она всё равно повышает визуальную заметность уже видимых целей и объектов. Это не server cheat, но это visual assist.</p><h2>5.2. Weapon Parts Visibility остаётся policy-risk для competitive multiplayer</h2><p>Наиболее спорной системой на текущий момент является `weapon parts visibility`.</p><p>По коду:</p><ul><li>система специально позиционируется как `visual-only policy layer` в [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:1)</li><li>она не трогает admission gate и не dispatch-ит sound в [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:6)</li><li>но она позволяет отключать целые классы FX у источника `WFX_SRC_OTHER` через [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:38)</li><li>foreign projectile model скрывается в [entities.c](O:/Claude2/q2pro/src/client/entities.c:716)</li><li>wall impact path других источников классифицируется в [tent.c](O:/Claude2/q2pro/src/client/tent.c:1602)</li></ul><p>Это не меняет урон и не делает стрельбу &quot;сильнее&quot;, но может:</p><ul><li>упростить чтение сцены;</li><li>уменьшить визуальный шум;</li><li>скрыть часть информации о стрельбе и projectile path других игроков.</li></ul><p>С точки зрения строгой multiplayer fairness это следует считать не серверным читом, а competitive visibility assist.</p><h2>6. Практическая оценка готовности к 1.0</h2><h3>6.1. Что можно считать безопасным</h3><p>Для версии 1.0 безопасно утверждать следующее:</p><ul><li>predicтное оружие не стреляет быстрее серверной нормы;</li><li>predicтное оружие не наносит урон вне серверной авторизации;</li><li>fixedmove / laghax / movement feel не относятся к читам;</li><li>visibility highlights не создают wallhack-пути через geometry protrusion.</li></ul><h3>6.2. Что требует policy-решения до расширенного тестирования</h3><p>Перед более широким полу-публичным тестированием рекомендуется отдельно определить multiplayer policy для:</p><ul><li>`cl_weaponfx_vis_other` и связанных с ним hiding-веток;</li><li>player/item highlighting в competitive режимах;</li><li>любых визуальных assist-настроек, очищающих сцену в `deathmatch &gt; 0`.</li></ul><h2>7. Рекомендация</h2><p>Для 1.0 рекомендуется разделить вопрос на два класса:</p><ol><li>**Server-authority fairness**</li></ol><p>Это направление по результатам проверки выглядит корректно и готово.</p><ol><li>**Competitive visual policy**</li></ol><p>Это направление следует зафиксировать отдельным профилем для `deathmatch &gt; 0`, если цель релиза 1.0 — не только отсутствие механических читов, но и отсутствие спорных визуальных преимуществ.</p><h2>8. Финальный вывод</h2><p>По результатам аудита:</p><ul><li>Q2PRO-X не содержит подтверждённого механизма, позволяющего predicтному оружию реально стрелять быстрее, точнее или сильнее серверной нормы;</li><li>client predict, fixedmove, movement feel и laghax не относятся к читам, поскольку не обходят серверную игровую механику;</li><li>основной остаточный риск перед 1.0 относится к visual assist / visibility policy, а не к server-authority exploitation.</li></ul><p>Итоговая формулировка:</p><p>**Серверно-механических читерских возможностей по проверенному коду не выявлено. Остаточная зона внимания перед 1.0 — клиентские visibility advantages, прежде всего в ветке weapon parts visibility.**</p></section>  </article></div>
+</body>
+</html>

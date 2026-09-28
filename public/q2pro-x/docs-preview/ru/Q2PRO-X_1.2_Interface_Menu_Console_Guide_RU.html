@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: интерфейс, меню и консоль</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: интерфейс, меню и консоль</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: интерфейс, меню и консоль</p><p>Режимы меню, modern chrome, масштабы, прозрачность и сохранение настроек</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Где находятся настройки</li><li>2. Два режима меню</li><li>3. Современный визуальный стиль меню</li><li>4. Язык отображения и шрифты</li><li>5. Размеры и масштаб</li><li>6. Прозрачность меню, консоли и overlay</li><li>7. Сохранение, сброс и scopes конфигов</li><li>8. Быстрые рецепты</li><li>9. Диагностика</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: интерфейс, меню и консоль</h1><p>Этот документ закрывает слой интерфейса, который не относится строго к видео, звуку, демкам или сетевой игре: режимы меню, modern renderer, язык отображения, шрифты, масштаб, прозрачность и сохранение настроек.</p><h2>1. Где находятся настройки</h2><ul><li>Guided menu: Options -&gt; Interface Setup и Options -&gt; Config.</li><li>Classic Q2PRO-X menu: Q2PRO-X -&gt; config, interface size, interface alpha, crosshair.</li><li>Браузеры имеют собственные окна настроек: Server Browser, Cvar Browser, Demo Browser, Demo Player, Mod Help.</li><li>Все переменные можно найти через Cvar Browser: ищите по имени cvar или по словам menu, console, alpha, scale, browser, q2prox_cfg.</li></ul><h2>2. Два режима меню</h2><p>Q2PRO-X 1.2 умеет работать в двух content-режимах меню. Это не просто цветовая тема: режим определяет, какой menu graph загружается при старте клиента.</p><p>Изменение cl_q2prox_menu_mode требует перезапуска, потому что menu script выбирается во время инициализации UI. В 1.2 миграция конфигов выставляет guided режим только один раз для старых конфигов без маркера версии; пользовательский выбор после этого не перетирается.</p><h2>3. Современный визуальный стиль меню</h2><p>cl_menu_visual_style переключается live и не меняет cl_q2prox_menu_mode. Это удобно: можно оставить guided content, но временно вернуться к legacy renderer для сравнения.</p><h2>4. Язык отображения и шрифты</h2><p>Важно разделять язык отображения и ввод текста. Русский ввод, автотранслит и /en перевод описаны в Network Play guide, потому что это сетевой сценарий общения.</p><h2>5. Размеры и масштаб</h2><p>Для браузеров и новых overlay лучше использовать их собственные scale cvars, а не разгонять scr_scale на весь клиент. Так можно сделать крупнее только нужное окно.</p><h2>6. Прозрачность меню, консоли и overlay</h2><p>Многие overlay намеренно независимы от scr_alpha. Это позволяет сделать, например, консоль полупрозрачной, но оставить demo player читаемым, или наоборот.</p><h2>7. Сохранение, сброс и scopes конфигов</h2><p>В 1.2 Q2PRO-X делит настройки на GLOBAL, LOCAL и demo_visual. Это защищает пользователя от ситуации, когда графика демок или mod-local подсветки случайно портят общий конфиг.</p><ul><li>q2prox_cfg_save - сохранить global + local часть.</li><li>q2prox_cfg_save_global - сохранить только global target.</li><li>q2prox_cfg_save_local - сохранить mod-local target; во время демки пишет demo_visual.</li><li>q2prox_cfg_save_demo_visual - явно сохранить demo visual profile.</li><li>q2prox_cfg_defaults_global / local / demo_visual - сбросить соответствующий слой к defaults; бинды сохраняются отдельно.</li></ul><h2>8. Быстрые рецепты</h2><ul><li>Хочу новый интерфейс 1.2: cl_q2prox_menu_mode 1, restart, cl_menu_visual_style 1, cl_menu_modern_autoscale 1, ui_scale 0.</li><li>Хочу старое меню, но современный вид: cl_q2prox_menu_mode 0, restart, cl_menu_visual_style 1.</li><li>Текст слишком крупный: сначала уменьшите browser/demo overlay scale, затем con_scale/ui_scale, и только потом scr_scale.</li><li>Текст слишком мелкий на 4K: оставьте ui_scale 0 и cl_menu_modern_autoscale 1; для браузеров поднимайте их локальный scale.</li><li>Демки должны выглядеть одинаково во всех модах: настраивайте visual cvars во время demo playback или используйте q2prox_cfg_save_demo_visual.</li></ul><h2>9. Диагностика</h2><ul><li>Меню не стало guided после переключения: cl_q2prox_menu_mode требует restart.</li><li>Меню guided, но выглядит старым: проверьте cl_menu_visual_style.</li><li>Русский язык включился в меню, но ввод в консоли не изменился: это нормально; display-localization и input/translation - разные функции.</li><li>Настройка не сохранилась: проверьте cl_q2prox_cfg_autosave и выполните явный q2prox_cfg_save* для нужного target.</li><li>Окно браузера слишком прозрачное или мелкое: меняйте его alpha/scale cvar, а не общий scr_alpha/scr_scale.</li></ul></section>  </article></div>
+</body>
+</html>

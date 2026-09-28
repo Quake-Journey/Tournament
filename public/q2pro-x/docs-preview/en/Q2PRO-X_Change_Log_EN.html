@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 - Change Log</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 - Change Log</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.0</p><p>Change Log</p><p>English edition for the public website</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>General logic of the document</li><li>0.95 - first public beta</li><li>0.95-a - target hotfix wave</li><li>0.96 - 4:3 / pillarbox / display wave</li><li>0.97 - OLED protection + predict follow-up</li><li>0.98 - display/audio/predict/browser wave</li><li>0.99 - guided menu + WFX + cvar reference wave</li><li>1.0 - release polish wave</li></ul><div class="doc-rule"></div><h1>General logic of the document</h1><p>This log is organized by release wave so public website visitors can see how Q2PRO-X evolved from early beta into release 1.0.</p><p>It is not a raw commit dump. The goal is to summarize the product-level milestones that matter to players, testers, and anyone trying to understand what 1.0 actually contains.</p><div class="doc-rule"></div><h1>0.95 - first public beta</h1><ul><li>First public beta wave with Q2PRO-X presented as a distinct client layer on top of Q2PRO.</li><li>Early public testing of weapon prediction and related ghost-fire, hidden-gun, and wrong-viewmodel cases.</li><li>Release process and tester-facing documentation started to become structured instead of ad hoc.</li></ul><div class="doc-rule"></div><h1>0.95-a - target hotfix wave</h1><ul><li>Stabilization of the first public beta based on tester reports.</li><li>Weapon-predict follow-up fixes and stronger runtime/debug support.</li><li>Alt+F4 behavior turned into a real global option instead of an undocumented detail.</li></ul><div class="doc-rule"></div><h1>0.96 - 4:3 / pillarbox / display wave</h1><ul><li>4:3 pillarbox and fullscreen semantics became a central product focus.</li><li>Display mode picker and clearer desktop-fullscreen versus exclusive-fullscreen behavior.</li><li>OLED-protection work started to turn into a proper feature branch.</li></ul><div class="doc-rule"></div><h1>0.97 - OLED protection + predict follow-up</h1><ul><li>OLED protection architecture matured into a wider display-care subsystem.</li><li>Hyperblaster, machinegun, chaingun, and related prediction follow-up cases were investigated and stabilized.</li><li>LAGHAX HUD became a more serious diagnostic surface, and lift jitter in step smoothing was addressed.</li></ul><div class="doc-rule"></div><h1>0.98 - display/audio/predict/browser wave</h1><ul><li>Windowed mode and clearer display state handling were added as deliberate product features.</li><li>Audio inactivity handling and OLED-related sound behavior were expanded.</li><li>Weapon-predict architecture became more stable and server browser favorites moved toward a real workflow.</li></ul><div class="doc-rule"></div><h1>0.99 - guided menu + WFX + cvar reference wave</h1><ul><li>Guided menu mode became a major onboarding surface.</li><li>Cvar browser and inline cvar help advanced through bilingual support, font work, wrapping fixes, and copy actions.</li><li>Overlay ergonomics, reference material, and public product presentation all moved closer to a release-quality state.</li></ul><div class="doc-rule"></div><h1>1.0 - release polish wave</h1><ul><li>Q2PRO-X 1.0 consolidates the long beta line into a stable branded release layer with bilingual docs, website presentation, and coherent packaging.</li><li>The modern cvar browser reached release quality through EN/RU support, unified browser-local font rendering, UTF-8-safe wrapping, detail scrolling, independent alpha, independent scale, and clipboard features.</li><li>Overlay settings gear buttons and tracked return flow were added so users can move from overlay to settings and back without losing context.</li><li>LAGHAX HUD gained a new optional weapon-predict runtime diagnostics block while preserving read-only behavior.</li><li>The website became part of the release story itself: bilingual product pages, screenshots, document previews, branded assets, theme selection, and public-facing documentation now ship as part of the 1.0 presentation layer.</li></ul></section>  </article></div>
+</body>
+</html>

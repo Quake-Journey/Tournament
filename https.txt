@@ -1,0 +1,111 @@
+не уверен, что ты правильно понял, но сайт у меня будет функционировать на VDS. там будет публичный IP адрес у этого сайта
+
+Отлично, раз у вас VDS с публичным IP и Windows, без покупки домена вам всё равно нужен “чужой” домен для доверенного HTTPS. Самоподписанный сертификат на IP не будет доверенным для посетителей, а Let’s Encrypt не выдаёт сертификаты на “голый” IP. Самый простой бесплатный путь: взять бесплатный субдомен (например, DuckDNS) и поставить перед Node сайтом Caddy на Windows — он сам получит и будет автоматически обновлять сертификат Let’s Encrypt. Код сайта менять не нужно.
+
+Ниже — пошагово.
+
+Вариант А (рекомендую): Caddy + бесплатный субдомен (DuckDNS)
+
+Итог: сайт доступен по https://ВАШЕИМЯ.duckdns.org с валидным сертификатом, Node остаётся на http://localhost:3000.
+
+Шаг 1. Получить бесплатный субдомен
+
+Зайдите на https://www.duckdns.org, залогиньтесь (GitHub/Google и т.п.).
+В разделе Domains добавьте домен, например quakejourney.duckdns.org.
+Укажите публичный IP вашего VDS (если IP статичный — обновления не нужны; если динамичный — DuckDNS даёт удобный URL для обновления по токену).
+Подождите 5–10 минут, чтобы DNS распространился.
+Шаг 2. Открыть порты на VDS
+
+В панели вашего провайдера откройте входящие TCP 80 и 443.
+В Windows Firewall (PowerShell от администратора):
+netsh advfirewall firewall add rule name="HTTP 80" dir=in action=allow protocol=TCP localport=80
+netsh advfirewall firewall add rule name="HTTPS 443" dir=in action=allow protocol=TCP localport=443
+Убедитесь, что IIS не занят портом 80/443. Если стоит IIS — остановите и отключите:
+Stop-Service W3SVC -PassThru
+Set-Service W3SVC -StartupType Disabled
+Шаг 3. Поставить Caddy на Windows
+
+Скачайте caddy.exe (amd64) с https://caddyserver.com/download
+Создайте папку, например C:\caddy, положите туда caddy.exe.
+Шаг 4. Настроить Caddy как reverse proxy к вашему Node сайту
+
+Предположим, ваш сайт (site.js) слушает на 3000 (SITE_PORT=3000), а папка со скриншотами: C:\screenshots (SCREENSHOTS_DIR).
+Создайте файл C:\caddy\Caddyfile со следующим содержимым (замените домен и пути):
+caddy
+Копировать код
+# ваш бесплатный субдомен
+quakejourney.duckdns.org {
+  encode zstd gzip
+
+  # Отдавать /media напрямую из папки скриншотов (ускоряет раздачу)
+  @media path /media/*
+  handle @media {
+    root * C:/screenshots
+    file_server
+  }
+
+  # Всё остальное — проксируем в Node (site.js) на localhost:3000
+  handle {
+    reverse_proxy 127.0.0.1:3000
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+}
+Примечания:
+
+Путь указывайте через прямые слэши: C:/screenshots
+Caddy автоматически запросит и установит сертификат Let’s Encrypt для quakejourney.duckdns.org. Для этого должны быть доступны порты 80 и/или 443.
+Шаг 5. Запуск Caddy
+
+Тестовый запуск в консоли (PowerShell от администратора):
+cd C:\caddy
+.\caddy.exe run --config Caddyfile
+В логе увидите “Obtaining Let’s Encrypt certificate” и “serving initial configuration”.
+Проверьте в браузере: https://quakejourney.duckdns.org
+Запуск как сервис (чтобы работало после перезагрузки)
+
+Проще всего через NSSM (Non-Sucking Service Manager):
+Скачайте NSSM: https://nssm.cc/download, распакуйте (например, C:\nssm\win64\nssm.exe)
+В PowerShell (админ):
+C:\nssm\win64\nssm.exe install "Caddy"
+Path: C:\caddy\caddy.exe
+Arguments: run --config Caddyfile
+Startup directory: C:\caddy
+nssm start Caddy
+Теперь Caddy стартует при загрузке. Логи можно перенаправить в NSSM (вкладка I/O).
+Готово. Node-сайт оставляете как есть (SITE_PORT=3000), Caddy завершает HTTPS и проксирует трафик.
+
+Частые вопросы и нюансы
+
+Нужен ли редирект HTTP→HTTPS? Caddy делает это по умолчанию (Automatic HTTPS с HTTP-redirect).
+Что если порт 80 недоступен? Caddy может использовать TLS-ALPN-01-челлендж по 443. Убедитесь, что 443 открыт.
+Автопродление сертификата? Да, Caddy сам обновляет.
+Работает ли на Windows? Да, Caddy — кроссплатформенный и отлично работает на Windows.
+Альтернатива: Node напрямую на HTTPS (без reverse proxy) Можно, но сложнее в обслуживании:
+
+Получить сертификат с Let’s Encrypt на Windows:
+win-acme (wacs.exe): https://www.win-acme.com/
+Выпускаете cert для quakejourney.duckdns.org (HTTP-01, self-hosting на 80), настраиваете автопродление (Task Scheduler).
+В site.js поднимаете https-сервер, передавая пути к fullchain.pem/privkey.pem (как я показывал раньше).
+Минусы: нужно следить за путями сертификатов, перезагрузкой процесса на ротации и доступом к 443 от имени администратора. Reverse proxy (Caddy) снимает эти заботы.
+Альтернатива: Туннель (ngrok / cloudflared)
+
+Даёт https-URL без домена, без настройки портов/сертификатов.
+Но URL меняется на каждый запуск (в бесплатных планах), не очень удобно для постоянного сайта.
+Итоговая рекомендация
+
+Взять бесплатный субдомен на DuckDNS.
+Поставить Caddy на Windows VDS, сделать reverse_proxy к Node:3000 и отдать /media из папки.
+Открыть 80/443 в провайдере и Windows Firewall.
+Всё — у вас стабильный, доверенный HTTPS без покупок и правок кода сайта.
+Если дадите:
+
+ваш путь к SCREENSHOTS_DIR,
+желаемый субдомен DuckDNS,
+используемый порт Node (SITE_PORT),
+подготовлю готовый Caddyfile и команды под ваш случай один-в-один.

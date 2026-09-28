@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 — Журнал изменений</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 — Журнал изменений</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><h1>Q2PRO-X 1.0</h1><p>Журнал изменений</p><p>Главный автор проекта, инициатор ключевых идей и основной тестировщик: ly
+Тестирование: Quake II community</p><div class="doc-rule"></div><h1>Общая логика документа</h1><p>Этот журнал изменений нужен как компактная пользовательская история развития публичных Q2PRO-X сборок от первой beta 0.95 до релиза 1.0.</p><div class="doc-rule"></div><h1>0.95 — первая публичная beta</h1><ul><li>стартовая additive-package модель Q2PRO-X;</li><li>первые публичные user guide / technical guide / cvar reference;</li><li>основные слои: звук, видео, visibility, server browser, mod overlay и menu-layer Q2PRO-X.</li></ul><div class="doc-rule"></div><h1>0.95-a — целевой hotfix wave</h1><ul><li>стабилизация hidden-gun / weapon predict;</li><li>blaster held-fire follow-up;</li><li>win32egl safer fallback;</li><li>пользовательская настройка поведения Alt+F4.</li></ul><div class="doc-rule"></div><h1>0.96 — 4:3 / pillarbox / display wave</h1><ul><li>честная работа 4:3 на современных widescreen desktop;</li><li>desktop fullscreen + aspect-fit pillarbox;</li><li>resolution / refresh pickers и уточнённая логика режимов экрана.</li></ul><div class="doc-rule"></div><h1>0.97 — OLED protection + predict follow-up</h1><ul><li>архитектура OLED protection и idle dim защиты;</li><li>follow-up по weapon predict;</li><li>LAGHAX HUD как live diagnostic surface;</li><li>fix step smoothing jitter на лифтах.</li></ul><div class="doc-rule"></div><h1>0.98 — display/audio/predict/browser wave</h1><ul><li>windowed mode и уточнение display-mode state;</li><li>автоуправление звуком при потере фокуса и в OLED idle;</li><li>новая стабилизированная архитектура предикта оружия;</li><li>Favorites actions в modern server browser.</li></ul><div class="doc-rule"></div><h1>0.99 — guided menu + WFX + cvar reference wave</h1><ul><li>guided menu на базе q2pro-x.menu2;</li><li>Weapon Parts Visibility (WFX);</li><li>inline console cvar info и in-game cvar browser;</li><li>zero-ammo predict gate и прочие polish-fixes beta 0.99.</li></ul><div class="doc-rule"></div><h1>1.0 — release polish wave</h1><ul><li>modern cvar browser доведён до финального состояния: RU/EN, copy, quality font, UTF-8 wrap, separate scale/alpha;</li><li>gear settings buttons и tracked return flow для новых оверлеев;</li><li>LAGHAX HUD: отдельная прозрачность и runtime diagnostics weapon predict;</li><li>финальный пакет 1.0 закрепляет обязательный data-layer: q2pro-x.menu, q2pro-x.menu2, q2pro.modhelp, q2prox_cvar_font.png.</li></ul></section>  </article></div>
+</body>
+</html>

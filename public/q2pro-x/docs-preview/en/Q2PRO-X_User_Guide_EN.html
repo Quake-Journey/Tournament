@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 - User Guide</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 - User Guide</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.0</p><p>User Guide</p><p>English edition for the public website</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>Release 1.0 updates relative to beta 0.99</li><li>Release 1.0 updates</li><li>Modern cvar browser</li><li>Settings from overlays</li><li>LAGHAX HUD and weapon-predict diagnostics</li><li>What matters about the 1.0 release package</li><li>1. What Q2PRO-X is and why this client exists</li><li>2. What the previous beta line contained</li><li>2.1. What changed in beta 0.97 (previous wave)</li><li>3. Quick practical start</li><li>4. Network features: what they do and how to use them</li><li>4.1. R1Q2-like movement feel: what it changes in practice</li><li>5. Video and graphics: what is actually new</li><li>5.1. How to set 4:3 and 800x600</li><li>6. Sound: how to enable it and how the layers differ</li><li>7. Highlights: what they are for in practice</li><li>8. Modern server browser</li><li>9. Mod Command Overlay</li><li>13. Full overview of the Q2PRO-X menu</li><li>13.1. Q2PRO-X / Global settings</li><li>13.2. Q2PRO-X / Local mod settings</li><li>13.3. Q2PRO-X / Config</li><li>13.4. Q2PRO-X / Mod overlay</li><li>13.5. Q2PRO-X / Server browser</li><li>14. Where the key features came from</li><li>15. OLED protection and safe pillarbox for OLED panels</li><li>16. What mattered specifically in beta 0.97</li><li>16.1. Weapon predict follow-up: hyperblaster, machinegun, chaingun</li><li>16.2. LAGHAX HUD: visible enabled state</li><li>16.3. R1Q2-style step smoothing on lifts</li><li>15. Beta 0.98 updates relative to 0.97</li><li>15.1. Display &amp; Capture: windowed mode</li><li>15.2. Automatic sound handling on focus loss and OLED idle</li><li>15.3. OLED protection: what matters now</li><li>15.4. Weapon predict: what changed for the player</li><li>15.5. LAGHAX: low-ping server-to-client starvation</li><li>15.6. Modern Server Browser: Favorites without manual file editing</li><li>0.99 updates (for testers)</li></ul><div class="doc-rule"></div><h1>Release 1.0 updates relative to beta 0.99</h1><p>Release 1.0 finalizes the modern cvar browser as a real end-user feature. RU/EN switching, search, copy, resize, scroll, and browser-local text scale now belong to one coherent tool.</p><p>Overlay gear buttons are now part of the standard workflow. Server browser, cvar browser, mod overlay, and LAGHAX HUD can all open their own settings directly from inside the overlay.</p><p>The LAGHAX HUD gained its own alpha path and an optional runtime block for weapon-predict diagnostics. That runtime block is off by default and exists for observation, not for gameplay changes.</p><p>The 1.0 package also makes the data layer explicit: both menu files, q2pro.modhelp, and the browser-local font atlas are mandatory runtime resources.</p><div class="doc-rule"></div><h1>Release 1.0 updates</h1><p>The 1.0 line is built around polish, coherence, and delivery discipline. Features are no longer described as isolated experiments but as parts of a stable client layer with documentation, menus, release notes, and website presentation.</p><p>The most visible result is the modern cvar browser, but the same thinking also shaped overlay return flow, package contents, bilingual help surfaces, and the branding layer used across the release.</p><h2>Modern cvar browser</h2><p>The modern cvar browser is now a full in-game reference surface. It supports RU/EN descriptions, resize by mouse, search, copy actions, browser-local scale, and independent alpha.</p><p>Players can inspect variables in a readable way without leaving the game or relying on old text files and memory.</p><h2>Settings from overlays</h2><p>Every modern overlay now exposes a gear button. Clicking it opens the relevant settings page instead of forcing manual menu navigation.</p><p>Closing that page returns the user to the exact overlay they came from, which keeps the overlay layer coherent.</p><h2>LAGHAX HUD and weapon-predict diagnostics</h2><p>The HUD now owns its own alpha setting and no longer hides a dependency on scr_alpha.</p><p>An optional runtime block for weapon-predict state exposes existing internal state visually but does not alter weapon behavior, fire rate, or server authority.</p><h2>What matters about the 1.0 release package</h2><p>Q2PRO-X 1.0 continues the additive-layer philosophy. The package should ship the client layer itself, not a generated personal config.</p><p>Generated q2pro-x.cfg is still not part of the public package, while the menu files, mod-help data, and browser font atlas are mandatory release assets.</p><div class="doc-rule"></div><h1>1. What Q2PRO-X is and why this client exists</h1><p>Q2PRO-X is an evolution of Q2PRO shaped by the ideas, testing scenarios, and practical priorities of ly. The goal is not to collect random cvars, but to turn long-requested Quake II client improvements into one coherent user-facing layer.</p><p>The project exists because useful workflows were historically fragmented across old forks, private scripts, rare pak files, and forum knowledge. Q2PRO-X tries to gather those directions into one controlled and documented client.</p><div class="doc-rule"></div><h1>2. What the previous beta line contained</h1><p>The pre-1.0 beta line was built as a clean release layer. It shipped the Q2PRO-X runtime and data folder rather than replacing a user&#x27;s whole Quake II installation.</p><p>That approach protected testers from accidental overwrite scenarios and made it easier to reason about what exactly belonged to Q2PRO-X.</p><div class="doc-rule"></div><h1>2.1. What changed in beta 0.97 (previous wave)</h1><p>Beta 0.97 established several pillars that still matter in 1.0: practical 4:3 pillarbox handling, more mature predict follow-up work, richer LAGHAX HUD visibility, and step-smoothing fixes for lift behavior.</p><p>It also reinforced release discipline: cleaner package contents, stronger documentation, and clearer explanations of what changed for testers between waves.</p><div class="doc-rule"></div><h1>3. Quick practical start</h1><p>The fastest way to understand Q2PRO-X is to open the guided menu and walk through the top-level sections once. That gives a player an overview of the major systems without forcing them to remember old cvar names.</p><p>For a first session, the most useful places to visit are LAGHAX, Weapon Predict, Movement &amp; Physics, Sound &amp; Acoustics, Display &amp; Capture, and the modern server browser.</p><div class="doc-rule"></div><h1>4. Network features: what they do and how to use them</h1><p>The network-facing comfort layer in Q2PRO-X is built around LAGHAX and related diagnostics. Its purpose is to make unstable links feel less brutal without pretending that the server stopped correcting the client.</p><p>The LAGHAX HUD exists so the user can see what the client is reacting to instead of treating smoothing as invisible magic.</p><h2>4.1. R1Q2-like movement feel: what it changes in practice</h2><p>R1Q2-like feel is one of the compatibility-oriented client behavior paths in Q2PRO-X. It changes how movement is perceived locally and is useful for players trained on older Quake II client expectations.</p><p>It does not turn the client into a server cheat. The point is familiarity and comfort, not bypassing server physics authority.</p><div class="doc-rule"></div><h1>5. Video and graphics: what is actually new</h1><p>Q2PRO-X turns display handling into a real user-facing subsystem. This includes modern window mode, desktop fullscreen, classic fullscreen, 4:3 pillarbox behavior, render tuning, highlight-related controls, and OLED-aware options.</p><p>The practical benefit is that players no longer have to rely on fragile manual resolution hacks just to get clean 4:3 presentation or desktop-friendly fullscreen behavior on modern monitors.</p><h2>5.1. How to set 4:3 and 800x600</h2><p>The intended workflow is to use the display/video pages in the Q2PRO-X menu rather than manual trial-and-error through vid_modelist or old fullscreen assumptions.</p><p>For classic 4:3 play, the important distinction is whether the player wants desktop fullscreen, exclusive fullscreen, or a true window. Q2PRO-X exposes those paths directly.</p><div class="doc-rule"></div><h1>6. Sound: how to enable it and how the layers differ</h1><p>Sound in Q2PRO-X is split into meaningful layers instead of being treated as one flat volume field. The client exposes OpenAL behavior, binaural and HRTF options, reverb/acoustics, resampler-related choices, and practical sound-category controls.</p><p>That matters because not every player wants the same thing: some care about clean positional cues, some about room character, and some about desktop-friendly focus behavior.</p><div class="doc-rule"></div><h1>7. Highlights: what they are for in practice</h1><p>Highlight and visibility controls exist because real players often need more readable scenes than the default game provides. Q2PRO-X exposes those controls as explicit user-facing options rather than hidden experimental states.</p><p>The practical role of highlights is readability. They are meant to help the player parse important objects and actors more easily, not to turn the client into a wallhack-style tool.</p><div class="doc-rule"></div><h1>8. Modern server browser</h1><p>The modern server browser is a real overlay window, not just an old server list with a new paint job. It supports multi-field search, sorting, filtering, details tabs, and direct connection flow.</p><p>The legacy browser remains available as a fallback. Q2PRO-X adds a modern browser without forcing every player to abandon the older path.</p><div class="doc-rule"></div><h1>9. Mod Command Overlay</h1><p>The mod overlay is especially useful on servers such as OpenTDM and OpenFFA. It groups commands by purpose, supports prompt-style commands, and surfaces practical spectator and voting actions without forcing players to memorize syntax.</p><p>This makes it valuable not only for ordinary players but also for casters, streamers, and anyone who needs quick access to repeated server-side actions.</p><div class="doc-rule"></div><h1>13. Full overview of the Q2PRO-X menu</h1><p>This section exists for ordinary users who simply want to know where to look. If you open Q2PRO-X and need a practical map of the menu layer, start here.</p><p>By 1.0 the menu tree is stable enough to describe as a product rather than a moving target.</p><h2>13.1. Q2PRO-X / Global settings</h2><p>Global settings contain options that should follow the player across mods and play contexts. Display behavior, global overlays, browser settings, audio layers, and other client-wide choices generally belong here.</p><h2>13.2. Q2PRO-X / Local mod settings</h2><p>Local mod settings are for behavior that should remain tied to the current gamedir or gameplay environment rather than following the player globally.</p><h2>13.3. Q2PRO-X / Config</h2><p>The Config section remains the central place for q2pro-x.cfg workflow, autosave behavior, return to defaults, and user-facing safety switches such as Alt+F4 behavior.</p><h2>13.4. Q2PRO-X / Mod overlay</h2><p>This page controls how the mod overlay behaves, which command groups remain visible, and how the overlay fits a streamer, caster, or player workflow.</p><h2>13.5. Q2PRO-X / Server browser</h2><p>This page controls the modern browser behavior itself and keeps browser UX separate from the legacy server list model.</p><div class="doc-rule"></div><h1>14. Where the key features came from</h1><p>Q2PRO-X does not hide the origin of good ideas. It openly acknowledges when user-facing workflows were inspired by older client traditions, R1Q2 habits, Q2PRO legacy behavior, or modern expectations built up during testing.</p><div class="doc-rule"></div><h1>15. OLED protection and safe pillarbox for OLED panels</h1><p>By the later beta line, classic 4:3 pillarbox handling was treated not only as a convenience feature but also as a panel-safety feature for modern OLED screens.</p><p>The system can animate pillarbox bars, fade the whole screen on inactivity, and modulate interface transparency in OLED-oriented scenarios without overwriting a player&#x27;s ordinary alpha choices.</p><div class="doc-rule"></div><h1>16. What mattered specifically in beta 0.97</h1><p>Beta 0.97 mattered because it closed several unpleasant prediction and movement problems while making LAGHAX and overlay diagnostics easier to trust.</p><p>A lot of the later 1.0 confidence came from this stage: multiple systems stopped behaving like isolated beta experiments and started behaving like maintained client features.</p><h2>16.1. Weapon predict follow-up: hyperblaster, machinegun, chaingun</h2><p>One of the nastier beta problems involved hyperblaster and related continuous-fire behavior. The follow-up work reduced visual mismatch and strengthened how local prediction is paired with authoritative state.</p><h2>16.2. LAGHAX HUD: visible enabled state</h2><p>The HUD evolved into a more trustworthy surface by showing what is actually enabled instead of making users infer state from memory.</p><h2>16.3. R1Q2-style step smoothing on lifts</h2><p>Lift jitter under R1Q2-like step smoothing was one of the movement issues that needed real debugging rather than guesswork. The fix matters because vertical movement edge cases can quickly destroy trust in compatibility modes.</p><div class="doc-rule"></div><h1>15. Beta 0.98 updates relative to 0.97</h1><p>Beta 0.98 pushed several systems from interesting to maturing. Display mode semantics, sound behavior on focus loss, OLED behavior, stabilized weapon-predict architecture, LAGHAX starvation handling, and server browser favorites all moved forward.</p><h2>15.1. Display &amp; Capture: windowed mode</h2><p>Window mode became a deliberate product feature rather than a side effect of old fullscreen handling. This matters for desktop workflows, streaming, and testing.</p><h2>15.2. Automatic sound handling on focus loss and OLED idle</h2><p>Q2PRO-X added optional sound behavior for focus loss and OLED-idle situations so the client cooperates better with real desktop use.</p><h2>15.3. OLED protection: what matters now</h2><p>By this stage OLED protection was no longer only about static side bars. It became a wider display-care branch with idle behavior, UI-related opacity handling, and practical usability refinements.</p><h2>15.4. Weapon predict: what changed for the player</h2><p>For the player, the important change was a cleaner, more trustworthy predict experience. Hidden-gun cases, handoff behavior, and continuous-fire edge cases became less surprising and more product-like.</p><h2>15.5. LAGHAX: low-ping server-to-client starvation</h2><p>Q2PRO-X also investigated starvation-like feel on low-ping but bad-delivery situations. This reflects the broader philosophy behind LAGHAX: comfort work should care about real-world network ugliness, not only obvious high-ping scenarios.</p><h2>15.6. Modern Server Browser: Favorites without manual file editing</h2><p>Favorites became a normal browser workflow rather than something hidden behind manual file editing or awkward maintenance habits.</p><div class="doc-rule"></div><h1>0.99 updates (for testers)</h1><p>Beta 0.99 was the bridge into release 1.0. It brought guided menu mode, broader browser and cvar-reference work, additional overlay polish, and the stronger product presentation that later became the public 1.0 website and documentation layer.</p></section>  </article></div>
+</body>
+</html>

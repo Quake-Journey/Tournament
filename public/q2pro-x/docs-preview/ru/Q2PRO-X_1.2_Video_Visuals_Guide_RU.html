@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: видео, визуал и подсветки</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: видео, визуал и подсветки</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: видео, визуал и подсветки</p><p>Видео, визуал, подсветки и demo-visual профиль</p><p>Русское издание</p><p>28 апреля 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Оглавление</h1><ul><li>1. Где находятся настройки</li><li>2. Video backend: почему по умолчанию win32egl</li><li>3. Resolution, refresh, windowed и fullscreen</li><li>Desktop fullscreen</li><li>Exclusive fullscreen</li><li>Windowed mode</li><li>4. Render scale</li><li>5. Базовые визуальные эффекты</li><li>6. OLED protection</li><li>7. Visibility Highlights: общая модель</li><li>8. Предметы и оружие</li><li>9. Подсветка игроков</li><li>10. Player model color overrides</li><li>11. Demo visual config</li><li>12. Рекомендуемые стартовые профили</li><li>Соревновательная игра</li><li>Просмотр демок</li><li>Запись видео</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: видео, визуал и подсветки</h1><p>Этот документ объясняет, как в Q2PRO-X 1.2 устроены видео-настройки и</p><p>визуальные слои: backend, fullscreen, render scale, постобработка, OLED</p><p>protection, visibility highlights и demo-visual профиль.</p><h2>1. Где находятся настройки</h2><p>Guided menu:</p><ul><li>Options -&gt; Video;</li><li>Options -&gt; Visibility Highlights;</li><li>Options -&gt; Demo Player -&gt; Demo Analytics;</li><li>Options -&gt; Demo Player -&gt; Item Timers.</li></ul><p>Classic Q2PRO-X menu:</p><ul><li>Q2PRO-X -&gt; video;</li><li>Q2PRO-X -&gt; visibility highlights;</li><li>Q2PRO-X -&gt; demo player;</li><li>Q2PRO-X -&gt; demo analytics;</li><li>Q2PRO-X -&gt; demo item timers.</li></ul><p>Часть базовых Quake II video cvar всё ещё доступна через legacy меню и</p><p>консоль. Но для обычной настройки 1.2 лучше начинать с Q2PRO-X страниц.</p><h2>2. Video backend: почему по умолчанию win32egl</h2><p>На Windows в релизной сборке Q2PRO-X 1.2 default backend - win32egl.</p><p>Это EGL/ANGLE путь. Он был выбран как более безопасный для современного</p><p>захвата видео и desktop/fullscreen сценариев.</p><p>Доступные варианты:</p><ul><li>vid_driver win32egl - рекомендуемый default на Windows Q2PRO-X;</li><li>vid_driver win32wgl - классический WGL OpenGL fallback.</li></ul><p>Если выбранный backend не смог стартовать, движок пробует доступные</p><p>fallback-драйверы и переписывает vid_driver на реально запущенный backend.</p><p>Поэтому меню показывает не только желаемое значение, но и фактический</p><p>результат запуска.</p><p>Практическая рекомендация:</p><ul><li>оставляйте win32egl, если игра запускается нормально;</li><li>пробуйте win32wgl, если на конкретной машине есть проблема с EGL/ANGLE;</li><li>после смены backend используйте vid_restart или перезапуск клиента, если</li></ul><p>меню само не применило изменение.</p><h2>3. Resolution, refresh, windowed и fullscreen</h2><p>Q2PRO-X 1.2 скрывает старую неудобную модель vid_fullscreen за понятными</p><p>пикерами:</p><ul><li>vid_resolution - desktop или конкретное разрешение вида 1920x1080;</li><li>vid_refresh - max или конкретная частота, например 144;</li><li>vid_windowed - оконный режим;</li><li>vid_fullscreen_type - desktop или exclusive;</li><li>vid_desktop_fullscreen_fit - fill или aspect;</li><li>vid_desktop_fullscreen_margin - небольшой отступ для borderless окна.</li></ul><h3>Desktop fullscreen</h3><p>desktop fullscreen - borderless fullscreen. Обычно это лучший режим для</p><p>Alt+Tab, записи и современного Windows desktop. Если включён</p><p>vid_desktop_fullscreen_fit aspect, игра может сохранять выбранное</p><p>соотношение сторон и рисовать чёрные поля.</p><h3>Exclusive fullscreen</h3><p>exclusive - классический режим со сменой видеорежима монитора. Здесь</p><p>vid_refresh имеет смысл напрямую. Если выбранная частота недоступна,</p><p>движок выбирает ближайший допустимый режим из vid_modelist.</p><h3>Windowed mode</h3><p>В оконном режиме vid_resolution управляет размером окна. vid_refresh</p><p>игнорируется, потому что частотой управляет desktop compositor.</p><h2>4. Render scale</h2><p>Render scale нужен для раздельного управления внутренним 3D-разрешением и</p><p>размером окна / framebuffer.</p><p>Ключевые cvar:</p><ul><li>gl_render_scale - процент внутреннего render scale;</li><li>gl_render_scale_mode - режим применения;</li><li>gl_render_scale_filter - фильтр масштабирования.</li></ul><p>Типичные сценарии:</p><ul><li>100 - нативная чёткость;</li><li>ниже 100 - больше FPS ценой размытия;</li><li>выше 100, если доступно в конкретной конфигурации, - super-sampling вид.</li></ul><p>Для соревновательной игры обычно разумно держать 100, а FPS добирать</p><p>отключением тяжёлых визуальных эффектов.</p><h2>5. Базовые визуальные эффекты</h2><p>Эти настройки относятся к mod-local визуальному профилю:</p><ul><li>gl_dynamic - динамические источники света;</li><li>gl_shadows - тени;</li><li>gl_coloredlightmaps - цветные lightmap;</li><li>gl_brightness - локальная яркость рендера;</li><li>gl_polyblend - экранные blend-эффекты;</li><li>gl_bloom, gl_bloom_strength, gl_bloom_threshold - bloom;</li><li>gl_post_profile, gl_post_contrast, gl_post_vibrance,</li></ul><p>gl_post_temperature, gl_sharpen - постобработка;</p><ul><li>usefog, fogdensity, foghue, fogsaturation, foglightness - fog.</li></ul><p>Такой scope важен: разные моды могут иметь разный визуальный стиль. Но при</p><p>просмотре демок эти значения могут идти не из mod-local cfg, а из</p><p>demo-visual профиля.</p><h2>6. OLED protection</h2><p>OLED protection - это набор защитных UI и fullscreen эффектов для случаев,</p><p>когда статичные элементы долго стоят на одном месте.</p><p>Ключевые cvar:</p><ul><li>vid_oled_enable - master switch;</li><li>vid_oled_bar_protection - анимация app-owned black bars;</li><li>vid_oled_idle_protection - затемнение при idle;</li><li>vid_oled_idle_monitor_off - опциональное выключение монитора при idle;</li><li>vid_oled_ui_protection - breathing alpha для поддерживаемых overlay;</li><li>vid_oled_ui_min_alpha, vid_oled_ui_max_alpha,</li></ul><p>vid_oled_ui_cycle_sec.</p><p>Bar protection применим только когда Q2PRO-X сам владеет чёрными полями,</p><p>например desktop fullscreen + aspect fit. Idle/UI protection не ограничены</p><p>только этим режимом.</p><h2>7. Visibility Highlights: общая модель</h2><p>Visibility Highlights не заменяет модели и не меняет игровые данные. Это</p><p>визуальный слой поверх локального рендера:</p><ul><li>item highlighting;</li><li>weapon highlighting;</li><li>player highlighting;</li><li>per-class item colors;</li><li>per-weapon colors;</li><li>player model color overrides.</li></ul><p>Главный switch:</p><ul><li>cl_vis_enable.</li></ul><p>Отдельные группы:</p><ul><li>cl_vis_items;</li><li>cl_vis_weapons;</li><li>cl_vis_players.</li></ul><p>Стиль обычно выбирается как:</p><ul><li>off;</li><li>shell;</li><li>tint;</li><li>shell+tint.</li></ul><p>Для каждой группы есть alpha, shell thickness, brightness и scale, где это</p><p>применимо.</p><h2>8. Предметы и оружие</h2><p>Предметы:</p><ul><li>cl_vis_items_style;</li><li>cl_vis_items_alpha;</li><li>cl_vis_items_shell_alpha;</li><li>cl_vis_items_shell_scale;</li><li>cl_vis_items_brightness;</li><li>cl_vis_items_scale;</li><li>per-class toggles: health, armor, ammo, powerups, keys;</li><li>per-class colors.</li></ul><p>Оружие:</p><ul><li>cl_vis_weapons;</li><li>cl_vis_weapons_scale;</li><li>per-weapon toggles;</li><li>per-weapon colors.</li></ul><p>Эта система полезна как для live play, так и для demo watching. Если</p><p>подсветка слишком агрессивна, начните с shell+tint, но уменьшите tint</p><p>alpha и brightness.</p><h2>9. Подсветка игроков</h2><p>Ключевые настройки:</p><ul><li>cl_vis_players;</li><li>cl_vis_players_mode;</li><li>cl_vis_players_style;</li><li>cl_vis_players_alpha;</li><li>cl_vis_players_shell_alpha;</li><li>cl_vis_players_shell_scale;</li><li>cl_vis_players_scale;</li><li>cl_vis_players_brightness;</li><li>cl_vis_players_self.</li></ul><p>Режимы cl_vis_players_mode:</p><ul><li>off - выключено;</li><li>all - один общий цвет;</li><li>random FFA - FFA-палитра по слотам;</li><li>duel - две дуэльные роли;</li><li>auto - попытка выбрать подходящий режим;</li><li>team - friendly/enemy цвета;</li><li>model - цвет по resolved player-model directory.</li></ul><p>Для live TDM/duel обычно логичны team, duel или auto. Для демок часто</p><p>лучше model, потому что запись не всегда даёт надёжное понятие</p><p>&quot;свой-чужой&quot;.</p><h2>10. Player model color overrides</h2><p>model mode раскрашивает игроков по имени модели: male, female,</p><p>cyborg или пользовательская папка players/&lt;model&gt;.</p><p>В меню есть отдельный editor:</p><ul><li>Player model colors....</li></ul><p>Он показывает модели, доступные в текущей пользовательской конфигурации, и</p><p>позволяет назначать им цвета тем же стилем, что и другие color editors:</p><p>именованные preset-цвета в меню, а при необходимости hex-значения через</p><p>консоль / cvar browser.</p><p>Динамические cvar имеют форму:</p><ul><li>cl_vis_player_model_color_&lt;model&gt;.</li></ul><p>Они mod-local, а во время demo playback сохраняются в demo-visual cfg.</p><h2>11. Demo visual config</h2><p>Главная идея: при просмотре .dm2 / .mvd2 визуальные настройки должны быть</p><p>одинаковыми независимо от того, в каком моде записана демка.</p><p>Поэтому во время playback mod-local визуальные Q2PRO-X настройки пишутся в:</p><p>baseq2/q2pro-x/demo_visual/q2pro-x.demo.cfg</p><p>Это касается:</p><ul><li>Visibility Highlights;</li><li>model color overrides;</li><li>demo analytics colors and trail settings;</li><li>demo item timer colors and toggles;</li><li>других mod-local визуальных Q2PRO-X cvar.</li></ul><p>Практически:</p><ol><li>Запустите демку.</li><li>Настройте подсветки / analytics / item timers.</li><li>Сохранение попадёт в demo-visual профиль.</li><li>Следующая демка из другого мода будет использовать тот же визуальный</li></ol><p>профиль просмотра, а не чужой mod cfg.</p><p>Команды:</p><ul><li>q2prox_cfg_save_demo_visual;</li><li>q2prox_cfg_defaults_demo_visual;</li><li>q2prox_cfg_save_local во время demo playback пишет в demo-visual target.</li></ul><h2>12. Рекомендуемые стартовые профили</h2><h3>Соревновательная игра</h3><ul><li>vid_driver win32egl;</li><li>vid_fullscreen_type desktop;</li><li>vid_resolution desktop;</li><li>gl_render_scale 100;</li><li>bloom/postprocessing умеренно или off;</li><li>cl_vis_players_mode team или auto;</li><li>подсветки предметов с низким alpha, чтобы не закрывать модель.</li></ul><h3>Просмотр демок</h3><ul><li>cl_vis_players_mode model;</li><li>cl_vis_players_style shell+tint;</li><li>открыть Player model colors... и задать понятные цвета для моделей;</li><li>включить demo analytics только когда нужна карта событий;</li><li>item timers включать по необходимости: world only, strip only или both.</li></ul><h3>Запись видео</h3><ul><li>оставить win32egl;</li><li>использовать desktop fullscreen;</li><li>проверить vid_desktop_fullscreen_fit aspect, если нужен 4:3 pillarbox;</li><li>держать postprocessing и highlights стабильными через demo-visual cfg.</li></ul></section>  </article></div>
+</body>
+</html>

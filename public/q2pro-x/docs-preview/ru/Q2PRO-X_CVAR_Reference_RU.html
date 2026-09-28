@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 — Справочник новых CVAR</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 — Справочник новых CVAR</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><ul><li>Релиз 1.0: modern cvar browser доведён до полноценного пользовательского интерфейса.</li><li>cl_cvar_browser_scale — независимый browser-local scale для текста и text-driven chrome.</li><li>cl_cvar_browser_alpha — отдельная alpha-модель без зависимости от scr_alpha.</li><li>cl_cvar_browser_lang — RU/EN-переключение справочника cvar.</li><li>cl_laghax_hud_alpha — отдельная прозрачность LAGHAX HUD.</li><li>cl_laghax_hud_show_predict_runtime — optional runtime-диагностика weapon predict, выключена по умолчанию.</li></ul><div class="doc-rule"></div><h1>Новые и изменённые CVAR релиза 1.0 относительно beta 0.99</h1><ul><li>cl_cvar_browser_scale — browser-local scale для текста и chrome браузера cvar (0.5..2.0).</li><li>cl_cvar_browser_alpha — прозрачность браузера cvar теперь независима от scr_alpha.</li><li>cl_cvar_browser_lang — язык интерфейса браузера cvar: English / Русский.</li><li>cl_laghax_hud_alpha — отдельная прозрачность LAGHAX HUD.</li><li>cl_laghax_hud_show_predict_runtime — включение runtime-диагностики ghost/predict bookkeeping в LAGHAX HUD.</li><li>Все перечисленные параметры сохраняются глобально в Q2PRO-X config и доступны в обоих menu-режимах.</li><li>Q2PRO и Q2PRO-X cvar-описания для modern browser теперь имеют расширенное русское покрытие.</li><li>cl_weaponfx_vis_muzzle_light — динамический свет от muzzle.</li><li>cl_weaponfx_vis_hitscan — hitscan beam/tracer.</li><li>cl_weaponfx_vis_projectiles — модели снарядов.</li><li>cl_weaponfx_vis_trails — трейлы снарядов.</li><li>cl_weaponfx_vis_impact_wall — impacts по миру.</li><li>cl_weaponfx_vis_impact_flesh — impacts по flesh.</li><li>cl_weaponfx_vis_explosion_visual — визуал взрыва.</li><li>cl_weaponfx_vis_explosion_particles — частицы взрыва.</li><li>cl_weaponfx_vis_explosion_light — свет взрыва.</li><li>cl_weaponfx_vis_hit_markers — маркеры попадания (визуально).</li></ul><div class="doc-rule"></div><h1>Обновления релиза 1.0 (справочник)</h1><h2>Modern Cvar Browser</h2><p>`cl_cvar_browser_lang` — язык интерфейса современного браузера cvar. 0 = English, 1 = Русский. Параметр глобальный и сохраняется в Q2PRO-X global config.</p><p>`cl_cvar_browser_alpha` — базовая прозрачность современного браузера cvar. В релизе 1.0 итоговая alpha больше не зависит от scr_alpha.</p><p>`cl_cvar_browser_scale` — browser-local scale для текста и text-driven chrome. Диапазон 0.5..2.0, по умолчанию 1.0. Предназначен для настройки читабельности самого browser UI, а не всего HUD клиента.</p><h2>LAGHAX HUD</h2><p>`cl_laghax_hud_alpha` — отдельная прозрачность LAGHAX HUD. Используется независимо от scr_alpha и следует модели global overlay alpha × OLED UI alpha.</p><p>`cl_laghax_hud_show_predict_runtime` — включает read-only runtime-блок weapon predict в LAGHAX HUD. Параметр глобальный, по умолчанию выключен. Нужен для диагностики и не меняет поведение предиктора.</p><h2>Политика сохранения</h2><p>Новые параметры 1.0 сохраняются в глобальный Q2PRO-X config и не должны дробиться по mod-local конфигам. Это особенно важно для browser-local scale/alpha/lang и для диагностических параметров LAGHAX HUD.</p><h1>Q2PRO-X 1.0</h1><p>Справочник новых CVAR</p><p>Главный автор проекта, инициатор ключевых идей и основной тестировщик: ly</p><p>Тестирование: Quake II community</p><p>Документ актуализирован для релиза 1.0; в конце добавлена секция с новыми и изменёнными cvar относительно beta 0.99.</p><p>Оглавление</p><p>2. Сеть и движение	3</p><p>3. Weapon predicts	4</p><p>4. Display &amp; Capture	5</p><p>5. Local Visual FX	6</p><p>6. Sound &amp; Acoustics	7</p><p>7. Binaural / 3D	8</p><p>8. Sound volumes	8</p><p>9. Visibility / Highlights	9</p><p>10. Mod Overlay и Server Browser	10</p><p>11. OLED protection	12</p><p>12. 0.97 additions for laghax HUD and pillarbox workspace	13</p><p>13. Weapon predict diagnostic and policy notes	13</p><p>12. Новые и изменённые CVAR beta 0.98 относительно 0.97	14</p><p>12.1. Display &amp; Capture	14</p><p>12.2. Sound / inactivity / OLED	14</p><p>12.3. Laghax	14</p><p>12.4. Предикт оружия / диагностика	15</p><p>12.5. Modern Server Browser	15</p><div class="doc-rule"></div><h1>1. Как читать этот справочник</h1><p>В справочнике собраны новые cvar Q2PRO-X, а не полный список cvar старого движка Quake II. Для каждой группы важно помнить, что часть настроек живёт в глобальном q2pro-x.cfg, а часть — в mod-local q2pro-x.cfg.</p><p>В разделе Сеть и движение важно не путать три разных оси настройки: movement feel, predict backend и step smoothing. Они связаны по ощущениям, но настраиваются независимо.</p><ul><li>cl_movement_feel_mode = 1 включает R1Q2-like movement feel. Это не &quot;физика R1Q2&quot;, а classic command-timing path, который bypasses fixedmove subdivision именно как feel scheduler.</li><li>cl_predict_move_mode отвечает за modern / legacy predict backend, а cl_step_smoothing_mode — за визуальное feel сглаживания ступенек. Их можно сочетать с movement feel в разных комбинациях.</li></ul><div class="doc-rule"></div><h1>2. Сеть и движение</h1><div class="doc-rule"></div><h1>3. Weapon predicts</h1><p>В beta 0.97 отдельный новый cvar для hidden-gun fix по-прежнему не нужен: исправление сделано внутри самой логики weapon prediction. Практически это означает, что режимы cl_gun 0 и cl_gun 1 + hand 2 должны работать надёжнее без дополнительной ручной настройки.</p><p>Для диагностики анимации view weapon в текущем билде также добавлен отдельный cvar cl_weapon_anim_debug. Он нужен не для обычной игры, а для тех случаев, когда надо сравнить server gunframe, predicted gunframe и реально отрисованный кадр без лишнего шума от cl_predict_debug 2.</p><div class="doc-rule"></div><h1>4. Display &amp; Capture</h1><p>cl_altf4_exit</p><p>Глобальный cvar Q2PRO-X. По умолчанию 1. Управляет поведением Alt+F4: 1 — игра закрывается обычным путём, 0 — сочетание silently swallowed и не проходит дальше в bind/input path. Настройка хранится в global q2pro-x.cfg и дублируется в Q2PRO-X / Config.</p><p>В beta 0.97 в этот раздел добавлены user-facing cvar для управления реальными display modes и для нового pillarbox-сценария. Практически важно разделять два случая: borderless desktop fullscreen и настоящий fullscreen mode switch.</p><ul><li>desktop fullscreen = yes + vid_resolution = 800x600/1024x768 + vid_desktop_fullscreen_fit = 1 -&gt; centered 4:3-картинка с чёрными полями внутри desktop-native режима.</li><li>desktop fullscreen = no + vid_resolution = 800x600/1024x768 -&gt; настоящий mode switch дисплея; дальше масштабирование зависит от драйвера и самого монитора.</li><li>vid_refresh нужен прежде всего для explicit mode selection; при desktop fullscreen он важен как часть выбора подходящего режима, но не переводит монитор в другой desktop timing.</li></ul><div class="doc-rule"></div><h1>5. Local Visual FX</h1><div class="doc-rule"></div><h1>6. Sound &amp; Acoustics</h1><div class="doc-rule"></div><h1>7. Binaural / 3D</h1><div class="doc-rule"></div><h1>8. Sound volumes</h1><div class="doc-rule"></div><h1>9. Visibility / Highlights</h1><div class="doc-rule"></div><h1>10. Mod Overlay и Server Browser</h1><div class="doc-rule"></div><h1>11. OLED protection</h1><p>Ниже перечислены cvar новой OLED-ветки, появившейся после beta 0.96. Все они относятся к Global settings / Display &amp; Capture / OLED protection....</p><p>Служебная команда vid_oled_info печатает текущее состояние OLED-подсистемы в консоль и полезна для тестирования.</p><div class="doc-rule"></div><h1>12. 0.97 additions for laghax HUD and pillarbox workspace</h1><div class="doc-rule"></div><h1>13. Weapon predict diagnostic and policy notes</h1><p>Сами cvar weapon predict были добавлены раньше, но для 0.97 важно зафиксировать их фактическую политику работы:</p><ul><li>cl_predict_hyperblaster — теперь сопровождается улучшенным HB handoff/suppression path, чтобы не получать двойной поток локальных и серверных болтов.</li><li>cl_weapon_anim_debug — печатает server-vs-rendered gunframe timeline и нужен для анализа сложных кейсов.</li><li>Для machinegun / chaingun / hyperblaster weapon-view animation в shipping path intentionally остаётся server-driven; локально предсказываются не gunframe, а вспомогательные fire-feedback слои.</li></ul><div class="doc-rule"></div><h1>12. Новые и изменённые CVAR beta 0.98 относительно 0.97</h1><p>Эта секция перечисляет новые и заметно изменённые cvar/semantics, которые появились в публичной beta 0.98 по сравнению с beta 0.97.</p><h2>12.1. Display &amp; Capture</h2><h2>12.2. Sound / inactivity / OLED</h2><p>Изменённые semantics: `vid_oled_bar_delay_sec` и `vid_oled_idle_delay_sec` уже считаются секундами, а `vid_oled_ui_min_alpha` допускает полное падение до `0.0`.</p><h2>12.3. Laghax</h2><p>Для starvation follow-up в `cl_laghax 2` новые пользовательские cvar не добавлялись. Изменение полностью внутреннее. Пользовательский surface остался прежним: `cl_laghax`, `cl_laghax_debug`, `cl_laghax_hud` и существующие weight cvars.</p><h2>12.4. Предикт оружия / диагностика</h2><p>Новых основных пользовательских `cl_predict_*` cvar в beta 0.98 не добавлялось. Главное изменение — не расширение набора переключателей, а новая архитектура маршрутизации, phase-gate и handoff внутри уже существующей системы предикта оружия.</p><h2>12.5. Modern Server Browser</h2><p>Favorites actions (`Add to Fav` / `Del from Fav`) добавлены как UI-функция modern browser и не вводят новых cvar. Управление идёт через сам overlay и существующую persistence-модель `servers.lst` + `adrN`.</p><div class="doc-rule"></div><h1>Обновления 0.99 (справочник)</h1></section>  </article></div>
+</body>
+</html>

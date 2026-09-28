@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: Voice Chat</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: Voice Chat</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: Voice Chat</p><p>Built-in voice chat</p><p>English edition</p><p>April 28, 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>1. What voice chat does</li><li>2. Where to find the menu</li><li>3. Requirements</li><li>4. Main cvars</li><li>5. Commands</li><li>6. Room mode</li><li>Server mode</li><li>Manual mode</li><li>7. Push-to-talk and VAD</li><li>8. Gain and volume</li><li>9. Microphone</li><li>10. Hosted control server</li><li>11. Autojoin</li><li>12. Troubleshooting</li><li>The menu is enabled, but voice does not work</li><li>Others cannot hear me</li><li>I cannot hear others</li><li>Voice distracts from the game</li><li>13. Good baseline</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: Voice Chat</h1><p>Q2PRO-X 1.2 includes built-in voice chat. It is a separate voice</p><p>side-channel inside the client. It does not change the Quake II game protocol</p><p>and does not replace say / say_team.</p><h2>1. What voice chat does</h2><p>Voice chat lets players join a voice room and talk through the microphone from</p><p>inside the client.</p><p>Main user model:</p><ul><li>vc_enable 1 enables the feature;</li><li>vc_autojoin 1 joins a voice room when entering a game server;</li><li>vc_room_mode server derives the room from the current game server;</li><li>vc_room_mode manual uses vc_room_name;</li><li>vc_server points to the control-plane service that prepares room access.</li></ul><p>Default hosted control server:</p><p>https://voice-api.q2pro-x.com</p><h2>2. Where to find the menu</h2><p>Guided menu:</p><ul><li>Options -&gt; Sound &amp; Acoustics -&gt; Voice Chat;</li></ul><p>Classic Q2PRO-X menu:</p><ul><li>Q2PRO-X -&gt; voice chat.</li></ul><p>The page contains:</p><ul><li>master switch;</li><li>autojoin;</li><li>room mode;</li><li>manual room name;</li><li>control server;</li><li>microphone enabled;</li><li>mic device picker;</li><li>transmit mode;</li><li>VAD threshold;</li><li>mic gain;</li><li>receive volume;</li><li>deafen;</li><li>display name;</li><li>join / leave room;</li><li>PTT key;</li><li>mic toggle key;</li><li>restore voice defaults.</li></ul><h2>3. Requirements</h2><p>The current voice chat phase requires OpenAL for both transmit and receive.</p><p>Check:</p><ul><li>s_enable 2 or menu value Sound engine = OpenAL;</li><li>soft_oal.dll is present in the release directory;</li><li>livekit_ffi.dll is present in the release directory;</li><li>Windows allows microphone access for the application.</li></ul><p>If the game uses the software DMA sound path, voice chat may be unavailable</p><p>even when vc_enable is on.</p><h2>4. Main cvars</h2><ul><li>vc_enable - voice chat master switch;</li><li>vc_autojoin - automatically join on game server connect;</li><li>vc_server - control-plane service URL;</li><li>vc_room_mode - server or manual;</li><li>vc_room_name - room name in manual mode;</li><li>vc_mic_enable - allow microphone capture;</li><li>vc_mic_device - selected microphone, &quot;(default)&quot; follows the system</li></ul><p>default;</p><ul><li>vc_ptt_mode - 1 push-to-talk, 0 voice activation;</li><li>vc_vad_threshold - VAD threshold;</li><li>vc_input_gain - microphone gain;</li><li>vc_receive_volume - incoming voice volume;</li><li>vc_deafen - mute incoming voice without disabling your mic;</li><li>vc_display_name - name in the voice room, empty = use player name.</li></ul><p>Most vc_* cvars are saved in the global Q2PRO-X cfg.</p><h2>5. Commands</h2><ul><li>voice_join - join the current voice room;</li><li>voice_leave - leave the room;</li><li>+voiceptt / -voiceptt - push-to-talk;</li><li>voice_mic_toggle - toggle microphone enabled;</li><li>voice_mic_list - print microphone list;</li><li>voice_mic_pick &lt;index&gt; - select microphone by index;</li><li>voice_defaults - restore the recommended voice baseline.</li></ul><p>Calling voice_mic_pick without an argument acts like voice_mic_list.</p><h2>6. Room mode</h2><h3>Server mode</h3><p>vc_room_mode server is the recommended mode. The room is derived from the</p><p>current game server, so players on the same server enter the same voice room</p><p>without typing a room name.</p><p>For normal play:</p><ul><li>enable vc_enable;</li><li>enable vc_autojoin;</li><li>keep vc_room_mode server;</li><li>connect to a game server.</li></ul><h3>Manual mode</h3><p>vc_room_mode manual uses vc_room_name.</p><p>This is useful when:</p><ul><li>testing voice without a game server;</li><li>using a separate room for a group;</li><li>avoiding a dependency on the current game server address.</li></ul><h2>7. Push-to-talk and VAD</h2><p>vc_ptt_mode 1 is push-to-talk. It is the recommended play mode:</p><ul><li>bind a PTT key;</li><li>hold the key to transmit.</li></ul><p>vc_ptt_mode 0 is VAD, voice activity detection:</p><ul><li>the microphone opens based on signal level;</li><li>lower vc_vad_threshold = more sensitive;</li><li>too low can pick up keyboard and room noise;</li><li>too high can cut the beginning of words.</li></ul><p>Practical start:</p><ul><li>PTT: vc_ptt_mode 1;</li><li>VAD: vc_vad_threshold 0.02, then lower toward 0.005 if the mic is quiet.</li></ul><h2>8. Gain and volume</h2><p>vc_input_gain boosts the microphone before transmit. 1.0 is unity. Values</p><p>above 3-4 may clip loud speech, but can help quiet microphones.</p><p>vc_receive_volume controls incoming voice independently from game volume.</p><p>1.0 is unity, up to 10.0 is strong boost.</p><p>If others hear distortion:</p><ol><li>reduce vc_input_gain;</li><li>check Windows input level;</li><li>use PTT so constant room noise is not transmitted.</li></ol><h2>9. Microphone</h2><p>The Mic device... menu lists capture devices visible to OpenAL.</p><p>Command:</p><p>voice_mic_list</p><p>prints:</p><ul><li>current selection;</li><li>Windows default device;</li><li>indexed device list.</li></ul><p>vc_mic_device &quot;(default)&quot; means &quot;follow the system default&quot;.</p><p>If a device was renamed or disappeared, select it again from the menu.</p><h2>10. Hosted control server</h2><p>Default vc_server:</p><p>https://voice-api.q2pro-x.com</p><p>The client asks the control-plane for room preparation. After joining, voice</p><p>traffic goes through the voice infrastructure, not through the Quake II game</p><p>server.</p><p>Local dev setups can point vc_server to a local service. Normal users should</p><p>keep the default.</p><h2>11. Autojoin</h2><p>To join automatically:</p><ol><li>vc_enable 1;</li><li>vc_autojoin 1;</li><li>vc_room_mode server;</li><li>connect to a game server.</li></ol><p>If you left manually with voice_leave, use voice_join to enter again.</p><h2>12. Troubleshooting</h2><h3>The menu is enabled, but voice does not work</h3><p>Check:</p><ul><li>sound engine = OpenAL;</li><li>vc_enable 1;</li><li>vc_mic_enable 1;</li><li>Windows microphone permission;</li><li>selected vc_mic_device;</li><li>vc_server availability;</li><li>firewall/antivirus.</li></ul><h3>Others cannot hear me</h3><p>Check:</p><ul><li>PTT key is bound and held;</li><li>in VAD mode, vc_vad_threshold is not too high;</li><li>vc_input_gain is not 0;</li><li>the correct microphone is selected.</li></ul><h3>I cannot hear others</h3><p>Check:</p><ul><li>vc_deafen 0;</li><li>vc_receive_volume is not 0;</li><li>OpenAL backend is active;</li><li>you are actually in the same room.</li></ul><h3>Voice distracts from the game</h3><p>Use:</p><ul><li>PTT instead of VAD;</li><li>vc_deafen 1 for temporary incoming mute;</li><li>a dedicated PTT key;</li><li>lower vc_receive_volume.</li></ul><h2>13. Good baseline</h2><p>For most players:</p><ul><li>vc_enable 1;</li><li>vc_autojoin 1;</li><li>vc_room_mode server;</li><li>vc_server https://voice-api.q2pro-x.com;</li><li>vc_mic_device &quot;(default)&quot;;</li><li>vc_mic_enable 1;</li><li>vc_ptt_mode 1;</li><li>vc_input_gain 1.0;</li><li>vc_receive_volume 1.0;</li><li>vc_deafen 0.</li></ul><p>Then tune only microphone, PTT key, and incoming voice volume.</p></section>  </article></div>
+</body>
+</html>

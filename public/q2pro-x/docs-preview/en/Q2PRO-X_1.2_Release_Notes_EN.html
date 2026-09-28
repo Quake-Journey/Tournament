@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: release notes</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: release notes</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: release notes</p><p>Release and upgrade notes</p><p>English edition</p><p>April 28, 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>Who this release is for</li><li>Major changes from 1.0 to 1.2</li><li>Guided Menu and safe first run</li><li>Video and visuals</li><li>Visibility Highlights</li><li>Demo Browser and Demo Player</li><li>Voice Chat</li><li>Network play</li><li>Controls, mouse, and zoom</li><li>Cvar Browser</li><li>Upgrading from 1.0 / 1.1 / 1.1A</li><li>What did not change</li><li>Practical first-run advice</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: release notes</h1><p>Q2PRO-X 1.2 is the public release after the 1.0 line and the 1.1 /</p><p>1.1A beta branch. The point of this version is not a single isolated feature.</p><p>It turns the client into a more complete modern Quake II tool for playing,</p><p>watching demos, tuning visuals, sound, networking, and UI behavior.</p><h2>Who this release is for</h2><ol><li>Players who want a modern q2pro-compatible client without assembling a</li></ol><p>long chain of patches manually.</p><ol><li>Duel and TDM players who care about prediction, visibility, latency</li></ol><p>control, readable HUDs, and a fast server browser.</p><ol><li>Demo watchers: MVD/DM2 playback now has its own browser/player layer,</li></ol><p>analytics, viewing modes, and a unified demo-visual profile.</p><ol><li>Users importing older r1q2 / q2pro configs who do not want to repair</li></ol><p>mouse behavior, zoom, menu defaults, and cvars by hand.</p><h2>Major changes from 1.0 to 1.2</h2><h3>Guided Menu and safe first run</h3><p>In 1.2 the modern guided menu is the main entry point. The legacy menu still</p><p>exists, but a new user should immediately see a coherent structure:</p><ul><li>Quick Setup;</li><li>Video / Sound / Controls;</li><li>Online Play Setup;</li><li>Demo Browser / Demo Player;</li><li>Cvar Browser;</li><li>Q2PRO-X engine-room pages.</li></ul><p>When upgrading an old config from 1.0 / 1.1 / 1.1A, the engine runs a narrow</p><p>schema migration. If cl_q2prox_cfg_version is missing or older than 1.2, it</p><p>applies only safe recommended UI defaults, such as the modern guided menu and</p><p>Q2PRO-X config autosave. It does not wipe the full user profile.</p><h3>Video and visuals</h3><p>The default Windows video backend is now win32egl when the build contains</p><p>EGL / ANGLE. This backend is friendlier to video capture: NVIDIA ShadowPlay</p><p>and OBS game capture avoid the WGL fullscreen artifacts that motivated this</p><p>branch. win32wgl remains available as a fallback.</p><p>The video menu exposes practical controls:</p><ul><li>video backend: win32egl / win32wgl;</li><li>resolution: desktop or a concrete WxH;</li><li>windowed mode;</li><li>fullscreen type: desktop / exclusive;</li><li>refresh rate;</li><li>fullscreen fit: fill / aspect;</li><li>render scale and filter;</li><li>OLED protection;</li><li>post-processing, bloom, brightness, dynamic lights.</li></ul><h3>Visibility Highlights</h3><p>Highlights are now a dedicated visual system:</p><ul><li>items: shell, tint, shell+tint, alpha, brightness, scale;</li><li>weapons: separate toggles and colors;</li><li>players: all / random FFA / duel / auto / team / model;</li><li>team colors for live TDM/duel;</li><li>model color overrides for demo watching and other cases where friendly vs</li></ul><p>enemy truth is not reliable.</p><p>These settings are mod-local. During .dm2 / .mvd2 playback they are saved</p><p>to baseq2/q2pro-x/demo_visual/q2pro-x.demo.cfg, so demos from different mods</p><p>can keep one consistent visual profile.</p><h3>Demo Browser and Demo Player</h3><p>1.2 makes demos a product area of their own:</p><ul><li>modern overlay browser with an index, tabs, search, details, favorites, and</li></ul><p>playlist flow;</p><ul><li>modern demo player overlay with timeline, pause/seek, speed/actions,</li></ul><p>autohide, volume override, gun/skin override;</p><ul><li>MVD-only director mode: next frag / quad / penta / leader;</li><li>analytics: traffic / frags / pickups / all, HUD overview, world mode, trail</li></ul><p>mode;</p><ul><li>trail height mode: origin / feet, hover Z, outline;</li><li>MVD2 item timers: ghost models, countdown labels, item strip, per-item</li></ul><p>toggles, and color editor.</p><h3>Voice Chat</h3><p>Built-in voice chat is a separate side-channel, not a replacement for game</p><p>say / say_team.</p><p>Main model:</p><ul><li>vc_enable - master switch;</li><li>vc_autojoin - enter a voice room when joining a game server;</li><li>vc_room_mode server - room is derived from the current game server;</li><li>vc_server defaults to the hosted control-plane</li></ul><p>https://voice-api.q2pro-x.com;</p><ul><li>microphone selection is available from the menu and through</li></ul><p>voice_mic_list / voice_mic_pick;</p><ul><li>transmit mode can be push-to-talk or VAD.</li></ul><p>The current phase requires OpenAL for both transmit and receive.</p><h3>Network play</h3><p>Network play received several user-facing layers:</p><ul><li>modern server browser with filters, sorting, detail pane, row colors,</li></ul><p>fullscreen/compact mode, and persistent settings;</p><ul><li>OpenTDM Team HUD with passive teammate-state and LAST MSG;</li><li>laghax HUD and network feel smoothing modes;</li><li>adaptive ping gate for weapon predict and player predict;</li><li>fine-grained weapon FX visibility toggles;</li><li>client UDP port autoprobe: RTT mode and XQ3A mode.</li></ul><h3>Controls, mouse, and zoom</h3><p>For old config migration, cl_mouse_behavior_mode provides:</p><ul><li>q2pro - native Q2PRO-X behavior;</li><li>r1q2 - compatibility mode for older configs.</li></ul><p>Zoom has clear dedicated settings:</p><ul><li>FOV;</li><li>sensitivity mode: auto / manual;</li><li>manual sensitivity;</li><li>zoom time;</li><li>walk while zoomed;</li><li>separate zoom crosshair.</li></ul><h3>Cvar Browser</h3><p>The built-in cvar reference is now more than a list:</p><ul><li>category tabs;</li><li>favorites;</li><li>commands tab;</li><li>RU/EN search input;</li><li>copy, selection, Ctrl+A, clear;</li><li>live value column;</li><li>detail pane with descriptions and accepted values;</li><li>fullscreen, scale, opacity, remember last tab;</li><li>execute commands from the browser and return after the console.</li></ul><p>It is the main in-client place to understand what a variable does without</p><p>leaving the game.</p><h2>Upgrading from 1.0 / 1.1 / 1.1A</h2><ol><li>Back up your old folder if it contains important demos, paks, cfg files,</li></ol><p>screenshots, or local mods.</p><ol><li>Extract 1.2 as a clean runtime package. The release does not ship user</li></ol><p>q2pro-x.cfg files.</p><ol><li>If you import an old baseq2/q2pro-x/q2pro-x.cfg, the first 1.2 start</li></ol><p>runs a narrow migration and adds cl_q2prox_cfg_version &quot;1.2&quot;.</p><ol><li>Check Options -&gt; Controls / Mouse and Options -&gt; Video after the first</li></ol><p>start, especially if your old config came from r1q2.</p><ol><li>For demos, check Options -&gt; Demo Player and `Options -&gt; Visibility</li></ol><p>Highlights`: the demo-visual profile is now separate from mod-local</p><p>profiles.</p><h2>What did not change</h2><ul><li>Base Quake II content compatibility is preserved.</li><li>Older console commands and legacy menu paths still exist.</li><li>Mod cfg and user cfg files should not be forcibly erased.</li><li>Visual and demo-only features should not become live-play cheats: demo</li></ul><p>analytics and item timers use recorded demo data, not hidden live-server</p><p>information.</p><h2>Practical first-run advice</h2><p>After the first start, open:</p><ul><li>Options -&gt; Quick Setup;</li><li>Options -&gt; Video;</li><li>Options -&gt; Controls / Mouse;</li><li>Options -&gt; Sound &amp; Acoustics;</li><li>Options -&gt; Online Play Setup;</li><li>Options -&gt; Demo Player.</li></ul><p>That is enough to bring 1.2 into a clean working state without manually</p><p>editing cfg files.</p></section>  </article></div>
+</body>
+</html>

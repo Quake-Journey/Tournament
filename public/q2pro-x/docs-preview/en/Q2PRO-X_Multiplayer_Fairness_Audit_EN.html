@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 — Multiplayer Fairness Audit</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 — Multiplayer Fairness Audit</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.0</p><p>Architectural review of multiplayer fairness</p><p>English edition for the website</p><div class="doc-rule"></div><h1>Q2PRO-X 1.0 Multiplayer Fairness Audit</h1><p>Date: 2026-04-14 Language: English Status: architecture and code audit</p><h2>1. Audit Goal</h2><p>Determine whether the current Q2PRO-X build provides any real cheat-capable advantage in `deathmatch &gt; 0`, as opposed to legitimate client-side quality-of-life behavior.</p><p>Primary audit focus:</p><ol><li>Predicted weapons: can the client actually fire faster, earlier, or more accurately than the server allows.</li><li>Client-side movement and latency-improvement systems: whether they qualify as cheats.</li><li>Q2PRO-X visual systems: whether they can provide gameplay advantage without directly violating server authority.</li></ol><h2>2. Final Conclusion</h2><h3>2.1. No server-authority combat cheat path was confirmed</h3><p>Based on the current code, Q2PRO-X does not expose a confirmed path that would allow the client to:</p><ul><li>increase actual weapon fire rate;</li><li>apply damage before server authorization;</li><li>improve true hit accuracy beyond the server model;</li><li>create extra projectile or hitscan events outside server logic;</li><li>bypass server-side command-time validation through client prediction.</li></ul><p>In other words, weapon prediction in Q2PRO-X is a client-side responsive visual layer. It does not replace authoritative server combat logic.</p><h3>2.2. Predict and movement paths do not qualify as cheats</h3><p>`cl_fixedmove`, `cl_predict_move_mode`, `cl_movement_feel`, `cl_step_smoothing_mode`, `cl_laghax`, and related branches do not qualify as cheats, because:</p><ul><li>they do not alter authoritative server weapon logic or damage;</li><li>they do not originate server fire events on their own;</li><li>they do not bypass server-side `usercmd` processing;</li><li>they do not replace world physics on the server;</li><li>they operate as client-side input normalization, smoothing, and latency-perception improvements.</li></ul><h3>2.3. The remaining risk is not server-authority abuse, but visibility advantage</h3><p>That said, Q2PRO-X still contains client-side systems that do not break server fairness, but can alter scene readability and visual burden. For broader semi-public 1.0 testing, this should be treated as a separate policy-risk.</p><p>The clearest example is `weapon parts visibility`, which can hide portions of other players&#x27; weapon FX.</p><h2>3. Predicted Weapons: Technical Basis</h2><h3>3.1. Client ghost/predict does not control actual firing</h3><p>In [input.c](O:/Claude2/q2pro/src/client/input.c), attack input first enters the normal `usercmd` path, and only after command finalization does the client call `Ghost_OnFireCmd`:</p><ul><li>`BUTTON_ATTACK` is set in [input.c](O:/Claude2/q2pro/src/client/input.c:1103)</li><li>the finalized `usercmd` is stored in [input.c](O:/Claude2/q2pro/src/client/input.c:1154)</li><li>`Ghost_OnFireCmd(...)` is called afterward in [input.c](O:/Claude2/q2pro/src/client/input.c:1162)</li></ul><p>Therefore, the ghost layer is not the source of server fire authorization. It is a local reaction to an already-formed input command.</p><h3>3.2. The server validates client command time</h3><p>In [user.c](O:/Claude2/q2pro/src/server/user.c), the server tracks `command_msec`:</p><ul><li>time budget initialization: [user.c](O:/Claude2/q2pro/src/server/user.c:531)</li><li>subtraction of `cmd-&gt;msec`: [user.c](O:/Claude2/q2pro/src/server/user.c:1123)</li><li>underflow validation through `sv_enforcetime`: [user.c](O:/Claude2/q2pro/src/server/user.c:1127)</li></ul><p>`sv_enforcetime` defaults to enabled:</p><ul><li>[main.c](O:/Claude2/q2pro/src/server/main.c:2207)</li></ul><p>This means that even if the client changes local command cadence or packet packing behavior, the server remains authoritative over the amount of valid client time it will execute.</p><h3>3.3. Real fire decisions are made by server-side `Think_Weapon`</h3><p>In [p_client.c](O:/Claude2/q2pro/src/game/p_client.c), the server:</p><ul><li>accepts `ucmd-&gt;buttons` in [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1637)</li><li>derives `latched_buttons` in [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1638)</li><li>calls `Think_Weapon(ent)` on attack in [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1656)</li><li>also calls `Think_Weapon(ent)` during the server-frame path in [p_client.c](O:/Claude2/q2pro/src/game/p_client.c:1709)</li></ul><p>As a result, the authoritative server weapon state machine is not replaced by client prediction.</p><h3>3.4. Fire rate is defined by the server weapon state machine</h3><p>In [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c), `Weapon_Generic(...)` is the authoritative weapon finite-state machine:</p><ul><li>`WEAPON_READY` path: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:413)</li><li>transition into `WEAPON_FIRING` only on valid attack plus sufficient ammo: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:414)</li><li>actual shot dispatch only on allowed `fire_frames[]`: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:458)</li><li>return to `WEAPON_READY` by server frame logic: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:472)</li></ul><p>Concrete fire-frame schedules are defined server-side, for example:</p><ul><li>Rocket Launcher: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:720)</li><li>Blaster: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:778)</li><li>HyperBlaster: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:843)</li><li>Machinegun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:936)</li><li>Chaingun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1045)</li><li>Shotgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1105)</li><li>Super Shotgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1162)</li><li>Railgun: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1222)</li><li>BFG: [p_weapon.c](O:/Claude2/q2pro/src/game/p_weapon.c:1294)</li></ul><p>Therefore, `Super Shotgun` cannot actually fire faster than its authoritative server cycle merely because client prediction is enabled.</p><h3>3.5. Real projectile, trace, and damage logic is server-side</h3><p>Actual combat creation and damage logic resides in [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c):</p><ul><li>`fire_bullet(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:249)</li><li>`fire_shotgun(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:261)</li><li>`fire_blaster(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:312)</li><li>`fire_rocket(...)`: [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:575)</li><li>`T_Damage(...)`: for example [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:202), [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:550)</li><li>`T_RadiusDamage(...)`: for example [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:396), [g_weapon.c](O:/Claude2/q2pro/src/game/g_weapon.c:562)</li></ul><p>This means:</p><ul><li>the client does not apply damage on its own;</li><li>the client does not spawn real server projectiles;</li><li>the client cannot accelerate actual damage resolution through the ghost layer.</li></ul><h3>3.6. The ghost layer is explicitly documented as visual-only</h3><p>In [ghost.c](O:/Claude2/q2pro/src/client/ghost.c:1), the system is explicitly described as `client-side ghost projectile prediction` that spawns `visual-only ghosts`.</p><p>In addition:</p><ul><li>[weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:6) states that the weapon FX layer does not touch the admission gate and does not dispatch sound;</li><li>[ghost.c](O:/Claude2/q2pro/src/client/ghost.c:2438) states that when predicted visuals are hidden, handoff/suppress bookkeeping remains active and only the visual layer changes.</li></ul><p>Conclusion: the client prediction layer is not an alternative damage or fire-rate system.</p><h2>4. Movement / Laghax / Fixedmove</h2><p>These systems do not qualify as cheats because, in the code, they do not introduce a separate server physics model and do not replace weapon authority.</p><p>Even when `cl_fixedmove` changes local command subdivision, the server still:</p><ul><li>receives normal `usercmd` input;</li><li>tracks `command_msec`;</li><li>executes standard game DLL movement and weapon logic.</li></ul><p>These systems therefore belong to the category of client experience improvements, not server-authority bypass.</p><h2>5. Visual Systems: Where the Boundary Lies</h2><h3>5.1. Visibility highlights do not currently create a wallhack path</h3><p>The `visibility / highlights` branch already contains multiplayer-safe restrictions:</p><ul><li>item and dropped-weapon scale above `1.0` is clamped in multiplayer in [vis_items.c](O:/Claude2/q2pro/src/client/vis_items.c:537)</li><li>the enlarged model still uses original-size culling through `ent.cull_scale = base` in [entities.c](O:/Claude2/q2pro/src/client/entities.c:945)</li><li>the renderer uses `entcullscale` during culling in [main.c](O:/Claude2/q2pro/src/refresh/main.c:199) and receives it from the entity in [main.c](O:/Claude2/q2pro/src/refresh/main.c:309)</li><li>player shell thickness is limited to a very small range `0.0 .. 0.05` in [vis_items.c](O:/Claude2/q2pro/src/client/vis_items.c:953)</li></ul><p>As a result, this system should not allow players or pickups to protrude through geometry purely because of scaling.</p><p>However, it still increases visibility of already visible targets and objects. That is not a server cheat, but it is still a visual assist.</p><h3>5.2. Weapon Parts Visibility remains a policy-risk for competitive multiplayer</h3><p>The most debatable system at present is `weapon parts visibility`.</p><p>By code:</p><ul><li>it is explicitly described as a `visual-only policy layer` in [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:1)</li><li>it does not alter the admission gate and does not dispatch sound in [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:6)</li><li>but it allows entire FX classes for `WFX_SRC_OTHER` to be disabled through [weaponfx.c](O:/Claude2/q2pro/src/client/weaponfx.c:38)</li><li>foreign projectile models are skipped in [entities.c](O:/Claude2/q2pro/src/client/entities.c:716)</li><li>other-source wall impacts are classified in [tent.c](O:/Claude2/q2pro/src/client/tent.c:1602)</li></ul><p>This does not change damage and does not make a weapon mechanically stronger, but it can:</p><ul><li>simplify scene readability;</li><li>reduce visual noise;</li><li>hide part of the projectile and combat-effect information emitted by other players.</li></ul><p>From a strict multiplayer fairness perspective, this should not be classified as a server cheat, but it should be classified as a competitive visibility assist.</p><h2>6. Practical 1.0 Readiness Assessment</h2><h3>6.1. What can be considered safe</h3><p>For 1.0, the following statements are technically justified:</p><ul><li>predicted weapons do not fire faster than the server-authoritative rate;</li><li>predicted weapons do not deal damage outside server authorization;</li><li>fixedmove, laghax, and movement feel modes do not qualify as cheats;</li><li>visibility highlights do not create a geometry-protrusion wallhack path.</li></ul><h3>6.2. What requires explicit policy before broader testing</h3><p>Before wider semi-public testing, it is recommended to define an explicit multiplayer policy for:</p><ul><li>`cl_weaponfx_vis_other` and related hiding branches;</li><li>player and item highlighting in competitive modes;</li><li>any visual assist settings that materially clean the scene in `deathmatch &gt; 0`.</li></ul><h2>7. Recommendation</h2><p>For 1.0, the issue should be separated into two classes:</p><ol><li>**Server-authority fairness**</li></ol><p>This area appears technically sound based on the code audit.</p><ol><li>**Competitive visual policy**</li></ol><p>This area should be handled via a dedicated `deathmatch &gt; 0` profile if the 1.0 goal is not only &quot;no mechanical cheats&quot;, but also &quot;no debatable visual advantages&quot;.</p><h2>8. Final Statement</h2><p>Based on the audit:</p><ul><li>Q2PRO-X does not contain a confirmed mechanism that allows predicted weapons to actually fire faster, more accurately, or more powerfully than the server-authoritative model permits;</li><li>client prediction, fixedmove, movement feel, and laghax do not qualify as cheats because they do not bypass server gameplay authority;</li><li>the primary remaining concern before 1.0 is visual assist and visibility policy, not server-authority exploitation.</li></ul><p>Final formulation:</p><p>**No server-mechanical cheat capability was confirmed in the audited code. The remaining area of attention before 1.0 is client-side visibility advantage, most notably in the weapon parts visibility branch.**</p></section>  </article></div>
+</body>
+</html>

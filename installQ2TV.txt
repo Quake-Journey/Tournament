@@ -1,0 +1,66 @@
+Инструкция по деплою на Windows Server 2022
+Структура на сервере
+
+C:\site\           ← код сайта (site.js и всё что нужно)
+C:\site\q2tv\      ← файлы WebQuake2 (Q2TV_WEBROOT)
+Шаг 1 — Копируем файлы сайта
+Из O:\Claude\ скопировать на сервер в C:\site\ только эти файлы:
+
+Файл	Примечание
+site.js	основной сервер
+servers.js	страница серверов
+grid.js	таблица результатов
+analytics.js	аналитика
+package.json	зависимости (включает ws)
+start_site.bat	запуск
+public\	папка целиком (изображения)
+screenshots\	папка целиком (или создать пустую)
+.env	конфиг (см. шаг 3)
+index.js*, site.js1…site.js79, analytics.js1…analytics.js10, quake2.js, quake2.wasm (которые лежат в O:\Claude\) — не копировать, это старые файлы.
+
+Шаг 2 — Копируем файлы Q2TV
+Из O:\Claude2\webquake2-master\emscripten\ скопировать на сервер в C:\site\q2tv\:
+
+Файл	Размер	Обязателен
+quake2.html	20 KB	✅
+quake2.js	617 KB	✅
+quake2.wasm	3.6 MB	✅
+quake2.data.gz	44 MB	✅ сервер раздаёт его как quake2.data с Content-Encoding: gzip
+quake2.data	84 MB	❌ можно не копировать — сервер автоматически возьмёт .gz
+Makefile, example.mk, local.mk, preload.html, папку baseq2\ — не копировать.
+
+Шаг 3 — Настраиваем .env
+Добавить в .env на сервере строку:
+
+
+Q2TV_WEBROOT=C:\site\q2tv
+Шаг 4 — Устанавливаем зависимости
+На сервере в папке C:\site\:
+
+
+npm install
+Это установит ws (новая зависимость, которой раньше не было).
+
+Шаг 5 — Запускаем
+
+start_site.bat
+или напрямую:
+
+
+node site.js
+Шаг 6 — HTTPS / WebSocket через Caddy
+Поскольку у тебя Caddy (вижу caddy_windows_amd64.exe), WebSocket-соединения (Q2TV) должны проксироваться вместе с обычным трафиком. В Caddyfile убедись что проксируется весь трафик включая upgrade-заголовки:
+
+
+your-domain.com {
+    reverse_proxy localhost:3000
+}
+Caddy по умолчанию корректно проксирует WebSocket-апгрейды — ничего дополнительно не нужно.
+
+Обновление Q2TV в будущем
+Когда меняешь autoexec.cfg или другие файлы в baseq2 — я пересобираю quake2.data.gz (как сейчас), и ты копируешь на сервер только 3 файла:
+
+quake2.js
+quake2.data.gz
+quake2.wasm (если менялся C-код)
+Перезапуск site.js не нужен — файлы отдаются с диска.

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.0 — Заметки к релизу</title>
+  <meta name="description" content="Встроенный просмотр документа Q2PRO-X">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.0 — Заметки к релизу</h1>      <p class="doc-lead">Просмотр документа на сайте Q2PRO-X. Оригинальный файл можно скачать из окна сайта.</p>    </header>    <section class="doc-body"><h1>Q2PRO-X 1.0</h1><p>Заметки к релизу</p><p>Главный автор проекта, инициатор ключевых идей и основной тестировщик: ly
+Тестирование: Quake II community</p><div class="doc-rule"></div><h1>Краткий обзор</h1><p>Релиз 1.0 завершает переход Q2PRO-X от beta-ветки 0.99 к стабильному пользовательскому пакету. Главная тема этой волны — доводка современных пользовательских интерфейсов и закрепление чистого релизного data-layer.</p><p>Относительно beta 0.99 основной объём работы пришёлся на современный браузер cvar, overlay UX wave и LAGHAX HUD diagnostics.</p><div class="doc-rule"></div><h1>Что изменилось относительно beta 0.99</h1><h2>1. Современный браузер cvar</h2><ul><li>браузер cvar доведён до release-состояния: resize, scroll, copy, RU/EN, browser-local scale;</li><li>кириллица, unified EN+RU font atlas и UTF-8 wrap/layout доведены до читабельного качества;</li><li>прозрачность браузера cvar больше не зависит от scr_alpha;</li><li>курсор, мышь и draw-state дополнительно стабилизированы.</li></ul><h2>2. Оверлеи и настройки</h2><ul><li>в server browser, cvar browser, mod overlay и LAGHAX HUD добавлены кнопки настройки;</li><li>переход через шестерёнку теперь возвращает пользователя обратно в исходный оверлей после закрытия страницы настроек.</li></ul><h2>3. LAGHAX HUD</h2><ul><li>добавлена отдельная прозрачность cl_laghax_hud_alpha;</li><li>добавлен optional runtime-блок weapon predict через cl_laghax_hud_show_predict_runtime;</li><li>runtime-блок носит строго диагностический, read-only характер.</li></ul><h2>4. Релизный пакет</h2><ul><li>пакет 1.0 остаётся чистым additive-layer;</li><li>в обязательный data-layer входят q2pro-x.menu, q2pro-x.menu2, q2pro.modhelp и q2prox_cvar_font.png;</li><li>generated q2pro-x.cfg в пакет не включается.</li></ul><div class="doc-rule"></div><h1>Что проверять в релизе 1.0</h1><ul><li>работу modern cvar browser в EN и RU, включая resize, scroll, copy, scale и alpha;</li><li>возврат в исходный оверлей после выхода из страницы настроек;</li><li>отдельную alpha-модель LAGHAX HUD;</li><li>optional runtime-блок weapon predict в LAGHAX HUD.</li></ul></section>  </article></div>
+</body>
+</html>

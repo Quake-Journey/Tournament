@@ -5,7 +5,7 @@ const express = require('express');
 const { MongoClient } = require('mongodb');
 const path = require('path');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tournament';
+const MONGODB_URI = process.env.MONGODB_URI || 'BACKUP_REDACTED_SET_LOCALLY';
 const PORT = Number(process.env.SITE_ANALITICS_PORT || 3010);
 
 // SITE_CHAT_ID=-4961062249,350920766,-5094364912

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q2PRO-X 1.2: controls, mouse, and zoom</title>
+  <meta name="description" content="Embedded Q2PRO-X document preview">
+  <style>
+    :root {
+      --bg: #0a0d15;
+      --panel: #111624;
+      --panel-2: #171d2d;
+      --line: rgba(120,150,210,0.18);
+      --text: #d7dbe3;
+      --muted: #95a0b6;
+      --accent: #6ea9ff;
+      --accent-2: #b45cff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(110,169,255,0.10), transparent 55%),
+        radial-gradient(700px 450px at 90% 8%, rgba(180,92,255,0.08), transparent 50%),
+        linear-gradient(180deg, #070a11 0%, var(--bg) 100%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .doc-wrap {
+      width: min(1000px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+    .doc-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+    }
+    .doc-head {
+      padding: 28px 28px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(110,169,255,0.06), rgba(110,169,255,0.015));
+    }
+    .doc-logo {
+      width: min(540px, 100%);
+      margin: 0 auto 18px;
+      display: block;
+    }
+    .doc-title {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 42px);
+      line-height: 1.08;
+      text-align: center;
+      color: #eef3ff;
+      letter-spacing: -0.02em;
+    }
+    .doc-body {
+      padding: 28px;
+    }
+    h1, h2, h3 {
+      color: #eef3ff;
+      line-height: 1.18;
+      letter-spacing: -0.01em;
+      margin: 1.2em 0 0.5em;
+    }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.45rem; }
+    h3 { font-size: 1.15rem; }
+    p {
+      margin: 0 0 0.9em;
+      color: var(--text);
+      word-break: break-word;
+    }
+    ul, ol {
+      margin: 0 0 1em 1.35em;
+      padding: 0;
+    }
+    li {
+      margin: 0.2em 0 0.45em;
+      color: var(--text);
+    }
+    pre {
+      margin: 0 0 1.1em;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(8, 12, 21, 0.88);
+      color: #eef3ff;
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    code {
+      font-family: 'Consolas', 'Cascadia Mono', 'Courier New', monospace;
+      font-size: 0.96em;
+      padding: 0.08em 0.32em;
+      border-radius: 6px;
+      background: rgba(110,169,255,0.10);
+      color: #eef3ff;
+    }
+    pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 0 0 1.2em;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(11, 16, 28, 0.66);
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 620px;
+    }
+    .doc-table th,
+    .doc-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid rgba(120,150,210,0.12);
+      vertical-align: top;
+      text-align: left;
+    }
+    .doc-table th:last-child,
+    .doc-table td:last-child {
+      border-right: 0;
+    }
+    .doc-table thead th {
+      color: #eef3ff;
+      background: rgba(110,169,255,0.10);
+      font-weight: 700;
+    }
+    .doc-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .doc-lead {
+      color: var(--muted);
+      text-align: center;
+      margin: 10px auto 0;
+      max-width: 760px;
+    }
+    .doc-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--line), transparent);
+      margin: 24px 0;
+    }
+    @media (max-width: 700px) {
+      .doc-wrap { width: min(100%, calc(100vw - 20px)); padding-top: 12px; }
+      .doc-head, .doc-body { padding: 18px 16px; }
+      .doc-title { font-size: clamp(24px, 7vw, 34px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="doc-wrap">  <article class="doc-card">    <header class="doc-head">      <img class="doc-logo" src="/q2pro-x/branding/Q2PRO-X_logo_master_site.png" alt="Q2PRO-X">      <h1 class="doc-title">Q2PRO-X 1.2: controls, mouse, and zoom</h1>      <p class="doc-lead">Document preview for the Q2PRO-X website. The original file can be downloaded from the site modal.</p>    </header>    <section class="doc-body"><p>Q2PRO-X 1.2</p><p>Q2PRO-X 1.2: controls, mouse, and zoom</p><p>Controls, mouse, zoom, and old cfg migration</p><p>English edition</p><p>April 28, 2026</p><p>q2pro-x.com</p><div class="doc-rule"></div><h1>Contents</h1><ul><li>1. Where to find the menu</li><li>2. Main new concept: mouse behavior mode</li><li>3. Base mouse cvars</li><li>4. m_autosens</li><li>5. Zoom FOV</li><li>6. Zoom sensitivity</li><li>Auto</li><li>Manual</li><li>7. Zoom time</li><li>8. Walk while zoomed</li><li>9. Zoom crosshair</li><li>10. Movement feel</li><li>11. Binds</li><li>12. Importing an r1q2 cfg: practical order</li><li>13. Common problems</li><li>Mouse too fast after import</li><li>Vertical axis inverted</li><li>Zoom sensitivity feels wrong</li><li>Bind rows show ???</li><li>14. Good baseline</li></ul><div class="doc-rule"></div><h1>Q2PRO-X 1.2: controls, mouse, and zoom</h1><p>This guide helps tune controls in Q2PRO-X 1.2, especially when importing an</p><p>older q2pro, r1q2, or mixed cfg.</p><h2>1. Where to find the menu</h2><p>Guided menu:</p><ul><li>Options -&gt; Controls / Mouse;</li><li>Options -&gt; Movement;</li><li>Options -&gt; Weapon Predicts.</li></ul><p>Classic Q2PRO-X menu:</p><ul><li>Q2PRO-X -&gt; mouse &amp; zoom;</li><li>Q2PRO-X -&gt; movement;</li><li>Q2PRO-X -&gt; weapon predicts.</li></ul><h2>2. Main new concept: mouse behavior mode</h2><p>cl_mouse_behavior_mode selects the overall mouse semantics:</p><ul><li>q2pro - default Q2PRO-X behavior;</li><li>r1q2 - compatibility behavior for older r1q2 cfg files.</li></ul><p>This is not just a cosmetic toggle. It affects how older variables are</p><p>interpreted and how the mouse feels after importing cfg.</p><p>If you start clean with Q2PRO-X:</p><ul><li>keep q2pro.</li></ul><p>If you import an old r1q2 cfg:</p><ul><li>try r1q2;</li><li>check sensitivity, m_pitch, m_yaw;</li><li>tune zoom separately.</li></ul><h2>3. Base mouse cvars</h2><ul><li>sensitivity - main multiplier;</li><li>m_pitch - vertical gain, negative value inverts Y;</li><li>m_yaw - horizontal gain;</li><li>m_accel - Q2PRO-X mouse acceleration, no effect in r1q2 mode;</li><li>m_filter - smooth delta by averaging with the previous frame;</li><li>m_autosens - non-zoom FOV-proportional scaling;</li><li>freelook - always-on mouse look.</li></ul><p>Recommended import order:</p><ol><li>Choose cl_mouse_behavior_mode.</li><li>Tune sensitivity.</li><li>Check m_pitch / m_yaw.</li><li>Only then touch acceleration, autosens, and zoom.</li></ol><h2>4. m_autosens</h2><p>m_autosens is not zoom sensitivity. It is non-zoom FOV-based scaling for</p><p>normal view movement.</p><p>Values:</p><ul><li>0 - off;</li><li>91..179 - base FOV for scaling;</li><li>any other non-zero value - base FOV 90.</li></ul><p>If you do not know why you need it, keep it 0. Most players should tune zoom</p><p>through the dedicated cl_zoom_* cvars instead.</p><h2>5. Zoom FOV</h2><p>Main cvar:</p><ul><li>cl_zoom_fov.</li></ul><p>It sets horizontal FOV while +zoom is held. The value is clamped so it never</p><p>exceeds the live base FOV: zoom should zoom in, not out.</p><p>Bind:</p><ul><li>+zoom - hold zoom;</li><li>-zoom - release zoom.</li></ul><p>The menu row Hold: zoom lets you bind the key.</p><h2>6. Zoom sensitivity</h2><p>Zoom sensitivity has two modes:</p><ul><li>cl_zoom_sensitivity_mode auto;</li><li>cl_zoom_sensitivity_mode manual.</li></ul><h3>Auto</h3><p>Auto uses a tangent-space FOV ratio. This is the geometrically correct model:</p><p>as FOV narrows, sensitivity scales with the changed view angle.</p><p>This is the recommended default for most players.</p><h3>Manual</h3><p>Manual uses:</p><ul><li>cl_zoom_sensitivity.</li></ul><p>This is an absolute sensitivity value in the same units as sensitivity. Use</p><p>manual only when you want a specific familiar number.</p><h2>7. Zoom time</h2><p>cl_zoom_time sets transition duration in seconds.</p><ul><li>0 - instant zoom;</li><li>0.05..0.20 - fast but visible transition;</li><li>higher values - cinematic feel, usually not for competitive play.</li></ul><p>FOV and sensitivity share the same transition so they do not desync.</p><h2>8. Walk while zoomed</h2><p>cl_zoom_walk holds +speed together with +zoom.</p><p>Use it if you want to slow down automatically while zoomed. It coexists with a</p><p>normal +speed bind.</p><p>Default is off.</p><h2>9. Zoom crosshair</h2><p>Separate zoom crosshair:</p><ul><li>cl_zoom_crosshair_enable;</li><li>cl_zoom_crosshair;</li><li>cl_zoom_ch_scale;</li><li>cl_zoom_ch_health;</li><li>cl_zoom_ch_red;</li><li>cl_zoom_ch_green;</li><li>cl_zoom_ch_blue;</li><li>cl_zoom_ch_alpha.</li></ul><p>If the master is off, the normal crosshair remains visible while zoomed.</p><p>Practical setup:</p><ul><li>cl_zoom_crosshair_enable 1;</li><li>style dot or cross;</li><li>alpha 0.7..1.0;</li><li>color by health off if you want a stable color.</li></ul><h2>10. Movement feel</h2><p>Related cvars:</p><ul><li>cl_movement_feel_mode;</li><li>cl_predict_move_mode;</li><li>cl_step_smoothing_mode;</li><li>cl_fixedmove;</li><li>cl_predict_player.</li></ul><p>If you want an r1q2-like feel, check:</p><ul><li>mouse behavior = r1q2;</li><li>movement feel = r1q2-like;</li><li>step smoothing r1q2 profile;</li><li>fixedmove to taste.</li></ul><p>Command:</p><ul><li>movementfeel_info.</li></ul><p>It prints the resolved movement feel state and helps compare cfg profiles.</p><h2>11. Binds</h2><p>Useful actions:</p><ul><li>+zoom;</li><li>+voiceptt;</li><li>voice_mic_toggle;</li><li>demo_pause_toggle;</li><li>+demo_seek_back;</li><li>+demo_seek_forward;</li><li>serverbrowser_toggle;</li><li>cvar_browser_toggle;</li><li>demo_browser_toggle;</li><li>demo_player_toggle.</li></ul><p>Q2PRO-X binds participate in the scoped config system. Demo-visual defaults</p><p>should not reset binds.</p><h2>12. Importing an r1q2 cfg: practical order</h2><ol><li>Start Q2PRO-X 1.2 without the old cfg and confirm it runs.</li><li>Copy only the needed binds and mouse values if possible, not the whole old</li></ol><p>cfg.</p><ol><li>Set cl_mouse_behavior_mode r1q2.</li><li>Check sensitivity, m_pitch, m_yaw.</li><li>Disable m_accel if the old cfg did not use acceleration.</li><li>Tune zoom through cl_zoom_*, not old alias hacks.</li><li>Save with q2prox_cfg_save_global.</li></ol><h2>13. Common problems</h2><h3>Mouse too fast after import</h3><ul><li>check cl_mouse_behavior_mode;</li><li>check whether m_autosens is enabled;</li><li>check sensitivity;</li><li>check m_yaw.</li></ul><h3>Vertical axis inverted</h3><ul><li>negative m_pitch = invert Y;</li><li>use a positive value such as 0.022.</li></ul><h3>Zoom sensitivity feels wrong</h3><ul><li>set cl_zoom_sensitivity_mode auto;</li><li>temporarily disable m_autosens;</li><li>check cl_zoom_fov;</li><li>if you want an old manual feel, use manual mode and</li></ul><p>cl_zoom_sensitivity.</p><h3>Bind rows show ???</h3><p>??? on a bind row means no key is assigned to that action. It is not a</p><p>command error. Assign a key in the menu or through bind.</p><h2>14. Good baseline</h2><p>For clean Q2PRO-X:</p><ul><li>cl_mouse_behavior_mode q2pro;</li><li>tune sensitivity manually;</li><li>m_pitch 0.022;</li><li>m_yaw 0.022;</li><li>m_accel 0;</li><li>m_filter 0;</li><li>m_autosens 0;</li><li>freelook 1;</li><li>cl_zoom_sensitivity_mode auto;</li><li>cl_zoom_time 0;</li><li>cl_zoom_walk 0.</li></ul></section>  </article></div>
+</body>
+</html>

@@ -4,12 +4,13 @@
 // - Администраторы (владельцы глобально + админы по чату; добавление через reply/@username/user_id)
 // - Скилл-группы: /skillgroup | /sg
 // - Карты: /map | /m
-// - Игровые группы: /groups | /g (алгоритмы 1|2|3, min/rec/max/maxcount, Waiting для 2/3)
+// - Игровые группы: /groups | /g (алгоритмы 1|2|3|4, min/rec/max/maxcount, Waiting для 2/3/4)
 // - Рейтинг: /groups rating [name1,name2,...] — порядок (первый = лучший), /groups rating — показать
 // - Результаты групп: /groups N result ...
-// - Финалы: /finals (algo 1|2, maxplayers, totalplayers, make)
+// - Финалы: /finals (algo 1|2|4, maxplayers, totalplayers, make)
 //   - algo=1 — прежняя логика по результатам групп
 //   - algo=2 — альтернативная логика по рейтингу (деление на High/Low половины, игнорирует totalplayers, учитывает maxplayers)
+//   - algo=4 — как algo=2 по рейтингу, но одна карта на все группы (берётся 1-я из /map add, повторяется C раз)
 // - /info | /i, /help | /h
 // - Пагинация/чанкование, проверки дубликатов (case-insensitive), сортировка показа игроков по SG
 // - Обновление chatId при миграции группы
@@ -55,8 +56,170 @@ if (!OWNER_IDS.length) {
   console.warn('Warning: OWNER_IDS is empty. Set at least one owner user_id to ensure control.');
 }
 
+// Optional SOCKS5/HTTP proxy for Telegram API (set TELEGRAM_PROXY_URL in .env).
+//
+// Implementation note. Telegraf 4.x uses `node-fetch@2` internally, which
+// expects an `http.Agent` subclass whose `createConnection(options, cb)`
+// returns a socket ready for the HTTP/TLS request. The "obvious" approach
+// is `socks-proxy-agent`, but it goes through `agent-base`, and the
+// `agent-base` v6 legacy-callback API + `node-fetch@2` + `socks-proxy-agent@6.2.1`
+// combo on this host has been observed to fail reproducibly with
+//   `read ECONNRESET` at agent-base/dist/src/index.js:117 (onerror)
+// during the TLS handshake, even though `curl -x socks5://...` through the
+// exact same proxy works fine from the same machine. The underlying cause is
+// a subtle interaction between how node-fetch passes `options` to
+// `createConnection` and how socks-proxy-agent v6 upgrades the SOCKS tunnel
+// to TLS: `tls.connect({ ...opts, socket })` can spread incompatible HTTP
+// options into the TLS config and trigger a handshake abort.
+//
+// To avoid fragility entirely we build our own `https.Agent` directly on
+// top of the `socks` package (which is already installed as a transitive
+// dependency of `socks-proxy-agent`, and as an optional peer of `mongodb`).
+// No `agent-base`, no `socks-proxy-agent`, no `node-fetch`-specific quirks:
+//
+//   1. `SocksClient.createConnection` — SOCKS5 tunnel to api.telegram.org:443
+//   2. `tls.connect({ socket, servername })` — cleanly upgraded TLS on top
+//      of the pre-existing socket, passing ONLY the fields TLS expects
+//   3. the TLS socket is handed back to Telegraf's fetch via the callback
+//
+// This path is immune to `agent-base` version drift and has no hidden
+// coupling to `node-fetch` version internals. If the custom agent fails to
+// initialize for any reason (e.g. `socks` package missing from a stripped
+// install) we fall back to classic `socks-proxy-agent` as a last resort.
+let _telegramAgent;
+if (process.env.TELEGRAM_PROXY_URL) {
+  try {
+    const { URL } = require('url');
+    const proxyUrl = new URL(process.env.TELEGRAM_PROXY_URL);
+    const proxyType =
+      (proxyUrl.protocol === 'socks4:' || proxyUrl.protocol === 'socks4a:') ? 4 : 5;
+    const proxyHost = proxyUrl.hostname;
+    const proxyPort = Number(proxyUrl.port) || 1080;
+    const proxyUser = proxyUrl.username ? decodeURIComponent(proxyUrl.username) : undefined;
+    const proxyPass = proxyUrl.password ? decodeURIComponent(proxyUrl.password) : undefined;
+
+    const { SocksClient } = require('socks');
+    const tls = require('tls');
+
+    class SocksHttpsAgent extends https.Agent {
+      createConnection(options, callback) {
+        const destHost = options.host || options.hostname;
+        const destPort = Number(options.port) || 443;
+
+        SocksClient.createConnection({
+          proxy: {
+            host: proxyHost,
+            port: proxyPort,
+            type: proxyType,
+            userId: proxyUser,
+            password: proxyPass,
+          },
+          command: 'connect',
+          destination: { host: destHost, port: destPort },
+          timeout: 30_000,
+        }, (err, info) => {
+          if (err) {
+            return callback(err);
+          }
+          // Upgrade the raw SOCKS tunnel to TLS. Only pass fields that
+          // `tls.connect` actually understands — NOT the whole `options`
+          // blob that node-fetch handed us, which can include keys that
+          // confuse the TLS handshake.
+          const tlsSocket = tls.connect({
+            socket: info.socket,
+            servername: options.servername || destHost,
+            ALPNProtocols: options.ALPNProtocols,
+          });
+          let settled = false;
+          tlsSocket.once('secureConnect', () => {
+            if (settled) return;
+            settled = true;
+            callback(null, tlsSocket);
+          });
+          tlsSocket.once('error', (e) => {
+            if (settled) return;
+            settled = true;
+            try { info.socket.destroy(); } catch (_) {}
+            callback(e);
+          });
+        });
+      }
+    }
+
+    _telegramAgent = new SocksHttpsAgent({ keepAlive: false });
+    console.log(
+      'Telegram proxy: socks' + proxyType + '://' +
+      (proxyUser ? proxyUser + ':***@' : '') +
+      proxyHost + ':' + proxyPort +
+      ' (custom socks+tls https.Agent)'
+    );
+  } catch (e) {
+    console.error('Failed to init custom SOCKS agent:', (e && e.stack) ? e.stack : (e && e.message) || e);
+    // Fallback: legacy socks-proxy-agent. Only used if the custom path above
+    // could not be built (e.g. `socks` package not installed). Kept for
+    // compatibility with existing installs that do not have `socks` listed
+    // directly.
+    try {
+      const { SocksProxyAgent } = require('socks-proxy-agent');
+      _telegramAgent = new SocksProxyAgent(process.env.TELEGRAM_PROXY_URL);
+      console.warn('Fell back to socks-proxy-agent. Install "socks" package to use the more robust custom agent.');
+    } catch (ee) {
+      console.error('Fallback socks-proxy-agent also unavailable:', ee && ee.message ? ee.message : ee);
+    }
+  }
+}
+
+// Startup diagnostic: before handing control to Telegraf, try a single
+// getMe call through the agent directly via plain `https.request`. This
+// isolates "the agent / proxy / network" problems from "Telegraf
+// configuration" problems, and surfaces the ACTUAL underlying error
+// (with `code`, `errno`, `syscall`, and a short stack) instead of the
+// sparse `{ code: undefined, errno: undefined }` that node-fetch wraps
+// every connection error into.
+async function _probeTelegramViaAgent(timeoutMs = 30_000) {
+  if (!_telegramAgent) return { ok: true, skipped: true, reason: 'no proxy configured' };
+  return new Promise((resolve) => {
+    const req = https.request({
+      method: 'GET',
+      host: 'api.telegram.org',
+      port: 443,
+      path: '/bot' + BOT_TOKEN + '/getMe',
+      agent: _telegramAgent,
+      timeout: timeoutMs,
+    }, (res) => {
+      let buf = '';
+      res.on('data', (chunk) => { buf += chunk.toString('utf8'); });
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode === 200,
+          status: res.statusCode,
+          body: buf.slice(0, 400),
+        });
+      });
+    });
+    req.on('error', (err) => {
+      resolve({
+        ok: false,
+        err: {
+          message: err.message,
+          code: err.code,
+          errno: err.errno,
+          syscall: err.syscall,
+          name: err.name,
+          stack: err.stack ? err.stack.split('\n').slice(0, 5).join('\n') : undefined,
+        },
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy(new Error('probe timeout after ' + timeoutMs + ' ms'));
+    });
+    req.end();
+  });
+}
+
 const bot = new Telegraf(BOT_TOKEN, {
   handlerTimeout: 90_000,
+  ...((_telegramAgent) ? { telegram: { agent: _telegramAgent } } : {}),
 });
 
 let db;
@@ -965,6 +1128,9 @@ async function getChatSettings(chatId) {
 
     // NEW: признак блокировки турнира
     locked: Boolean(doc?.locked),
+
+    // Тип подсчёта очков: 0 = меньше очков → выше место (по умолчанию), 1 = больше очков → выше место
+    pointsType: doc?.pointsType ?? 0,
   };
 }
 
@@ -1623,7 +1789,7 @@ async function deleteAllFinalGroups(chatId) {
   await colFinalGroups.deleteMany({ chatId });
 }
 
-// Waiting list (for algo=2/3)
+// Waiting list (for algo=2/3/4)
 async function getWaitingPlayers(chatId) {
   const doc = await colWaitingPlayers.findOne({ chatId });
   return doc?.players || [];
@@ -1809,6 +1975,11 @@ function playersToString(players = []) {
   return out.join(', ') || '(empty)';
 }
 
+// Сравнение очков с учётом pointsType: 0 = меньше очков лучше, 1 = больше очков лучше
+function ptsCompare(a, b, pointsType) {
+  return pointsType === 1 ? b - a : a - b;
+}
+
 // Рядом с существующими сортировщиками
 function playersToStringWithPos(players = []) {
   const out = sortPlayersForDisplay(players).map(p =>
@@ -1836,7 +2007,7 @@ function formatGameGroupsList(groups, waiting = [], groupPtsMap = new Map(), opt
         if (aHas && bHas) {
           const da = groupPtsMap.get(a.nameNorm);
           const db = groupPtsMap.get(b.nameNorm);
-          if (da !== db) return da - db;
+          if (da !== db) return ptsCompare(da, db, opts.pointsType ?? 0);
           return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
         }
         if (aHas !== bHas) return aHas ? -1 : 1; // с очками первыми
@@ -1956,7 +2127,7 @@ function formatFinalGroupsList(groups, finalPtsMap = new Map(), opts = {}) {
         if (aHas && bHas) {
           const da = finalPtsMap.get(a.nameNorm);
           const db = finalPtsMap.get(b.nameNorm);
-          if (da !== db) return da - db;
+          if (da !== db) return ptsCompare(da, db, opts.pointsType ?? 0);
           return (a.nameOrig || '').localeCompare(b.nameOrig || '', undefined, { sensitivity: 'base' });
         }
         if (aHas !== bHas) return aHas ? -1 : 1;
@@ -2048,6 +2219,13 @@ function formatMapResultsTable(kindLabel, groupId, results = []) {
     return `${headerTitle}\n(none)`;
   }
 
+  // Считаем кол-во результатов по mapNorm — если > 1, показываем "Game N"
+  const mapCountByNorm = {};
+  for (const r of results) {
+    const key = r.mapNorm || norm(r.map || '');
+    mapCountByNorm[key] = (mapCountByNorm[key] || 0) + 1;
+  }
+
   const lines = [headerTitle, ''];
 
   for (const r of results) {
@@ -2056,7 +2234,9 @@ function formatMapResultsTable(kindLabel, groupId, results = []) {
     const dt = r.matchDateTime || '(no date/time)';
     const play = r.matchPlaytime || '(no duration)';
 
-    lines.push(`Map: ${mapName}`);
+    const mapKey = r.mapNorm || norm(r.map || '');
+    const gameLabel = mapCountByNorm[mapKey] > 1 ? ` (Game ${r.matchNum || 1})` : '';
+    lines.push(`Map: ${mapName}${gameLabel}`);
     lines.push(`Finished: ${dt}   Duration: ${play}`);
 
     if (!players.length) {
@@ -2188,6 +2368,9 @@ async function makeGameGroups(chatId, C) {
   if (settings.groupsAlgo === 3) {
     return makeGameGroupsAlgo3(chatId, C, settings);
   }
+  if (settings.groupsAlgo === 4) {
+    return makeGameGroupsAlgo4(chatId, C, settings);
+  }
   return makeGameGroupsAlgo1(chatId, C, settings);
 }
 
@@ -2269,7 +2452,13 @@ async function collectPlayersFromFinalGroups(chatId) {
 async function makeFinals(chatId, C) {
   const settings = await getChatSettings(chatId);
   const maps = await listMaps(chatId);
-  if (maps.length < C) return { error: `Not enough maps. Need at least ${C}, have ${maps.length}.` };
+
+  // algo 4: нужна только 1 карта
+  if (settings.finalsAlgo === 4) {
+    if (!maps.length) return { error: 'No maps found. Add at least one map via /map add.' };
+  } else {
+    if (maps.length < C) return { error: `Not enough maps. Need at least ${C}, have ${maps.length}.` };
+  }
 
   const cap = Math.max(1, Number(settings.finalMaxPlayers || DEFAULT_MAX_PLAYERS));
   let source = [];
@@ -2280,7 +2469,7 @@ async function makeFinals(chatId, C) {
     const limit = settings.finalTotalPlayers != null ? Number(settings.finalTotalPlayers) : null;
     source = limit && limit > 0 ? all.slice(0, limit) : all;
   } else {
-    // algo=2 — по рейтингу (игнорирует totalplayers)
+    // algo=2 или algo=4 — по рейтингу (игнорирует totalplayers)
     const rating = await getRating(chatId);
     if (!rating.length) return { error: 'Rating is empty. Set it via /groups rating name1,name2,...' };
     const presentMap = await collectPlayersFromGameGroups(chatId);
@@ -2305,7 +2494,9 @@ async function makeFinals(chatId, C) {
       ...p,                 // здесь сохранится signupId и любые другие поля
       sg: p.sg ?? null,     // гарантируем наличие sg
     }));
-    const mapsPick = shuffle(mapNames).slice(0, C);
+    const mapsPick = settings.finalsAlgo === 4
+      ? Array(C).fill(mapNames[0])
+      : shuffle(mapNames).slice(0, C);
     const groupId = i + 1;
     // eslint-disable-next-line no-await-in-loop
     await upsertFinalGroup(chatId, groupId, { players, maps: mapsPick, createdAt: new Date() });
@@ -2318,7 +2509,13 @@ async function makeFinals(chatId, C) {
 async function makeSuperFinals(chatId, C) {
   const settings = await getChatSettings(chatId);
   const maps = await listMaps(chatId);
-  if (maps.length < C) return { error: `Not enough maps. Need at least ${C}, have ${maps.length}.` };
+
+  // algo 4: нужна только 1 карта
+  if (settings.superfinalsAlgo === 4) {
+    if (!maps.length) return { error: 'No maps found. Add at least one map via /map add.' };
+  } else {
+    if (maps.length < C) return { error: `Not enough maps. Need at least ${C}, have ${maps.length}.` };
+  }
 
   const cap = Math.max(1, Number(settings.superfinalMaxPlayers || DEFAULT_MAX_PLAYERS));
   let source = [];
@@ -2332,11 +2529,11 @@ async function makeSuperFinals(chatId, C) {
       .filter(p => presentMap.has(p.nameNorm))
       .map(p => ({ ...presentMap.get(p.nameNorm), pts: p.pts }));
     if (!presentPts.length) return { error: 'No players with points found in current finals.' };
-    presentPts.sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+    presentPts.sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
     const limit = settings.superfinalTotalPlayers != null ? Number(settings.superfinalTotalPlayers) : null;
     source = limit && limit > 0 ? presentPts.slice(0, limit) : presentPts;
   } else {
-    // По рейтингу финалов (игнорирует totalplayers)
+    // algo=2 или algo=4 — по рейтингу финалов (игнорирует totalplayers)
     const rating = await getFinalRating(chatId);
     if (!rating.length) return { error: 'Finals rating is empty. Set it via /finals rating name1,name2,...' };
     const presentMap = await collectPlayersFromFinalGroups(chatId);
@@ -2361,7 +2558,9 @@ async function makeSuperFinals(chatId, C) {
       ...p,                 // сохраняем signupId и прочие поля
       sg: p.sg ?? null,
     }));
-    const mapsPick = shuffle(mapNames).slice(0, C);
+    const mapsPick = settings.superfinalsAlgo === 4
+      ? Array(C).fill(mapNames[0])
+      : shuffle(mapNames).slice(0, C);
     const groupId = i + 1;
     // eslint-disable-next-line no-await-in-loop
     await upsertSuperFinalGroup(chatId, groupId, { players, maps: mapsPick, createdAt: new Date() });
@@ -2374,16 +2573,18 @@ async function makeSuperFinals(chatId, C) {
 // --- Map results storage (groups / finals / superfinals) ---
 
 // GROUPS
-async function upsertGroupMapResult(chatId, groupId, mapOrig, data) {
+async function upsertGroupMapResult(chatId, groupId, mapOrig, matchNum, data) {
   const mapNorm = norm(mapOrig);
+  const mn = Number(matchNum) || 1;
   await colGroupResults.updateOne(
-    { chatId, groupId: Number(groupId), mapNorm },
+    { chatId, groupId: Number(groupId), mapNorm, matchNum: mn },
     {
       $set: {
         chatId,
         groupId: Number(groupId),
         map: mapOrig,
         mapNorm,
+        matchNum: mn,
         matchDateTime: data.matchDateTime,         // "YYYY-MM-DD HH:MM" (для отображения)
         matchDateTimeIso: data.matchDateTimeIso,   // "YYYY-MM-DDTHH:MM:00+03:00"
         matchTs: data.matchTs,                     // Number (UTC ms)
@@ -2400,7 +2601,7 @@ async function upsertGroupMapResult(chatId, groupId, mapOrig, data) {
 async function listGroupMapResults(chatId, groupId) {
   return colGroupResults
     .find({ chatId, groupId: Number(groupId) })
-    .sort({ matchTs: 1, map: 1 })
+    .sort({ matchTs: 1, matchNum: 1, map: 1 })
     .toArray();
 }
 
@@ -2413,16 +2614,18 @@ async function deleteGroupMapResultsForChat(chatId) {
 }
 
 // FINALS
-async function upsertFinalMapResult(chatId, groupId, mapOrig, data) {
+async function upsertFinalMapResult(chatId, groupId, mapOrig, matchNum, data) {
   const mapNorm = norm(mapOrig);
+  const mn = Number(matchNum) || 1;
   await colFinalResults.updateOne(
-    { chatId, groupId: Number(groupId), mapNorm },
+    { chatId, groupId: Number(groupId), mapNorm, matchNum: mn },
     {
       $set: {
         chatId,
         groupId: Number(groupId),
         map: mapOrig,
         mapNorm,
+        matchNum: mn,
         matchDateTime: data.matchDateTime,
         matchDateTimeIso: data.matchDateTimeIso,
         matchTs: data.matchTs,
@@ -2439,7 +2642,7 @@ async function upsertFinalMapResult(chatId, groupId, mapOrig, data) {
 async function listFinalMapResults(chatId, groupId) {
   return colFinalResults
     .find({ chatId, groupId: Number(groupId) })
-    .sort({ matchTs: 1, map: 1 })
+    .sort({ matchTs: 1, matchNum: 1, map: 1 })
     .toArray();
 }
 
@@ -2453,16 +2656,18 @@ async function deleteFinalMapResultsForChat(chatId) {
 }
 
 // SUPERFINALS
-async function upsertSuperFinalMapResult(chatId, groupId, mapOrig, data) {
+async function upsertSuperFinalMapResult(chatId, groupId, mapOrig, matchNum, data) {
   const mapNorm = norm(mapOrig);
+  const mn = Number(matchNum) || 1;
   await colSuperFinalResults.updateOne(
-    { chatId, groupId: Number(groupId), mapNorm },
+    { chatId, groupId: Number(groupId), mapNorm, matchNum: mn },
     {
       $set: {
         chatId,
         groupId: Number(groupId),
         map: mapOrig,
         mapNorm,
+        matchNum: mn,
         matchDateTime: data.matchDateTime,
         matchDateTimeIso: data.matchDateTimeIso,
         matchTs: data.matchTs,
@@ -2479,7 +2684,7 @@ async function upsertSuperFinalMapResult(chatId, groupId, mapOrig, data) {
 async function listSuperFinalMapResults(chatId, groupId) {
   return colSuperFinalResults
     .find({ chatId, groupId: Number(groupId) })
-    .sort({ matchTs: 1, map: 1 })
+    .sort({ matchTs: 1, matchNum: 1, map: 1 })
     .toArray();
 }
 
@@ -2663,6 +2868,70 @@ async function makeGameGroupsAlgo3(chatId, C, settings) {
     groupId: i + 1,
     players: arr,
     maps: shuffle(mapNames).slice(0, C),
+  }));
+
+  await deleteAllGameGroups(chatId);
+  await deleteGroupMapResultsForChat(chatId);
+  for (const g of groups) {
+    // eslint-disable-next-line no-await-in-loop
+    await upsertGameGroup(chatId, g.groupId, { players: g.players, maps: g.maps, createdAt: new Date() });
+  }
+  await setWaitingPlayers(chatId, waiting);
+
+  return { groups, waiting };
+}
+
+// Algo 4: как algo 2 (min/rec/max + Waiting), но каждой группе назначается одна карта (повторяется C раз)
+async function makeGameGroupsAlgo4(chatId, C, settings) {
+  const { maxPlayers, minPlayers2, recPlayers2 } = settings;
+  const minP = Math.max(1, Number(minPlayers2 || 1));
+  const recP = Math.max(1, Number(recPlayers2 || maxPlayers));
+  const maxP = Math.max(1, Number(maxPlayers));
+
+  const sgs = await listSkillGroups(chatId);
+  if (!sgs.length) return { error: 'No skill-groups found. Add players first.' };
+  const maps = await listMaps(chatId);
+  if (!maps.length) return { error: 'No maps found. Add at least one map via /map add.' };
+
+  const singleMap = maps[0].nameOrig;
+
+  const total = sgs.reduce((acc, sg) => acc + (sg.players?.length || 0), 0);
+  if (!total) return { error: 'No players in skill-groups. Add players first.' };
+
+  const cc = computeBestGroupCount(total, minP, recP, maxP);
+  if (cc.error) return { error: cc.error };
+  const groupCount = cc.count;
+
+  const targetsRaw = buildTargets(total, groupCount);
+  const targets = targetsRaw.map(t => Math.max(minP, Math.min(maxP, t)));
+  const capAll = targets.reduce((a, b) => a + b, 0);
+  if (capAll <= 0) return { error: 'Cannot satisfy constraints. Check minplayers/maxplayers.' };
+
+  const buckets = sgs
+    .sort((a, b) => a.groupNumber - b.groupNumber)
+    .map(sg => ({ sgNumber: sg.groupNumber, queue: shuffle(sg.players || []) }));
+
+  const selectedBySG = new Map();
+  const waiting = [];
+  let picked = 0;
+  for (const b of buckets) {
+    for (const p of b.queue) {
+      if (picked < capAll) {
+        const arr = selectedBySG.get(b.sgNumber) || [];
+        arr.push({ ...p, sg: b.sgNumber });
+        selectedBySG.set(b.sgNumber, arr);
+        picked++;
+      } else {
+        waiting.push({ ...p, sgNumber: b.sgNumber });
+      }
+    }
+  }
+
+  const placed = distributeBySG(selectedBySG, groupCount, targets);
+  const groups = placed.map((arr, i) => ({
+    groupId: i + 1,
+    players: arr,
+    maps: Array(C).fill(singleMap),
   }));
 
   await deleteAllGameGroups(chatId);
@@ -4349,9 +4618,16 @@ bot.on('text', async (ctx, next) => {
 
 
 bot.catch(async (err, ctx) => {
-  console.error('Telegraf error for update', ctx.update, err);
+  const updateId = ctx?.update?.update_id;
+  const cmd = ctx?.message?.text?.split(' ')[0] || '?';
+  if (err.name === 'TimeoutError' || /timed out/i.test(err.message)) {
+    // Handler timeout — log but don't crash and don't spam user
+    console.error(`Handler timeout for update ${updateId} cmd=${cmd}: ${err.message}`);
+    return;
+  }
+  console.error(`Bot error for update ${updateId} cmd=${cmd}:`, err);
   try {
-    await ctx.reply('Internal error. Please try again.');
+    await ctx.reply('Внутренняя ошибка. Попробуйте ещё раз.');
   } catch (_) { }
 });
 
@@ -4426,6 +4702,7 @@ async function helpText() {
     '/news — показать все новости по текущему чату (всех разделов) с ID',
     '/news del <id> — удалить новость по ID (админы чата или роль News)',
     '/news edit <id> <текст> — изменить новость по ID (админы чата или роль News)',
+    '/news move <id> <target_chat_id> <cat> — переместить новость в другой турнир/раздел (cat: t/g/f/s) (только владельцы бота)',
     '',
     '--------------------------',
     '0) Турнир:',
@@ -4452,6 +4729,8 @@ async function helpText() {
     '/tournament (/t) streams <url1,url2,...> — задать список стримов (перезапись, только админы)',
     '/tournament (/t) demos — сводный список ссылок на демо по всем стадиям (группы, финалы, суперфиналы)',
     '/tournament (/t) delall — сброс настроек турнира (name/site/desc/logo/servers/pack/streams/channel) и удаление новостей турнира (только админы)',
+    '/tournament (/t) points_type <0|1> — тип подсчёта очков: 0=меньше очков=лучше место (по умолч.), 1=больше очков=лучше место (только админы)',
+    '/tournament (/t) rename_player <текущее_имя> <новое_имя> — переименовать игрока во всех разделах турнира (skillgroups, groups, finals, superfinals, custom, points, ratings, map results, achievements) (только админы)',
     // Новые команды персональной статистики
     '/tournament (/t) stats_url [url] — показать/задать URL персональной статистики турнира (по умолчанию пусто)',
     '/tournament (/t) stats_enabled [true|false] — включить/выключить персональную статистику (по умолчанию: false)',
@@ -4477,7 +4756,7 @@ async function helpText() {
     '/map (/m) delall — удалить все карты (только админы)',
     '',
     '3) Игровые группы:',
-    '/groups (/g) — показать все группы (и Waiting при algo=2/3) — в один столбец',
+    '/groups (/g) — показать все группы (и Waiting при algo=2/3/4) — в один столбец',
     '/groups (/g) players — список всех игроков',
     '/groups (/g) N — показать группу N',
     '/groups (/g) move <from> <to> <player> — перенос игрока (только админы)',
@@ -4489,16 +4768,22 @@ async function helpText() {
     '/groups (/g) N mapres — показать результаты игр на картах для группы N (публично)',
     '/groups (/g) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать группе)',
     '/groups (/g) N mapres delall — удалить все результаты карт для группы N (только админы)',
+    '/groups (/g) N maps — показать карты группы N',
+    '/groups (/g) N maps map1,map2,... — задать/заменить карты группы N (только из /map list, только админы)',
+    '/groups (/g) N points — показать очки игроков группы N',
+    '/groups (/g) N points name1[p],name2[p],... — задать/обновить очки для игроков группы N (только админы)',
     '/groups (/g) points — показать очки группового этапа',
     '/groups (/g) points name1[p],name2[p],... — задать очки (только админы)',
     '/groups (/g) rating — показать рейтинг',
     '/groups (/g) rating name1,name2,... — задать рейтинг (перезапись, только админы)',
-    '/groups (/g) algo <1|2|3> — выбрать алгоритм (только админы)',
+    '/groups (/g) algo <1|2|3|4> — выбрать алгоритм (только админы)',
     '/groups (/g) maxplayers <N> — максимальный размер группы (только админы)',
-    '/groups (/g) minplayers <N> — min (algo=2) (только админы)',
-    '/groups (/g) recplayers <N> — рекомендуемое (algo=2) (только админы)',
+    '/groups (/g) minplayers <N> — min (algo=2/4) (только админы)',
+    '/groups (/g) recplayers <N> — рекомендуемое (algo=2/4) (только админы)',
     '/groups (/g) maxcount <N> — количество групп (algo=3) (только админы)',
-    '/groups (/g) make <C> — сформировать группы, по C карт (только админы)',
+    '/groups (/g) make <C> — сформировать группы, по C карт (только админы). algo=4: C карт одинаковые (1-я из /map add)',
+    '/groups (/g) add <N> — добавить N пустых групп (только админы)',
+    '/groups (/g) add <player1,player2,...> — добавить 1 группу с указанными игроками (только админы)',
     '/groups (/g) N time [value] — показать/задать строку времени (МСК). Без value — только показать (публично), с value — задать (только админы)',
     '',
     'Скриншоты (game groups):',
@@ -4524,6 +4809,10 @@ async function helpText() {
     '/finals (/f) N — показать финальную группу N',
     '/finals (/f) move <from> <to> <player> — перенос игрока (только админы)',
     '/finals (/f) delall — удалить финальные группы (только админы)',
+    '/finals (/f) N maps — показать карты финала N',
+    '/finals (/f) N maps map1,map2,... — задать/заменить карты финала N (только из /map list, только админы)',
+    '/finals (/f) N points — показать очки игроков финала N',
+    '/finals (/f) N points name1[p],name2[p],... — задать/обновить очки для игроков финала N (только админы)',
     '/finals (/f) N mapres — показать результаты игр на картах для финала N (публично)',
     '/finals (/f) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать финалу)',
     '/finals (/f) N mapres delall — удалить все результаты карт для финала N (только админы)',
@@ -4542,9 +4831,11 @@ async function helpText() {
     '/finals (/f) screenshots — показать скриншоты всех финалов',
     '/finals (/f) screenshots delall — удалить ВСЕ скриншоты финалов',
     '/finals (/f) make <C> — сформировать финалы (algo: /finals algo) (только админы)',
-    '/finals (/f) algo <1|2> — выбрать алгоритм (только админы)',
+    '/finals (/f) add <N> — добавить N пустых финальных групп (только админы)',
+    '/finals (/f) add <player1,player2,...> — добавить 1 финальную группу с указанными игроками (только админы)',
+    '/finals (/f) algo <1|2|4> — выбрать алгоритм (только админы)',
     '/finals (/f) maxplayers <N> — максимальный размер финала (только админы)',
-    '/finals (/f) totalplayers <N|all|auto|0> — ограничение общего числа участников (algo=2 игнорирует) (только админы)',
+    '/finals (/f) totalplayers <N|all|auto|0> — ограничение общего числа участников (algo=2/4 игнорирует) (только админы)',
     '',
     'Демо (finals):',
     '/finals (/f) demos — показать все ссылки демо по всем финалам',
@@ -4557,9 +4848,15 @@ async function helpText() {
     '/superfinal (/s) N time [value] — показать/задать строку времени (МСК). Без value — показать (публично), с value — задать (только админы)',
     '/superfinal (/s) players — список игроков суперфиналов',
     '/superfinal (/s) make <C> — сформировать суперфиналы (algo: /superfinal algo) (только админы)',
-    '/superfinal (/s) algo <1|2> — выбрать алгоритм (только админы)',
+    '/superfinal (/s) add <N> — добавить N пустых суперфинальных групп (только админы)',
+    '/superfinal (/s) add <player1,player2,...> — добавить 1 суперфинальную группу с указанными игроками (только админы)',
+    '/superfinal (/s) algo <1|2|4> — выбрать алгоритм (только админы)',
     '/superfinal (/s) maxplayers <N> — максимальный размер суперфинала (только админы)',
-    '/superfinal (/s) totalplayers <N|all|auto|0> — ограничение общего числа участников (algo=2 игнорирует) (только админы)',
+    '/superfinal (/s) totalplayers <N|all|auto|0> — ограничение общего числа участников (algo=2/4 игнорирует) (только админы)',
+    '/superfinal (/s) N maps — показать карты суперфинала N',
+    '/superfinal (/s) N maps map1,map2,... — задать/заменить карты суперфинала N (только из /map list, только админы)',
+    '/superfinal (/s) N points — показать очки игроков суперфинала N',
+    '/superfinal (/s) N points name1[p],name2[p],... — задать/обновить очки для игроков суперфинала N (только админы)',
     '/superfinal (/s) N mapres — показать результаты игр на картах для суперфинала N (публично)',
     '/superfinal (/s) N mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...] — записать/перезаписать результат карты (только админы; карта и игроки должны принадлежать суперфиналу)',
     '/superfinal (/s) N mapres delall — удалить все результаты карт для суперфинала N (только админы)',
@@ -4693,16 +4990,22 @@ async function commandsText() {
     '/map (/m) — список карт',
     '',
     '3) Игровые группы:',
-    '/groups (/g) — показать все группы (и Waiting при algo=2/3) — в один столбец',
+    '/groups (/g) — показать все группы (и Waiting при algo=2/3/4) — в один столбец',
     '/groups (/g) N — показать группу N',
+    '/groups (/g) N maps — показать карты группы N',
+    '/groups (/g) N points — показать очки игроков группы N',
     '',
     '4) Финалы:',
     '/finals (/f) — список финальных групп (в столбик)',
     '/finals (/f) N — показать финальную группу N',
+    '/finals (/f) N maps — показать карты финала N',
+    '/finals (/f) N points — показать очки игроков финала N',
     '',
     '5) Суперфиналы:',
     '/superfinal (/s) — список суперфинальных групп',
     '/superfinal (/s) N — показать суперфинальную группу N',
+    '/superfinal (/s) N maps — показать карты суперфинала N',
+    '/superfinal (/s) N points — показать очки игроков суперфинала N',
     '',
     '6) Произвольные группы (custom):',
     '/custom (/c) — список всех custom-групп (публично)',
@@ -4744,16 +5047,22 @@ async function commandsText() {
     '/map (/m) — список карт',
     '',
     '3) Игровые группы:',
-    '/groups (/g) — показать все группы (и Waiting при algo=2/3) — в один столбец',
+    '/groups (/g) — показать все группы (и Waiting при algo=2/3/4) — в один столбец',
     '/groups (/g) N — показать группу N',
+    '/groups (/g) N maps — показать карты группы N',
+    '/groups (/g) N points — показать очки игроков группы N',
     '',
     '4) Финалы:',
     '/finals (/f) — список финальных групп (в столбик)',
     '/finals (/f) N — показать финальную группу N',
+    '/finals (/f) N maps — показать карты финала N',
+    '/finals (/f) N points — показать очки игроков финала N',
     '',
     '5) Суперфиналы:',
     '/superfinal (/s) — список суперфинальных групп',
     '/superfinal (/s) N — показать суперфинальную группу N',
+    '/superfinal (/s) N maps — показать карты суперфинала N',
+    '/superfinal (/s) N points — показать очки игроков суперфинала N',
     '',
     '6) Произвольные группы (custom):',
     '/custom (/c) — список всех custom-групп (публично)',
@@ -4823,15 +5132,15 @@ bot.command(['info', 'i'], async ctx => {
   lines.push('Settings:');
   lines.push(`- groups algo: ${settings.groupsAlgo}`);
   lines.push(`- maxPlayers: ${settings.maxPlayers}`);
-  lines.push(`- minPlayers (algo2): ${settings.minPlayers2}`);
-  lines.push(`- recPlayers (algo2): ${settings.recPlayers2}`);
+  lines.push(`- minPlayers (algo2/4): ${settings.minPlayers2}`);
+  lines.push(`- recPlayers (algo2/4): ${settings.recPlayers2}`);
   lines.push(`- maxCount (algo3): ${settings.maxCount3 ?? '(not set)'}`);
   lines.push(`- finals algo: ${settings.finalsAlgo}`);
   lines.push(`- finals maxPlayers: ${settings.finalMaxPlayers}`);
-  lines.push(`- finals totalPlayers: ${settings.finalTotalPlayers ?? '(all available)'}${settings.finalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+  lines.push(`- finals totalPlayers: ${settings.finalTotalPlayers ?? '(all available)'}${[2, 4].includes(settings.finalsAlgo) ? ` (ignored when algo=${settings.finalsAlgo})` : ''}`);
   lines.push(`- superfinal algo: ${settings.superfinalsAlgo}`);
   lines.push(`- superfinal maxPlayers: ${settings.superfinalMaxPlayers}`);
-  lines.push(`- superfinal totalPlayers: ${settings.superfinalTotalPlayers ?? '(all available)'}${settings.superfinalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+  lines.push(`- superfinal totalPlayers: ${settings.superfinalTotalPlayers ?? '(all available)'}${[2, 4].includes(settings.superfinalsAlgo) ? ` (ignored when algo=${settings.superfinalsAlgo})` : ''}`);
   lines.push('');
 
   // Skill-groups
@@ -4850,12 +5159,12 @@ bot.command(['info', 'i'], async ctx => {
   lines.push('');
 
   // Game groups (2 columns)
-  lines.push(formatGameGroupsList(ggs, waiting, gpMap));
+  lines.push(formatGameGroupsList(ggs, waiting, gpMap, { pointsType: settings.pointsType }));
   lines.push('');
 
   // Final groups (2 columns, с очками)
   if (fgs.length) {
-    lines.push(formatFinalGroupsList(fgs, fpMap));
+    lines.push(formatFinalGroupsList(fgs, fpMap, { pointsType: settings.pointsType }));
     lines.push('');
   }
 
@@ -5343,6 +5652,53 @@ bot.command(['map', 'm'], mapsHandler);
 // ПОЛНАЯ ЗАМЕНА tournamentHandler(ctx) — /t newschannel makenews теперь публикует ВСЕ новости (tournament/group/final/superfinal)
 // и news add больше не дублирует вручную (это делает addNews)
 // REPLACE the entire tournamentHandler(ctx) function with the version below
+// Переименование игрока во всех коллекциях турнира
+async function renamePlayerInChat(chatId, oldNorm, newOrig, newNorm) {
+  const arrayFieldOp = (field) => ({
+    filter: { chatId, [`${field}.nameNorm`]: oldNorm },
+    update: { $set: { [`${field}.$[elem].nameNorm`]: newNorm, [`${field}.$[elem].nameOrig`]: newOrig } },
+    options: { arrayFilters: [{ 'elem.nameNorm': oldNorm }] },
+  });
+
+  // Группы (players[])
+  const playersOp = arrayFieldOp('players');
+  // Очки (points[])
+  const pointsOp = arrayFieldOp('points');
+
+  await Promise.all([
+    // Скилл-группы
+    colSkillGroups.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Игровые группы
+    colGameGroups.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Финальные группы
+    colFinalGroups.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Суперфинальные группы
+    colSuperFinalGroups.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Custom группы
+    colCustomGroups.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Список ожидания
+    colWaitingPlayers.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Рейтинги
+    colRatings.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    colFinalRatings.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    colSuperFinalRatings.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Очки групп / финалов / суперфиналов / custom
+    colGroupPoints.updateMany(pointsOp.filter, pointsOp.update, pointsOp.options),
+    colFinalPoints.updateMany(pointsOp.filter, pointsOp.update, pointsOp.options),
+    db.collection('super_final_points').updateMany(pointsOp.filter, pointsOp.update, pointsOp.options),
+    colCustomPoints.updateMany(pointsOp.filter, pointsOp.update, pointsOp.options),
+    // Результаты карт (players[] внутри каждого матча)
+    colGroupResults.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    colFinalResults.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    colSuperFinalResults.updateMany(playersOp.filter, playersOp.update, playersOp.options),
+    // Ачивки (player: {nameNorm, nameOrig})
+    colAchievements.updateMany(
+      { chatId, 'player.nameNorm': oldNorm },
+      { $set: { 'player.nameNorm': newNorm, 'player.nameOrig': newOrig } }
+    ),
+  ]);
+}
+
 // ПОЛНАЯ ЗАМЕНА tournamentHandler(ctx) — добавлены ветки /t stats_url и /t stats_enabled
 // и показ их значений в /t info
 
@@ -5481,15 +5837,16 @@ async function tournamentHandler(ctx) {
     lines.push('Settings:');
     lines.push(`- groups algo: ${settings.groupsAlgo}`);
     lines.push(`- maxPlayers: ${settings.maxPlayers}`);
-    lines.push(`- minPlayers (algo2): ${settings.minPlayers2}`);
-    lines.push(`- recPlayers (algo2): ${settings.recPlayers2}`);
+    lines.push(`- minPlayers (algo2/4): ${settings.minPlayers2}`);
+    lines.push(`- recPlayers (algo2/4): ${settings.recPlayers2}`);
     lines.push(`- maxCount (algo3): ${settings.maxCount3 ?? '(not set)'}`);
     lines.push(`- finals algo: ${settings.finalsAlgo}`);
     lines.push(`- finals maxPlayers: ${settings.finalMaxPlayers}`);
-    lines.push(`- finals totalPlayers: ${settings.finalTotalPlayers ?? '(all available)'}${settings.finalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+    lines.push(`- finals totalPlayers: ${settings.finalTotalPlayers ?? '(all available)'}${[2, 4].includes(settings.finalsAlgo) ? ` (ignored when algo=${settings.finalsAlgo})` : ''}`);
     lines.push(`- superfinal algo: ${settings.superfinalsAlgo}`);
     lines.push(`- superfinal maxPlayers: ${settings.superfinalMaxPlayers}`);
-    lines.push(`- superfinal totalPlayers: ${settings.superfinalTotalPlayers ?? '(all available)'}${settings.superfinalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+    lines.push(`- superfinal totalPlayers: ${settings.superfinalTotalPlayers ?? '(all available)'}${[2, 4].includes(settings.superfinalsAlgo) ? ` (ignored when algo=${settings.superfinalsAlgo})` : ''}`);
+    lines.push(`- points type: ${settings.pointsType} (${settings.pointsType === 1 ? 'more pts = better' : 'fewer pts = better'})`);
     lines.push('');
     lines.push('Skill-groups:');
     lines.push(formatSkillGroupsList(sgs));
@@ -5513,9 +5870,9 @@ async function tournamentHandler(ctx) {
     lines.push(formatCustomGroupsList(cgs, customPtsByGroup));
     lines.push('');
 
-    lines.push(formatGameGroupsList(ggs, waiting, gpMap));
+    lines.push(formatGameGroupsList(ggs, waiting, gpMap, { pointsType: settings.pointsType }));
     lines.push('');
-    lines.push(formatFinalGroupsList(fgs, fpMap));
+    lines.push(formatFinalGroupsList(fgs, fpMap, { pointsType: settings.pointsType }));
     lines.push('');
     lines.push(formatSuperFinalGroupsList(sfgs));
 
@@ -6055,7 +6412,7 @@ async function tournamentHandler(ctx) {
     await setChatSettings(chatId, {
       tournamentName: null, tournamentSite: null, tournamentWiki: null, tournamentDesc: null, tournamentLogo: null,  tournamentBack: null,
       tournamentServers: [], tournamentPack: null, tournamentStreams: [], tournamentNewsChannel: null,
-      tournamentStatsUrl: null, tournamentStatsEnabled: false,
+      tournamentStatsUrl: null, tournamentStatsEnabled: false, pointsType: 0,
     });
     if (existingLogo?.relPath) {
       try { await fs.promises.unlink(path.join(SCREENSHOTS_DIR, existingLogo.relPath)); } catch (_) { }
@@ -6068,7 +6425,40 @@ async function tournamentHandler(ctx) {
     return;
   }
 
-  await ctx.reply('Неизвестная опция /tournament. Используйте: name, site, desc, logo, news, info, servers, pack, streams, demos, newschannel, stats_url, stats_enabled или delall.');
+  if (sub === 'points_type') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const v = Number(tail);
+    if (!Number.isInteger(v) || ![0, 1].includes(v)) {
+      await ctx.reply('Используйте: /tournament points_type <0|1>\n0 — меньше очков = лучше место (по умолчанию)\n1 — больше очков = лучше место');
+      return;
+    }
+    await setChatSettings(chatId, { pointsType: v });
+    const label = v === 1 ? 'more pts = better rank' : 'fewer pts = better rank';
+    await ctx.reply(`Points type set to ${v} (${label}).`);
+    return;
+  }
+
+  if (sub === 'rename_player') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const parts = tail.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) {
+      await ctx.reply('Использование: /tournament rename_player <текущее_имя> <новое_имя>\nПример: /t rename_player aid aid2');
+      return;
+    }
+    const oldOrig = parts[0];
+    const newOrig = parts.slice(1).join(' ');
+    const oldNorm = norm(oldOrig);
+    const newNorm = norm(newOrig);
+    if (oldNorm === newNorm) {
+      await ctx.reply('Имена совпадают после нормализации. Переименование не выполнено.');
+      return;
+    }
+    await renamePlayerInChat(chatId, oldNorm, newOrig, newNorm);
+    await ctx.reply(`Игрок "${oldOrig}" переименован в "${newOrig}" во всех разделах турнира.\n(skillgroups, groups, finals, superfinals, custom, waiting, ratings, points, map results, achievements)`);
+    return;
+  }
+
+  await ctx.reply('Неизвестная опция /tournament. Используйте: name, site, desc, logo, news, info, servers, pack, streams, demos, newschannel, stats_url, stats_enabled, points_type, rename_player или delall.');
 }
 
 
@@ -6193,25 +6583,117 @@ function guessExt(mime, filePath, origName) {
   return 'jpg';
 }
 
-function downloadToFile(url, destPath) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    let bytes = 0;
-    https.get(url, res => {
-      if (res.statusCode !== 200) {
+// Bounded, proxy-aware, retry-on-transient-error download.
+//
+// Why this exists: the raw `https.get(url)` path used here before did
+// NOT go through `_telegramAgent`, so even when TELEGRAM_PROXY_URL was
+// configured and `bot.telegram.*` calls worked, file downloads from
+// api.telegram.org/file/ tried to open a *direct* TCP connection to
+// 149.154.166.*. On hosts where direct access to Telegram is blocked
+// the connect hangs until OS TCP timeout (~75 s) and surfaces as
+// `ETIMEDOUT` — the exact symptom seen in `handleIncomingScreenshot`.
+//
+// Fixes:
+//   - honour `_telegramAgent` when the rest of the bot is already
+//     routing Telegram traffic through a SOCKS/HTTP proxy;
+//   - explicit 30 s per-request timeout via `https.request` so a dead
+//     route fails fast instead of lingering;
+//   - retry up to 3 times on transient network errors with a short
+//     backoff;
+//   - propagate a descriptive final error so the caller's try/catch
+//     reply makes sense to the user.
+function downloadToFile(url, destPath, opts = {}) {
+  const MAX_ATTEMPTS = Number(opts.attempts || 3);
+  const TIMEOUT_MS = Number(opts.timeoutMs || 30_000);
+  const TRANSIENT = new Set([
+    'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
+    'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'EAI_AGAIN',
+  ]);
+
+  const isTelegramHost = /(^|\.)telegram\.org$/i.test(
+    (() => { try { return new URL(url).hostname; } catch (_) { return ''; } })()
+  );
+  const agent = isTelegramHost && typeof _telegramAgent !== 'undefined'
+    ? _telegramAgent : undefined;
+
+  function attempt(tryIdx) {
+    return new Promise((resolve, reject) => {
+      let u;
+      try { u = new URL(url); } catch (e) { return reject(e); }
+      const reqOpts = {
+        method: 'GET',
+        host: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + (u.search || ''),
+        agent,
+        timeout: TIMEOUT_MS,
+      };
+
+      const file = fs.createWriteStream(destPath);
+      let bytes = 0;
+      let settled = false;
+      const done = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        fn(arg);
+      };
+
+      const req = https.request(reqOpts, res => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          file.destroy();
+          fs.promises.unlink(destPath).catch(() => {});
+          done(reject, new Error(`HTTP ${res.statusCode} for ${url}`));
+          return;
+        }
+        res.on('data', chunk => { bytes += chunk.length; });
+        res.pipe(file);
+        file.on('finish', () => file.close(() => done(resolve, bytes)));
+        res.on('error', err => {
+          file.destroy();
+          fs.promises.unlink(destPath).catch(() => {});
+          done(reject, err);
+        });
+      });
+      req.on('timeout', () => {
+        req.destroy(Object.assign(
+          new Error(`request timeout after ${TIMEOUT_MS} ms for ${url}`),
+          { code: 'ETIMEDOUT' }
+        ));
+      });
+      req.on('error', err => {
         file.destroy();
-        fs.promises.unlink(destPath).catch(() => { });
-        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-      }
-      res.on('data', chunk => { bytes += chunk.length; });
-      res.pipe(file);
-      file.on('finish', () => file.close(() => resolve(bytes)));
-    }).on('error', err => {
-      file.destroy();
-      fs.promises.unlink(destPath).catch(() => { });
-      reject(err);
+        fs.promises.unlink(destPath).catch(() => {});
+        done(reject, err);
+      });
+      req.end();
     });
-  });
+  }
+
+  return (async () => {
+    let lastErr;
+    for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+      try {
+        return await attempt(i);
+      } catch (e) {
+        lastErr = e;
+        const code = e && e.code;
+        if (i >= MAX_ATTEMPTS || !TRANSIENT.has(code)) break;
+        // short backoff, 500 ms -> 1000 ms
+        await new Promise(r => setTimeout(r, 500 * i));
+      }
+    }
+    const hint = (lastErr && TRANSIENT.has(lastErr.code))
+      ? (typeof _telegramAgent !== 'undefined' && _telegramAgent
+          ? ' (tried via configured TELEGRAM_PROXY_URL)'
+          : ' (no TELEGRAM_PROXY_URL set; if this host cannot reach api.telegram.org directly, configure a proxy)')
+      : '';
+    const wrapped = new Error(
+      `downloadToFile failed after ${MAX_ATTEMPTS} attempt(s): ${lastErr && lastErr.message}${hint}`
+    );
+    if (lastErr && lastErr.code) wrapped.code = lastErr.code;
+    throw wrapped;
+  })();
 }
 
 async function saveTelegramFileToDisk(bot, fileId, opts) {
@@ -6881,6 +7363,58 @@ bot.command(['tournament', 't'], tournamentHandler);
 
 // GROUPS
 
+// Helper for /g add, /f add, /s add
+// playerNames: array of {nameOrig, nameNorm} — if non-empty, creates 1 group with those players;
+//              if empty, creates groupCount empty groups.
+async function addGroupsManually(chatId, groupCount, playerNames, { listGroups, upsertGroup }) {
+  // Find next groupId (after max existing)
+  const existingGroups = await listGroups(chatId);
+  const maxGroupId = existingGroups.reduce((mx, g) => Math.max(mx, g.groupId || 0), 0);
+
+  if (playerNames && playerNames.length > 0) {
+    // Mode: add 1 group with specified players (validate against skill groups)
+    const sgs = await listSkillGroups(chatId);
+    if (!sgs.length) {
+      return { error: 'Нет скилл-групп. Сначала добавьте игроков через /skillgroups.' };
+    }
+
+    // Build nameNorm -> { nameOrig, nameNorm, sg } from skill groups
+    const sgPlayerMap = new Map();
+    for (const sg of sgs) {
+      for (const p of sg.players || []) {
+        sgPlayerMap.set(p.nameNorm, { nameOrig: p.nameOrig, nameNorm: p.nameNorm, sg: sg.groupNumber });
+      }
+    }
+
+    // Validate all players exist in skill groups
+    const notFound = playerNames.filter(p => !sgPlayerMap.has(p.nameNorm));
+    if (notFound.length) {
+      return { error: `Следующие игроки не найдены в скилл-группах: ${notFound.map(p => p.nameOrig).join(', ')}` };
+    }
+
+    // Build player objects with sg field
+    let playerObjs = playerNames.map(p => sgPlayerMap.get(p.nameNorm));
+
+    // Enrich with signupId
+    playerObjs = await addSignupIdToPlayerList(chatId, playerObjs);
+
+    const groupId = maxGroupId + 1;
+    await upsertGroup(chatId, groupId, { players: playerObjs, maps: [], createdAt: new Date() });
+    return { newGroups: [{ groupId, players: playerObjs, maps: [] }] };
+  }
+
+  // Mode: add N empty groups
+  const newGroups = [];
+  for (let i = 0; i < groupCount; i++) {
+    const groupId = maxGroupId + i + 1;
+    // eslint-disable-next-line no-await-in-loop
+    await upsertGroup(chatId, groupId, { players: [], maps: [], createdAt: new Date() });
+    newGroups.push({ groupId, players: [], maps: [] });
+  }
+
+  return { newGroups };
+}
+
 async function groupsHandler(ctx) {
   if (!requireGroupContext(ctx)) {
     await ctx.reply('Эта команда доступна только в группе.');
@@ -6892,12 +7426,13 @@ async function groupsHandler(ctx) {
 
   // No args -> list all groups (+ waiting), в столбик
   if (!tokens.length) {
-    const [ggs, waiting, ptsArr] = await Promise.all([
+    const [ggs, waiting, ptsArr, settings] = await Promise.all([
       listGameGroups(chatId),
       getWaitingPlayers(chatId),
       getGroupPoints(chatId),
+      getChatSettings(chatId),
     ]);
-    await replyPre(ctx, formatGameGroupsList(ggs, waiting, groupPointsToMap(ptsArr), { twoCols: false }));
+    await replyPre(ctx, formatGameGroupsList(ggs, waiting, groupPointsToMap(ptsArr), { twoCols: false, pointsType: settings.pointsType }));
     return;
   }
 
@@ -7065,14 +7600,14 @@ async function groupsHandler(ctx) {
     const tail = tokens.slice(1).join(' ').trim();
 
     if (!tail) {
-      const ptsArr = await getGroupPoints(chatId);
+      const [ptsArr, settings] = await Promise.all([getGroupPoints(chatId), getChatSettings(chatId)]);
       if (!ptsArr.length) {
         await ctx.reply('Group points: (none)');
         return;
       }
       const sorted = ptsArr
         .slice()
-        .sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+        .sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
       const lines = ['Group points:'].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
       await replyChunked(ctx, lines.join('\n'));
       return;
@@ -7154,7 +7689,7 @@ async function groupsHandler(ctx) {
     if (cmd === 'algo') {
       if (!(await requireAdminGuard(ctx))) return;
       const v = Number(tokens[1]);
-      if (![1, 2, 3].includes(v)) { await ctx.reply('Использование: /groups algo <1|2|3>'); return; }
+      if (![1, 2, 3, 4].includes(v)) { await ctx.reply('Использование: /groups algo <1|2|3|4>'); return; }
       await setChatSettings(chatId, { groupsAlgo: v });
       await ctx.reply(`groups algo set to ${v}.`);
       return;
@@ -7174,7 +7709,7 @@ async function groupsHandler(ctx) {
       const v = Number(tokens[1]);
       if (!Number.isInteger(v) || v <= 0) { await ctx.reply('Использование: /groups minplayers <целое > 0>'); return; }
       await setChatSettings(chatId, { minPlayers2: v });
-      await ctx.reply(`algo2 minPlayers set to ${v}.`);
+      await ctx.reply(`algo2/4 minPlayers set to ${v}.`);
       return;
     }
 
@@ -7183,7 +7718,7 @@ async function groupsHandler(ctx) {
       const v = Number(tokens[1]);
       if (!Number.isInteger(v) || v <= 0) { await ctx.reply('Использование: /groups recplayers <целое > 0>'); return; }
       await setChatSettings(chatId, { recPlayers2: v });
-      await ctx.reply(`algo2 recPlayers set to ${v}.`);
+      await ctx.reply(`algo2/4 recPlayers set to ${v}.`);
       return;
     }
 
@@ -7233,16 +7768,54 @@ async function groupsHandler(ctx) {
     }
   }
 
+  // /groups add <N>              — добавить N пустых групп
+  // /groups add <player1,...>    — добавить 1 группу с указанными игроками
+  if (cmd === 'add') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const firstArg = tokens[1];
+    if (!firstArg) {
+      await ctx.reply(
+        'Использование:\n' +
+        '/groups add <N> — добавить N пустых групп\n' +
+        '/groups add <player1,player2,...> — добавить 1 группу с игроками'
+      );
+      return;
+    }
+    const asNumber = Number(firstArg);
+    const isNMode = Number.isInteger(asNumber) && asNumber > 0 && !firstArg.includes(',');
+    let groupCount = 1;
+    let playerNames = [];
+    if (isNMode) {
+      groupCount = asNumber;
+    } else {
+      const playersStr = tokens.slice(1).join(' ').trim();
+      playerNames = dedupByNorm(cleanListParam(playersStr));
+      if (!playerNames.length) {
+        await ctx.reply('Укажите игроков через запятую.');
+        return;
+      }
+    }
+    const res = await addGroupsManually(chatId, groupCount, playerNames, {
+      listGroups: listGameGroups,
+      upsertGroup: upsertGameGroup,
+    });
+    if (res.error) { await ctx.reply(`Ошибка: ${res.error}`); return; }
+    const [ptsArr, settings] = await Promise.all([getGroupPoints(chatId), getChatSettings(chatId)]);
+    const txt = formatGameGroupsList(res.newGroups, [], groupPointsToMap(ptsArr), { twoCols: false, pointsType: settings.pointsType });
+    await replyPre(ctx, txt);
+    return;
+  }
+
   // /groups N ...
   const N = Number(tokens[0]);
   if (Number.isInteger(N) && N > 0) {
     if (tokens.length === 1) {
-      const [g, ptsArr] = await Promise.all([getGameGroup(chatId, N), getGroupPoints(chatId)]);
+      const [g, ptsArr, settings] = await Promise.all([getGameGroup(chatId, N), getGroupPoints(chatId), getChatSettings(chatId)]);
       if (!g) {
         await ctx.reply(`Group ${N} not found.`);
         return;
       }
-      const txt = formatGameGroupsList([g], [], groupPointsToMap(ptsArr), { twoCols: false });
+      const txt = formatGameGroupsList([g], [], groupPointsToMap(ptsArr), { twoCols: false, pointsType: settings.pointsType });
       await replyPre(ctx, txt);
       return;
     }
@@ -7289,30 +7862,41 @@ async function groupsHandler(ctx) {
       // Запись результата: требуется админ
       if (!(await requireAdminGuard(ctx))) return;
 
-      // Ожидаем: map date time playtime players...
-      // tokens: [N, 'mapres', map, 'YYYY-MM-DD', 'HH:MM', 'MM:SS', players...]
-      if (tokens.length < 7) {
+      // Ожидаем: map [matchNum] date time playtime players...
+      // tokens: [N, 'mapres', map, [matchNum,] 'YYYY-MM-DD', 'HH:MM', 'MM:SS', players...]
+      // matchNum определяется по: токен после карты — чистое целое (не дата YYYY-MM-DD)
+      const mapInput = tokens[2];
+      let matchNum = 1;
+      let off = 0;
+      if (tokens[3] && /^\d+$/.test(tokens[3]) && !/^\d{4}-\d{2}-\d{2}$/.test(tokens[3])) {
+        matchNum = Number(tokens[3]);
+        off = 1;
+      }
+
+      if (tokens.length < 6 + off) {
         await ctx.reply(
           'Некорректный формат.\n' +
           'Использование:\n' +
-          '/g <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+          '/g <N> mapres <map> [<matchNum>] <YYYY-MM-DD> <HH:MM> [<MM:SS>] player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
         );
         return;
       }
 
-      const mapInput = tokens[2];
-      const datePart = tokens[3];
-      const timePart = tokens[4];
-      const playtime = tokens[5];
-      const playersStr = tokens.slice(6).join(' ').trim();
+      const datePart = tokens[3 + off];
+      const timePart = tokens[4 + off];
+      // playtime (MM:SS) — необязательное поле
+      let playtime = '';
+      let playersStr;
+      if (tokens[5 + off] && /^\d{1,2}:\d{2}$/.test(tokens[5 + off]) && !tokens[5 + off].includes('[')) {
+        playtime = tokens[5 + off];
+        playersStr = tokens.slice(6 + off).join(' ').trim();
+      } else {
+        playersStr = tokens.slice(5 + off).join(' ').trim();
+      }
 
       const dtStr = `${datePart} ${timePart}`;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
         await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM (например, 2025-10-20 23:09).');
-        return;
-      }
-      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
-        await ctx.reply('Время игры должно быть в формате MM:SS (например, 6:50).');
         return;
       }
 
@@ -7361,7 +7945,7 @@ async function groupsHandler(ctx) {
         return;
       }
 
-      await upsertGroupMapResult(chatId, N, foundMapOrig, {
+      await upsertGroupMapResult(chatId, N, foundMapOrig, matchNum, {
         matchDateTime: dtStr,
         matchDateTimeIso,
         matchTs,
@@ -7376,6 +7960,76 @@ async function groupsHandler(ctx) {
       return;
     }
 
+
+    // /groups N points [name1[p],...]
+    if (action === 'points') {
+      const g = await getGameGroup(chatId, N);
+      if (!g) { await ctx.reply(`Group ${N} not found.`); return; }
+      const groupPlayerNorms = new Set((g.players || []).map(p => p.nameNorm));
+      const ptsTail = tokens.slice(2).join(' ').trim();
+
+      if (!ptsTail) {
+        // Показать очки только для игроков этой группы
+        const [ptsArr, settings] = await Promise.all([getGroupPoints(chatId), getChatSettings(chatId)]);
+        const filtered = ptsArr.filter(p => groupPlayerNorms.has(p.nameNorm));
+        if (!filtered.length) { await ctx.reply(`Group ${N} points: (none)`); return; }
+        const sorted = filtered.slice().sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+        const lines = [`Group ${N} points:`].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
+        await replyChunked(ctx, lines.join('\n'));
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const parsed = parsePointsList(ptsTail);
+      if (parsed.error) { await ctx.reply(parsed.error); return; }
+      if (!parsed.length) { await ctx.reply(`Укажите игроков и очки. Пример: /g ${N} points David[10],aid[12]`); return; }
+
+      const groupOrigMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = parsed.filter(p => !groupPlayerNorms.has(p.nameNorm)).map(p => p.nameOrig);
+      if (missing.length) { await ctx.reply(`Не найдены в Group ${N}: ${missing.join(', ')}`); return; }
+
+      // Слияние с глобальными очками
+      const existing = await getGroupPoints(chatId);
+      const merged = new Map(existing.map(p => [p.nameNorm, { ...p }]));
+      for (const p of parsed) {
+        merged.set(p.nameNorm, { nameNorm: p.nameNorm, nameOrig: groupOrigMap.get(p.nameNorm), pts: p.pts });
+      }
+      const toSave = await addSignupIdToPlayerList(chatId, [...merged.values()]);
+      await setGroupPoints(chatId, toSave);
+      await ctx.reply(`Group ${N} points updated.`);
+      return;
+    }
+
+    // /groups N maps [map1,map2,...]
+    if (action === 'maps') {
+      const g = await getGameGroup(chatId, N);
+      if (!g) { await ctx.reply(`Group ${N} not found.`); return; }
+      const mapsTail = tokens.slice(2).join(' ').trim();
+
+      if (!mapsTail) {
+        const cur = Array.isArray(g.maps) ? g.maps : [];
+        await ctx.reply(cur.length ? `Group ${N} maps: ${cur.join(', ')}` : `Group ${N} maps: (none)`);
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const inputNames = cleanListParam(mapsTail);
+      if (!inputNames.length) { await ctx.reply('Укажите хотя бы одну карту. Пример: /g 1 maps Q2DM5,Q2DM3'); return; }
+      const allMaps = await listMaps(chatId);
+      const mapsByNorm = new Map(allMaps.map(m => [norm(m.nameNorm), m.nameOrig]));
+      const resolved = [];
+      const notFound = [];
+      for (const name of inputNames) {
+        const orig = mapsByNorm.get(norm(name));
+        if (orig) resolved.push(orig);
+        else notFound.push(name);
+      }
+      if (notFound.length) { await ctx.reply(`Карты не найдены в /map list: ${notFound.join(', ')}`); return; }
+      await upsertGameGroup(chatId, N, { ...g, maps: resolved });
+      const [ptsArr, settings] = await Promise.all([getGroupPoints(chatId), getChatSettings(chatId)]);
+      await replyPre(ctx, formatGameGroupsList([{ ...g, maps: resolved }], [], groupPointsToMap(ptsArr), { twoCols: false, pointsType: settings.pointsType }));
+      return;
+    }
 
     // /groups N demos [add]
     if (action === 'demos') {
@@ -7572,11 +8226,12 @@ async function finalsHandler(ctx) {
 
   // /finals — список финалов (в столбик)
   if (!tokens.length) {
-    const [finals, finalPtsArr] = await Promise.all([
+    const [finals, finalPtsArr, settings] = await Promise.all([
       listFinalGroups(chatId),
       getFinalPoints(chatId),
+      getChatSettings(chatId),
     ]);
-    await replyPre(ctx, formatFinalGroupsList(finals, finalPointsToMap(finalPtsArr), { twoCols: false }));
+    await replyPre(ctx, formatFinalGroupsList(finals, finalPointsToMap(finalPtsArr), { twoCols: false, pointsType: settings.pointsType }));
     return;
   }
 
@@ -7687,9 +8342,9 @@ async function finalsHandler(ctx) {
     const tail = tokens.slice(1).join(' ').trim();
 
     if (!tail) {
-      const ptsArr = await getFinalPoints(chatId);
+      const [ptsArr, settings] = await Promise.all([getFinalPoints(chatId), getChatSettings(chatId)]);
       if (!ptsArr.length) { await ctx.reply('Final points: (none)'); return; }
-      const sorted = ptsArr.slice().sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+      const sorted = ptsArr.slice().sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
       const lines = ['Final points:'].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
       await replyChunked(ctx, lines.join('\n'));
       return;
@@ -7738,12 +8393,12 @@ async function finalsHandler(ctx) {
     return;
   }
 
-  // finals algo <1|2>
+  // finals algo <1|2|4>
   if (sub === 'algo') {
     if (!(await requireAdminGuard(ctx))) return;
     const v = Number(tokens[1]);
-    if (![1, 2].includes(v)) {
-      await ctx.reply('Использование: /finals algo <1|2>');
+    if (![1, 2, 4].includes(v)) {
+      await ctx.reply('Использование: /finals algo <1|2|4>');
       return;
     }
     await setChatSettings(chatId, { finalsAlgo: v });
@@ -7773,7 +8428,7 @@ async function finalsHandler(ctx) {
   if (sub === 'totalplayers') {
     if (!tokens[1]) {
       const s = await getChatSettings(chatId);
-      await ctx.reply(`Finals totalPlayers: ${s.finalTotalPlayers ?? '(all available)'}${s.finalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+      await ctx.reply(`Finals totalPlayers: ${s.finalTotalPlayers ?? '(all available)'}${[2, 4].includes(s.finalsAlgo) ? ` (ignored when algo=${s.finalsAlgo})` : ''}`);
       return;
     }
     if (!(await requireAdminGuard(ctx))) return;
@@ -7856,13 +8511,51 @@ async function finalsHandler(ctx) {
     return;
   }
 
+  // /finals add <N>             — добавить N пустых финальных групп
+  // /finals add <player1,...>   — добавить 1 финальную группу с указанными игроками
+  if (sub === 'add') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const firstArg = tokens[1];
+    if (!firstArg) {
+      await ctx.reply(
+        'Использование:\n' +
+        '/finals add <N> — добавить N пустых финальных групп\n' +
+        '/finals add <player1,player2,...> — добавить 1 финальную группу с игроками'
+      );
+      return;
+    }
+    const asNumber = Number(firstArg);
+    const isNMode = Number.isInteger(asNumber) && asNumber > 0 && !firstArg.includes(',');
+    let groupCount = 1;
+    let playerNames = [];
+    if (isNMode) {
+      groupCount = asNumber;
+    } else {
+      const playersStr = tokens.slice(1).join(' ').trim();
+      playerNames = dedupByNorm(cleanListParam(playersStr));
+      if (!playerNames.length) {
+        await ctx.reply('Укажите игроков через запятую.');
+        return;
+      }
+    }
+    const res = await addGroupsManually(chatId, groupCount, playerNames, {
+      listGroups: listFinalGroups,
+      upsertGroup: upsertFinalGroup,
+    });
+    if (res.error) { await ctx.reply(`Ошибка: ${res.error}`); return; }
+    const [finalPtsArr, settings] = await Promise.all([getFinalPoints(chatId), getChatSettings(chatId)]);
+    const txt = formatFinalGroupsList(res.newGroups, finalPointsToMap(finalPtsArr), { twoCols: false, pointsType: settings.pointsType });
+    await replyPre(ctx, txt);
+    return;
+  }
+
   // finals N ...
   const N = Number(tokens[0]);
   if (Number.isInteger(N) && N > 0) {
     if (tokens.length === 1) {
-      const [g, finalPtsArr] = await Promise.all([getFinalGroup(chatId, N), getFinalPoints(chatId)]);
+      const [g, finalPtsArr, settings] = await Promise.all([getFinalGroup(chatId, N), getFinalPoints(chatId), getChatSettings(chatId)]);
       if (!g) { await ctx.reply(`Final ${N} not found.`); return; }
-      const txt = formatFinalGroupsList([g], finalPointsToMap(finalPtsArr), { twoCols: false });
+      const txt = formatFinalGroupsList([g], finalPointsToMap(finalPtsArr), { twoCols: false, pointsType: settings.pointsType });
       await replyPre(ctx, txt);
       return;
     }
@@ -7902,28 +8595,37 @@ async function finalsHandler(ctx) {
       // Запись — только админы
       if (!(await requireAdminGuard(ctx))) return;
 
-      if (tokens.length < 7) {
+      const mapInput = tokens[2];
+      let matchNum = 1;
+      let off = 0;
+      if (tokens[3] && /^\d+$/.test(tokens[3]) && !/^\d{4}-\d{2}-\d{2}$/.test(tokens[3])) {
+        matchNum = Number(tokens[3]);
+        off = 1;
+      }
+
+      if (tokens.length < 6 + off) {
         await ctx.reply(
           'Некорректный формат.\n' +
           'Использование:\n' +
-          '/f <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+          '/f <N> mapres <map> [<matchNum>] <YYYY-MM-DD> <HH:MM> [<MM:SS>] player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
         );
         return;
       }
 
-      const mapInput = tokens[2];
-      const datePart = tokens[3];
-      const timePart = tokens[4];
-      const playtime = tokens[5];
-      const playersStr = tokens.slice(6).join(' ').trim();
+      const datePart = tokens[3 + off];
+      const timePart = tokens[4 + off];
+      let playtime = '';
+      let playersStr;
+      if (tokens[5 + off] && /^\d{1,2}:\d{2}$/.test(tokens[5 + off]) && !tokens[5 + off].includes('[')) {
+        playtime = tokens[5 + off];
+        playersStr = tokens.slice(6 + off).join(' ').trim();
+      } else {
+        playersStr = tokens.slice(5 + off).join(' ').trim();
+      }
 
       const dtStr = `${datePart} ${timePart}`;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
         await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM.');
-        return;
-      }
-      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
-        await ctx.reply('Время игры должно быть в формате MM:SS.');
         return;
       }
 
@@ -7969,7 +8671,7 @@ async function finalsHandler(ctx) {
         return;
       }
 
-      await upsertFinalMapResult(chatId, N, foundMapOrig, {
+      await upsertFinalMapResult(chatId, N, foundMapOrig, matchNum, {
         matchDateTime: dtStr,
         matchDateTimeIso,
         matchTs,
@@ -7985,6 +8687,74 @@ async function finalsHandler(ctx) {
       return;
     }
 
+
+    // /finals N points [name1[p],...]
+    if (action === 'points') {
+      const g = await getFinalGroup(chatId, N);
+      if (!g) { await ctx.reply(`Final ${N} not found.`); return; }
+      const groupPlayerNorms = new Set((g.players || []).map(p => p.nameNorm));
+      const ptsTail = tokens.slice(2).join(' ').trim();
+
+      if (!ptsTail) {
+        const [ptsArr, settings] = await Promise.all([getFinalPoints(chatId), getChatSettings(chatId)]);
+        const filtered = ptsArr.filter(p => groupPlayerNorms.has(p.nameNorm));
+        if (!filtered.length) { await ctx.reply(`Final ${N} points: (none)`); return; }
+        const sorted = filtered.slice().sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+        const lines = [`Final ${N} points:`].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
+        await replyChunked(ctx, lines.join('\n'));
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const parsed = parsePointsList(ptsTail);
+      if (parsed.error) { await ctx.reply(parsed.error); return; }
+      if (!parsed.length) { await ctx.reply(`Укажите игроков и очки. Пример: /f ${N} points David[10],aid[12]`); return; }
+
+      const groupOrigMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = parsed.filter(p => !groupPlayerNorms.has(p.nameNorm)).map(p => p.nameOrig);
+      if (missing.length) { await ctx.reply(`Не найдены в Final ${N}: ${missing.join(', ')}`); return; }
+
+      const existing = await getFinalPoints(chatId);
+      const merged = new Map(existing.map(p => [p.nameNorm, { ...p }]));
+      for (const p of parsed) {
+        merged.set(p.nameNorm, { nameNorm: p.nameNorm, nameOrig: groupOrigMap.get(p.nameNorm), pts: p.pts });
+      }
+      const toSave = await addSignupIdToPlayerList(chatId, [...merged.values()]);
+      await setFinalPoints(chatId, toSave);
+      await ctx.reply(`Final ${N} points updated.`);
+      return;
+    }
+
+    // /finals N maps [map1,map2,...]
+    if (action === 'maps') {
+      const g = await getFinalGroup(chatId, N);
+      if (!g) { await ctx.reply(`Final ${N} not found.`); return; }
+      const mapsTail = tokens.slice(2).join(' ').trim();
+
+      if (!mapsTail) {
+        const cur = Array.isArray(g.maps) ? g.maps : [];
+        await ctx.reply(cur.length ? `Final ${N} maps: ${cur.join(', ')}` : `Final ${N} maps: (none)`);
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const inputNames = cleanListParam(mapsTail);
+      if (!inputNames.length) { await ctx.reply('Укажите хотя бы одну карту. Пример: /f 1 maps Q2DM5,Q2DM3'); return; }
+      const allMaps = await listMaps(chatId);
+      const mapsByNorm = new Map(allMaps.map(m => [norm(m.nameNorm), m.nameOrig]));
+      const resolved = [];
+      const notFound = [];
+      for (const name of inputNames) {
+        const orig = mapsByNorm.get(norm(name));
+        if (orig) resolved.push(orig);
+        else notFound.push(name);
+      }
+      if (notFound.length) { await ctx.reply(`Карты не найдены в /map list: ${notFound.join(', ')}`); return; }
+      await upsertFinalGroup(chatId, N, { ...g, maps: resolved });
+      const [ptsArr, settings] = await Promise.all([getFinalPoints(chatId), getChatSettings(chatId)]);
+      await replyPre(ctx, formatFinalGroupsList([{ ...g, maps: resolved }], finalPointsToMap(ptsArr), { twoCols: false, pointsType: settings.pointsType }));
+      return;
+    }
 
     // /finals N demos [add]
     if (action === 'demos') {
@@ -8079,7 +8849,7 @@ async function finalsHandler(ctx) {
 bot.command(['finals', 'f'], finalsHandler);
 
 
-// ---- Finals stage rating (for superfinal algo=2 or viewing via /finals rating)
+// ---- Finals stage rating (for superfinal algo=2/4 or viewing via /finals rating)
 async function getFinalRating(chatId) {
   const doc = await colFinalRatings.findOne({ chatId });
   return doc?.players || [];
@@ -8264,28 +9034,37 @@ async function superfinalHandler(ctx) {
       // Запись — только админы
       if (!(await requireAdminGuard(ctx))) return;
 
-      if (tokens.length < 7) {
+      const mapInput = tokens[2];
+      let matchNum = 1;
+      let off = 0;
+      if (tokens[3] && /^\d+$/.test(tokens[3]) && !/^\d{4}-\d{2}-\d{2}$/.test(tokens[3])) {
+        matchNum = Number(tokens[3]);
+        off = 1;
+      }
+
+      if (tokens.length < 6 + off) {
         await ctx.reply(
           'Некорректный формат.\n' +
           'Использование:\n' +
-          '/s <N> mapres <map> <YYYY-MM-DD> <HH:MM> <MM:SS> player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
+          '/s <N> mapres <map> [<matchNum>] <YYYY-MM-DD> <HH:MM> [<MM:SS>] player1[frags,kills,eff,fph,dgiv,drec],player2[...]'
         );
         return;
       }
 
-      const mapInput = tokens[2];
-      const datePart = tokens[3];
-      const timePart = tokens[4];
-      const playtime = tokens[5];
-      const playersStr = tokens.slice(6).join(' ').trim();
+      const datePart = tokens[3 + off];
+      const timePart = tokens[4 + off];
+      let playtime = '';
+      let playersStr;
+      if (tokens[5 + off] && /^\d{1,2}:\d{2}$/.test(tokens[5 + off]) && !tokens[5 + off].includes('[')) {
+        playtime = tokens[5 + off];
+        playersStr = tokens.slice(6 + off).join(' ').trim();
+      } else {
+        playersStr = tokens.slice(5 + off).join(' ').trim();
+      }
 
       const dtStr = `${datePart} ${timePart}`;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart) || !/^\d{2}:\d{2}$/.test(timePart)) {
         await ctx.reply('Дата/время матча должны быть в формате YYYY-MM-DD HH:MM.');
-        return;
-      }
-      if (!/^\d{1,2}:\d{2}$/.test(playtime)) {
-        await ctx.reply('Время игры должно быть в формате MM:SS.');
         return;
       }
 
@@ -8331,7 +9110,7 @@ async function superfinalHandler(ctx) {
         return;
       }
 
-      await upsertSuperFinalMapResult(chatId, N, foundMapOrig, {
+      await upsertSuperFinalMapResult(chatId, N, foundMapOrig, matchNum, {
         matchDateTime: dtStr,
         matchDateTimeIso,
         matchTs,
@@ -8347,6 +9126,73 @@ async function superfinalHandler(ctx) {
       return;
     }
 
+
+    // /superfinal N points [name1[p],...]
+    if (action === 'points') {
+      const g = await getSuperFinalGroup(chatId, N);
+      if (!g) { await ctx.reply(`Superfinal ${N} not found.`); return; }
+      const groupPlayerNorms = new Set((g.players || []).map(p => p.nameNorm));
+      const ptsTail = tokens.slice(2).join(' ').trim();
+
+      if (!ptsTail) {
+        const [ptsArr, settings] = await Promise.all([getSuperFinalPoints(chatId), getChatSettings(chatId)]);
+        const filtered = ptsArr.filter(p => groupPlayerNorms.has(p.nameNorm));
+        if (!filtered.length) { await ctx.reply(`Superfinal ${N} points: (none)`); return; }
+        const sorted = filtered.slice().sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+        const lines = [`Superfinal ${N} points:`].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
+        await replyChunked(ctx, lines.join('\n'));
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const parsed = parsePointsList(ptsTail);
+      if (parsed.error) { await ctx.reply(parsed.error); return; }
+      if (!parsed.length) { await ctx.reply(`Укажите игроков и очки. Пример: /s ${N} points David[10],aid[12]`); return; }
+
+      const groupOrigMap = new Map((g.players || []).map(p => [p.nameNorm, p.nameOrig]));
+      const missing = parsed.filter(p => !groupPlayerNorms.has(p.nameNorm)).map(p => p.nameOrig);
+      if (missing.length) { await ctx.reply(`Не найдены в Superfinal ${N}: ${missing.join(', ')}`); return; }
+
+      const existing = await getSuperFinalPoints(chatId);
+      const merged = new Map(existing.map(p => [p.nameNorm, { ...p }]));
+      for (const p of parsed) {
+        merged.set(p.nameNorm, { nameNorm: p.nameNorm, nameOrig: groupOrigMap.get(p.nameNorm), pts: p.pts });
+      }
+      const toSave = await addSignupIdToPlayerList(chatId, [...merged.values()]);
+      await setSuperFinalPoints(chatId, toSave);
+      await ctx.reply(`Superfinal ${N} points updated.`);
+      return;
+    }
+
+    // /superfinal N maps [map1,map2,...]
+    if (action === 'maps') {
+      const g = await getSuperFinalGroup(chatId, N);
+      if (!g) { await ctx.reply(`Superfinal ${N} not found.`); return; }
+      const mapsTail = tokens.slice(2).join(' ').trim();
+
+      if (!mapsTail) {
+        const cur = Array.isArray(g.maps) ? g.maps : [];
+        await ctx.reply(cur.length ? `Superfinal ${N} maps: ${cur.join(', ')}` : `Superfinal ${N} maps: (none)`);
+        return;
+      }
+
+      if (!(await requireAdminGuard(ctx))) return;
+      const inputNames = cleanListParam(mapsTail);
+      if (!inputNames.length) { await ctx.reply('Укажите хотя бы одну карту. Пример: /s 1 maps Q2DM5,Q2DM3'); return; }
+      const allMaps = await listMaps(chatId);
+      const mapsByNorm = new Map(allMaps.map(m => [norm(m.nameNorm), m.nameOrig]));
+      const resolved = [];
+      const notFound = [];
+      for (const name of inputNames) {
+        const orig = mapsByNorm.get(norm(name));
+        if (orig) resolved.push(orig);
+        else notFound.push(name);
+      }
+      if (notFound.length) { await ctx.reply(`Карты не найдены в /map list: ${notFound.join(', ')}`); return; }
+      await upsertSuperFinalGroup(chatId, N, { ...g, maps: resolved });
+      await replyPre(ctx, formatSuperFinalGroupsList([{ ...g, maps: resolved }]));
+      return;
+    }
 
     // /superfinal N demos [add]
     if (action === 'demos') {
@@ -8500,6 +9346,42 @@ async function superfinalHandler(ctx) {
     return;
   }
 
+  // /superfinal add <N>           — добавить N пустых суперфинальных групп
+  // /superfinal add <player1,...> — добавить 1 суперфинальную группу с указанными игроками
+  if (sub === 'add') {
+    if (!(await requireAdminGuard(ctx))) return;
+    const firstArg = tokens[1];
+    if (!firstArg) {
+      await ctx.reply(
+        'Использование:\n' +
+        '/superfinal add <N> — добавить N пустых суперфинальных групп\n' +
+        '/superfinal add <player1,player2,...> — добавить 1 суперфинальную группу с игроками'
+      );
+      return;
+    }
+    const asNumber = Number(firstArg);
+    const isNMode = Number.isInteger(asNumber) && asNumber > 0 && !firstArg.includes(',');
+    let groupCount = 1;
+    let playerNames = [];
+    if (isNMode) {
+      groupCount = asNumber;
+    } else {
+      const playersStr = tokens.slice(1).join(' ').trim();
+      playerNames = dedupByNorm(cleanListParam(playersStr));
+      if (!playerNames.length) {
+        await ctx.reply('Укажите игроков через запятую.');
+        return;
+      }
+    }
+    const res = await addGroupsManually(chatId, groupCount, playerNames, {
+      listGroups: listSuperFinalGroups,
+      upsertGroup: upsertSuperFinalGroup,
+    });
+    if (res.error) { await ctx.reply(`Ошибка: ${res.error}`); return; }
+    await replyPre(ctx, formatSuperFinalGroupsList(res.newGroups));
+    return;
+  }
+
   // superfinal players
   if (sub === 'players') {
     const sfgs = await listSuperFinalGroups(chatId);
@@ -8512,12 +9394,12 @@ async function superfinalHandler(ctx) {
     return;
   }
 
-  // superfinal algo <1|2>
+  // superfinal algo <1|2|4>
   if (sub === 'algo') {
     if (!(await requireAdminGuard(ctx))) return;
     const v = Number(tokens[1]);
-    if (![1, 2].includes(v)) {
-      await ctx.reply('Использование: /superfinal algo <1|2>');
+    if (![1, 2, 4].includes(v)) {
+      await ctx.reply('Использование: /superfinal algo <1|2|4>');
       return;
     }
     await setChatSettings(chatId, { superfinalsAlgo: v });
@@ -8547,7 +9429,7 @@ async function superfinalHandler(ctx) {
   if (sub === 'totalplayers') {
     if (!tokens[1]) {
       const s = await getChatSettings(chatId);
-      await ctx.reply(`Superfinal totalPlayers: ${s.superfinalTotalPlayers ?? '(all available)'}${s.superfinalsAlgo === 2 ? ' (ignored when algo=2)' : ''}`);
+      await ctx.reply(`Superfinal totalPlayers: ${s.superfinalTotalPlayers ?? '(all available)'}${[2, 4].includes(s.superfinalsAlgo) ? ` (ignored when algo=${s.superfinalsAlgo})` : ''}`);
       return;
     }
     if (!(await requireAdminGuard(ctx))) return;
@@ -8628,14 +9510,14 @@ async function superfinalHandler(ctx) {
     const tail = tokens.slice(1).join(' ').trim();
 
     if (!tail) {
-      const ptsArr = await getSuperFinalPoints(chatId);
+      const [ptsArr, settings] = await Promise.all([getSuperFinalPoints(chatId), getChatSettings(chatId)]);
       if (!ptsArr.length) {
         await ctx.reply('Superfinal points: (none)');
         return;
       }
       const sorted = ptsArr
         .slice()
-        .sort((a, b) => a.pts - b.pts || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
+        .sort((a, b) => ptsCompare(a.pts, b.pts, settings.pointsType) || a.nameOrig.localeCompare(b.nameOrig, undefined, { sensitivity: 'base' }));
       const lines = ['Superfinal points:'].concat(sorted.map(p => `${p.nameOrig}[${p.pts}]`));
       await replyChunked(ctx, lines.join('\n'));
       return;
@@ -9303,7 +10185,27 @@ bot.on(['photo', 'document'], async ctx => {
     await handleIncomingScreenshot(ctx);
   } catch (e) {
     console.error('handleIncomingScreenshot error', e);
-    try { await ctx.reply('Ошибка сохранения скриншота. Попробуйте ещё раз.'); } catch (_) { }
+    // Distinguish a real network reachability failure from generic save
+    // errors: ETIMEDOUT / ECONNRESET / EHOSTUNREACH from api.telegram.org
+    // mean the bot host cannot currently fetch the file bytes, which is
+    // usually an ISP/firewall issue rather than something the user can
+    // retry immediately.
+    const code = e && e.code;
+    const netCodes = new Set([
+      'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
+      'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
+    ]);
+    try {
+      if (netCodes.has(code)) {
+        await ctx.reply(
+          'Не удалось скачать файл с серверов Telegram (сетевая ошибка: ' + code +
+          '). Попробуйте ещё раз через несколько секунд; если повторяется — проверьте, ' +
+          'что у хоста бота есть доступ к api.telegram.org (или настроен TELEGRAM_PROXY_URL).'
+        );
+      } else {
+        await ctx.reply('Ошибка сохранения скриншота. Попробуйте ещё раз.');
+      }
+    } catch (_) { }
   }
 });
 
@@ -9384,7 +10286,107 @@ bot.command('news', async ctx => {
     return;
   }
 
-  await ctx.reply('Неизвестная опция /news. Используйте: del | edit');
+  // Перемещение новости в другой турнир/раздел (только владельцы бота)
+  if (sub === 'move') {
+    if (!isOwner(ctx.from?.id)) {
+      await ctx.reply('Недостаточно прав. Команда доступна только владельцам бота.');
+      return;
+    }
+
+    // args: move <source_news_id> <target_tournament_id> <target_category_id>
+    const [targetChatIdStr, targetCategoryStr] = rest; // idStr уже = source_news_id
+    if (!idStr || !targetChatIdStr || !targetCategoryStr) {
+      await ctx.reply('Использование: /news move <source_news_id> <target_tournament_id> <target_category_id>\n' +
+        'target_category_id: t (турнир), g (группы), f (финалы), s (суперфинал)');
+      return;
+    }
+
+    // Парсим ID новости
+    let sourceId;
+    try { sourceId = new ObjectId(idStr); } catch (_) {
+      await ctx.reply('Некорректный source_news_id.');
+      return;
+    }
+
+    // Ищем новость без ограничения по chatId
+    const newsDoc = await colNews.findOne({ _id: sourceId });
+    if (!newsDoc) {
+      await ctx.reply(`Новость с ID ${idStr} не найдена.`);
+      return;
+    }
+
+    // Парсим целевой chatId
+    const targetChatId = Number(targetChatIdStr);
+    if (!Number.isFinite(targetChatId)) {
+      await ctx.reply('Некорректный target_tournament_id — должно быть числом.');
+      return;
+    }
+
+    // Проверяем, что целевой турнир существует
+    const targetChat = await colChats.findOne({ chatId: targetChatId });
+    if (!targetChat) {
+      await ctx.reply(`Турнир с ID ${targetChatId} не найден.`);
+      return;
+    }
+
+    // Определяем scope
+    const catMap = { t: 'tournament', g: 'group', f: 'final', s: 'superfinal' };
+    const targetScope = catMap[targetCategoryStr.toLowerCase()];
+    if (!targetScope) {
+      await ctx.reply('Некорректный target_category_id. Допустимые значения: t, g, f, s');
+      return;
+    }
+
+    // Для группных scope определяем актуальный groupRunId целевого турнира
+    let targetGroupRunId = null;
+    if (targetScope !== 'tournament') {
+      targetGroupRunId = await findLatestRunIdForScope(targetChatId, targetScope);
+      if (!targetGroupRunId) {
+        await ctx.reply(`В турнире ${targetChatId} нет активных ${targetScope === 'group' ? 'групп' : targetScope === 'final' ? 'финалов' : 'суперфиналов'}. Сначала сформируйте соответствующую стадию.`);
+        return;
+      }
+    }
+
+    // Если у новости есть картинка — физически перемещаем файл
+    if (newsDoc.news_img_file_name && newsDoc.chatId !== targetChatId) {
+      const srcFile = path.join(SCREENSHOTS_DIR, String(newsDoc.chatId), 'news', newsDoc.news_img_file_name);
+      const dstDir  = path.join(SCREENSHOTS_DIR, String(targetChatId), 'news');
+      const dstFile = path.join(dstDir, newsDoc.news_img_file_name);
+
+      try {
+        await fs.promises.mkdir(dstDir, { recursive: true });
+        await fs.promises.rename(srcFile, dstFile);
+      } catch (e) {
+        // rename не работает между разными дисками/томами — пробуем copy+delete
+        try {
+          await fs.promises.copyFile(srcFile, dstFile);
+          await fs.promises.unlink(srcFile).catch(() => {});
+        } catch (e2) {
+          console.error('news move: не удалось переместить файл картинки:', e2);
+          await ctx.reply(`Предупреждение: не удалось переместить файл картинки (${newsDoc.news_img_file_name}). Новость перемещена без картинки.`);
+        }
+      }
+    }
+
+    // Обновляем документ: chatId, scope и groupRunId
+    await colNews.updateOne({ _id: sourceId }, { $set: {
+      chatId: targetChatId,
+      scope: targetScope,
+      groupRunId: targetGroupRunId,
+    }});
+
+    const catLabel = { tournament: '/t news', group: '/g news', final: '/f news', superfinal: '/s news' }[targetScope];
+    await ctx.reply(
+      `Новость перемещена.\n` +
+      `ID: ${idStr}\n` +
+      `Турнир: ${targetChatId} (${targetChat.tournamentName || targetChatId})\n` +
+      `Раздел: ${catLabel}` +
+      (newsDoc.news_img_file_name ? '\nКартинка: перемещена вместе с новостью.' : '')
+    );
+    return;
+  }
+
+  await ctx.reply('Неизвестная опция /news. Используйте: del | edit | move');
 });
 
 
@@ -10541,10 +11543,74 @@ bot.telegram.setMyCommands([
   ]);
 
   console.log('Connected to MongoDB. Starting bot...');
-  await bot.launch();
-  console.log('Bot started.');
+
+  // Diagnostic probe: tries a single getMe directly through the configured
+  // Telegram agent (or direct if no proxy). This tells us IMMEDIATELY whether
+  // the agent/proxy path can reach api.telegram.org at all, instead of
+  // waiting through 20 Telegraf retries that hide the actual error code.
+  try {
+    const probe = await _probeTelegramViaAgent();
+    if (probe.skipped) {
+      console.log('Telegram probe: skipped (' + probe.reason + ')');
+    } else if (probe.ok) {
+      console.log('Telegram probe: OK (HTTP ' + probe.status + ') — proxy+agent can reach api.telegram.org.');
+    } else if (probe.status) {
+      console.warn('Telegram probe: HTTP ' + probe.status + ' from api.telegram.org — proxy connectivity is OK, response is not 200. Body (first 400 chars): ' + probe.body);
+    } else {
+      // Network-level failure. Surface all fields so the real cause is visible.
+      console.error('Telegram probe FAILED (proxy/agent/network):');
+      console.error('  message: ' + (probe.err && probe.err.message));
+      console.error('  code:    ' + (probe.err && probe.err.code));
+      console.error('  errno:   ' + (probe.err && probe.err.errno));
+      console.error('  syscall: ' + (probe.err && probe.err.syscall));
+      if (probe.err && probe.err.stack) {
+        console.error('  stack:\n' + probe.err.stack);
+      }
+      console.error('Hint: verify with `curl -x "' +
+        (process.env.TELEGRAM_PROXY_URL || 'none').replace(/:([^:@]+)@/, ':***@') +
+        '" https://api.telegram.org/bot<TOKEN>/getMe`');
+      console.error('If curl also fails to api.telegram.org specifically, the proxy is blocking Telegram destinations or Telegram is dropping the proxy IP. If curl succeeds, this is a Node.js/agent bug — open an issue with the error details above.');
+      // Do not throw — let the retry loop below still try Telegraf.launch()
+      // in case the probe was a transient network hiccup. But the user now
+      // knows exactly what's wrong.
+    }
+  } catch (probeErr) {
+    console.error('Telegram probe itself crashed:', probeErr);
+  }
+
+  // Retry bot.launch() on transient network errors (ECONNRESET, ETIMEDOUT, etc.)
+  const LAUNCH_MAX_RETRIES = 20;
+  const LAUNCH_RETRY_DELAY = 10_000; // 10 sec between attempts
+  for (let attempt = 1; attempt <= LAUNCH_MAX_RETRIES; attempt++) {
+    try {
+      await bot.launch();
+      console.log('Bot started.');
+      break;
+    } catch (err) {
+      const isTransient = err.code === 'ECONNRESET' || err.code === 'ENOTFOUND'
+        || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED'
+        || err.type === 'system' || /socket hang up|network/i.test(err.message);
+      if (isTransient && attempt < LAUNCH_MAX_RETRIES) {
+        // Richer error log: show code/errno/syscall/cause in addition to
+        // message, so we can tell ECONNRESET-during-read from ECONNRESET-
+        // during-handshake and surface the real underlying cause if the
+        // Error object has one.
+        const detail = [
+          err.code ? 'code=' + err.code : null,
+          err.errno ? 'errno=' + err.errno : null,
+          err.syscall ? 'syscall=' + err.syscall : null,
+          err.type ? 'type=' + err.type : null,
+          (err.cause && err.cause.message) ? 'cause=' + err.cause.message : null,
+        ].filter(Boolean).join(' ');
+        console.error(`Bot launch failed (attempt ${attempt}/${LAUNCH_MAX_RETRIES}): ${err.message}${detail ? ' [' + detail + ']' : ''}. Retrying in ${LAUNCH_RETRY_DELAY / 1000}s...`);
+        await new Promise(r => setTimeout(r, LAUNCH_RETRY_DELAY));
+      } else {
+        throw err; // non-transient error or out of retries → exit
+      }
+    }
+  }
 })().catch(err => {
-  console.error('Startup error:', err);
+  console.error('Fatal startup error:', err);
   process.exit(1);
 });
 

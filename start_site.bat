@@ -1,2 +1,2 @@
-start node --trace-warnings site.js
+start node site.js
 rem start node site.js
