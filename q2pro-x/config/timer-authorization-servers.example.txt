@@ -1,0 +1,7 @@
+# UTF-8, one endpoint per line. The first significant line is mandatory.
+force:0
+
+# DNS names and literal addresses are equivalent after DNS resolution.
+q2.playground.ru:27910;PG DM
+203.0.113.10:27910;Example IPv4 server
+[2001:db8::10]:27910;Example IPv6 server

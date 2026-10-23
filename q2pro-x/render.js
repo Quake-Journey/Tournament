@@ -44,6 +44,24 @@ function renderInline(text) {
   });
 }
 
+function renderReleaseAction(lang, className) {
+  var r = content.release;
+  var label = content.pick(content.ui.releaseCta, lang);
+  var icon = className.indexOf('qpx-nav__item') !== -1
+    ? '<span class="qpx-nav__icon">↓</span>'
+    : '';
+  if (r.available && r.downloadHref) {
+    return '<a class="' + esc(className) + '" href="' + esc(r.downloadHref) + '" download>'
+         + icon + label
+         + '</a>';
+  }
+  return '<button type="button" class="' + esc(className) + '" data-qpx-release-open '
+       +        'data-qpx-release-title="' + esc(content.pick(r.popupTitle, lang)) + '" '
+       +        'data-qpx-release-message="' + esc(content.pick(r.popupMessage, lang)) + '">'
+       + icon + label
+       + '</button>';
+}
+
 /* ── component renderers ── */
 
 function renderHeader(lang, themeMode) {
@@ -67,12 +85,12 @@ function renderHeader(lang, themeMode) {
     +   '</select>'
     + '</label>';
 
-  var navItems = content.sections.filter(function (s) {
-    return s.id !== 'overview';
-  }).map(function (s) {
-    return '<a class="qpx-nav__item" href="#' + esc(s.id) + '">'
-         +   '<span class="qpx-nav__icon">' + esc(s.icon) + '</span>'
-         +   esc(content.pick(s.title, lang))
+  var navItems = content.navItems.map(function (item) {
+    return '<a class="qpx-nav__item" href="' + esc(item.href ? item.href + '?lang=' + lang : '#' + item.id) + '">'
+         +   '<span class="qpx-nav__icon">' + (item.iconSrc
+               ? '<img src="' + esc(item.iconSrc) + '" width="18" height="18" alt="" aria-hidden="true" style="display:inline-block;vertical-align:middle">'
+               : esc(item.icon)) + '</span>'
+         +   esc(content.pick(item.label, lang))
          + '</a>';
   }).join('');
 
@@ -93,12 +111,7 @@ function renderHeader(lang, themeMode) {
     +   '<span class="qpx-nav__icon">⌘</span>'
     +   esc(content.pick(ui.sourcesCta, lang))
     + '</button>'
-    + '<a class="qpx-nav__item qpx-nav__item--aux qpx-nav__item--release" href="' + esc(release.downloadHref) + '" download>'
-    +   '<span class="qpx-nav__icon">↓</span>'
-    +   esc(content.pick(ui.releaseCta, lang))
-    + '</a>';
-
-  var downloadHref = release.downloadHref || '#';
+    + renderReleaseAction(lang, 'qpx-nav__item qpx-nav__item--aux qpx-nav__item--release');
 
   return ''
     + '<a class="qpx-skip" href="#qpx-main">' + esc(content.pick(ui.skip, lang)) + '</a>'
@@ -142,9 +155,7 @@ function renderHeader(lang, themeMode) {
     +                 'data-qpx-release-message="' + esc(content.pick(release.sourcesPopupMessage, lang)) + '">'
     +           esc(content.pick(ui.sourcesCta, lang))
     +         '</button>'
-    +         '<a class="qpx-docs-cta qpx-docs-cta--release" href="' + esc(downloadHref) + '" download>'
-    +           esc(content.pick(ui.releaseCta, lang))
-    +         '</a>'
+    +         renderReleaseAction(lang, 'qpx-docs-cta qpx-docs-cta--release')
     +       '</div>'
     +     '</div>'
     +     '<nav class="qpx-nav" id="qpx-nav" data-qpx-nav '
@@ -161,7 +172,6 @@ function renderHero(lang) {
   var hero = content.hero;
   var branding = content.branding || {};
   var release = content.release;
-  var downloadHref = release.downloadHref || '#';
   var birthday = hero.birthday
     ? '<div class="qpx-hero__birth">'
       + '<span class="qpx-hero__birth-icon" aria-hidden="true">' + esc(hero.birthday.icon || '✦') + '</span>'
@@ -206,9 +216,7 @@ function renderHero(lang) {
     +               'data-qpx-release-message="' + esc(content.pick(release.sourcesPopupMessage, lang)) + '">'
     +         esc(content.pick(content.ui.sourcesCta, lang))
     +       '</button>'
-    +       '<a class="qpx-docs-cta qpx-docs-cta--release" href="' + esc(downloadHref) + '" download>'
-    +         esc(content.pick(content.ui.releaseCta, lang))
-    +       '</a>'
+    +       renderReleaseAction(lang, 'qpx-docs-cta qpx-docs-cta--release')
     +     '</div>'
     +     '<div class="qpx-hero__pillars">' + pillars + '</div>'
     +   '</div>'
@@ -219,17 +227,13 @@ function renderShotTile(section, img, lang) {
   var src = content.mediaPath(section, img.file);
   var alt = content.pick(img.alt, lang);
   var cap = content.pick(img.caption, lang);
-  // If the file doesn't exist yet, the <img> simply fails to load and
-  // the `.qpx-shot__frame` diagonal-stripe background stays visible —
-  // that's the intentional "placeholder" look. No inline error handler
-  // needed; the lightbox shows a dedicated "image not added yet" card
-  // via client.js on open.
+  var frameClass = 'qpx-shot__frame' + (img.fit === 'cover' ? ' qpx-shot__frame--cover' : '');
   return '<button type="button" class="qpx-shot" data-qpx-shot '
        +         'data-src="'     + esc(src) + '" '
        +         'data-alt="'     + esc(alt) + '" '
        +         'data-caption="' + esc(cap) + '" '
        +         'aria-label="'   + esc(alt || cap || img.file) + '">'
-       +   '<div class="qpx-shot__frame">'
+       +   '<div class="' + frameClass + '">'
        +     '<img loading="lazy" src="' + esc(src) + '" alt="' + esc(alt) + '">'
        +   '</div>'
        +   (cap
@@ -254,11 +258,15 @@ function renderSection(section, lang) {
     ? '<aside class="qpx-callout">' + renderInline(content.pick(section.callout, lang)) + '</aside>'
     : '';
 
-  var sectionImages = section.images || [];
+  var sectionImages = (section.images || []).filter(function (img) {
+    return content.mediaExists(section, img.file);
+  });
   var images = sectionImages.map(function (img) {
     return renderShotTile(section, img, lang);
   }).join('');
-  var imageClass = 'qpx-images' + (sectionImages.length === 1 ? ' qpx-images--single' : '');
+  var imageClass = 'qpx-images'
+    + (sectionImages.length === 1 ? ' qpx-images--single' : '')
+    + (sectionImages.length > 1 && sectionImages.length % 2 === 1 ? ' qpx-images--odd' : '');
   var imagesHtml = images
     ? '<div class="' + imageClass + '">' + images + '</div>'
     : '';
@@ -282,7 +290,13 @@ function renderSection(section, lang) {
 
 function renderDocs(lang) {
   var ds = content.docsSection;
-  var cards = ds.items.map(function (item) {
+  var availableItems = ds.items.filter(function (item) {
+    var links = (content.docs[item.key] && (content.docs[item.key][lang] || content.docs[item.key][content.defaultLang])) || {};
+    return links.preview && links.download
+      && content.publicAssetExists(links.preview)
+      && content.publicAssetExists(links.download);
+  });
+  var cards = availableItems.map(function (item) {
     var links = (content.docs[item.key] && (content.docs[item.key][lang] || content.docs[item.key][content.defaultLang])) || {};
     var previewHref = links.preview || links.download || '#';
     var downloadHref = links.download || previewHref;
@@ -296,6 +310,7 @@ function renderDocs(lang) {
          +   '<span class="qpx-doc-card__open">' + esc(content.pick(content.ui.previewCta, lang)) + '</span>'
          + '</a>';
   }).join('');
+  var pending = cards ? '' : '<p class="qpx-docs__pending">' + esc(content.pick(ds.pending, lang)) + '</p>';
 
   return ''
     + '<section class="qpx-section" id="' + esc(ds.id) + '">'
@@ -305,7 +320,8 @@ function renderDocs(lang) {
     +       '<h2 class="qpx-section__title">' + esc(content.pick(ds.title, lang)) + '</h2>'
     +       '<p class="qpx-section__summary">' + esc(content.pick(ds.summary, lang)) + '</p>'
     +     '</div>'
-    +     '<div class="qpx-docs">' + cards + '</div>'
+    +     pending
+    +     (cards ? '<div class="qpx-docs">' + cards + '</div>' : '')
     +   '</div>'
     + '</section>';
 }
@@ -343,9 +359,7 @@ function renderReleaseSection(lang) {
     +     '</div>'
     +     '<div class="qpx-section__body">' + body + '</div>'
     +     '<div class="qpx-release__actions">'
-    +       '<a class="qpx-docs-cta qpx-docs-cta--release qpx-release__button" href="' + esc(r.downloadHref || '#') + '" download>'
-    +         esc(content.pick(content.ui.releaseCta, lang))
-    +       '</a>'
+    +       renderReleaseAction(lang, 'qpx-docs-cta qpx-docs-cta--release qpx-release__button')
     +       '<button type="button" class="qpx-docs-cta qpx-release__button" data-qpx-release-open '
     +               'data-qpx-release-title="' + esc(content.pick(r.sourcesPopupTitle, lang)) + '" '
     +               'data-qpx-release-message="' + esc(content.pick(r.sourcesPopupMessage, lang)) + '">'
@@ -381,11 +395,17 @@ function renderBetaSection(lang) {
       +   esc(content.pick(content.ui.betaCta, lang))
       + '</button>';
   var betaSection = { slug: b.slug || 'beta' };
-  var images = (b.images || []).map(function (img) {
+  var betaImages = (b.images || []).filter(function (img) {
+    return content.mediaExists(betaSection, img.file);
+  });
+  var images = betaImages.map(function (img) {
     return renderShotTile(betaSection, img, lang);
   }).join('');
+  var imageClass = 'qpx-images qpx-beta__images'
+    + (betaImages.length === 1 ? ' qpx-images--single' : '')
+    + (betaImages.length > 1 && betaImages.length % 2 === 1 ? ' qpx-images--odd' : '');
   var imagesHtml = images
-    ? '<div class="qpx-images qpx-beta__images">' + images + '</div>'
+    ? '<div class="' + imageClass + '">' + images + '</div>'
     : '';
 
   return ''
@@ -523,6 +543,49 @@ function renderReleaseModal(lang) {
 
 /* ── main entry ── */
 
+function renderPreferenceBootstrap() {
+  return ''
+    +   '<script>(function(){try{'
+    +     'var u=new URL(window.location.href);'
+    +     'if(u.searchParams.has("lang")){'
+    +       'var q=u.searchParams.get("lang");'
+    +       'if(/^(ru|en)$/.test(q))localStorage.setItem("qpx_lang",q);'
+    +       'return;'
+    +     '}'
+    +     'var saved=localStorage.getItem("qpx_lang");'
+    +     'if(!saved||!/^(ru|en)$/.test(saved))return;'
+    +     'var cur=document.documentElement.getAttribute("lang")||"";'
+    +     'if(saved===cur)return;'
+    +     'u.searchParams.set("lang",saved);'
+    +     'window.location.replace(u.toString());'
+    +   '}catch(e){}})();</script>'
+    +   '<script>(function(){try{'
+    +     'var root=document.documentElement;'
+    +     'var mode=root.getAttribute("data-qpx-theme-mode")||"auto";'
+    +     'function resolveMode(v){return(v==="dark"||v==="light"||v==="auto")?v:"auto";}'
+    +     'function resolved(v){'
+    +       'if(v==="dark"||v==="light")return v;'
+    +       'var mq=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)");'
+    +       'return mq&&mq.matches?"dark":"light";'
+    +     '}'
+    +     'function apply(v){'
+    +       'v=resolveMode(v);'
+    +       'root.setAttribute("data-qpx-theme-mode",v);'
+    +       'var actual=resolved(v);'
+    +       'root.setAttribute("data-qpx-theme",actual);'
+    +       'var meta=document.querySelector(\'meta[name="theme-color"]\');'
+    +       'if(meta)meta.setAttribute("content",actual==="light"?"#f4f7fc":"#0a0d15");'
+    +     '}'
+    +     'apply(mode);'
+    +     'if(window.matchMedia){'
+    +       'var mq=window.matchMedia("(prefers-color-scheme: dark)");'
+    +       'var onChange=function(){if((root.getAttribute("data-qpx-theme-mode")||"auto")==="auto")apply("auto");};'
+    +       'if(mq.addEventListener)mq.addEventListener("change",onChange);else if(mq.addListener)mq.addListener(onChange);'
+    +     '}'
+    +   '}catch(e){}})();</script>'
+;
+}
+
 function renderPage(opts) {
   var lang  = content.resolveLang(opts && opts.lang);
   var themeMode = content.resolveTheme(opts && opts.theme);
@@ -569,44 +632,7 @@ function renderPage(opts) {
      *
      * Wrapped in try/catch so private-mode / sandboxed localStorage
      * never breaks the page. */
-    +   '<script>(function(){try{'
-    +     'var u=new URL(window.location.href);'
-    +     'if(u.searchParams.has("lang")){'
-    +       'var q=u.searchParams.get("lang");'
-    +       'if(/^(ru|en)$/.test(q))localStorage.setItem("qpx_lang",q);'
-    +       'return;'
-    +     '}'
-    +     'var saved=localStorage.getItem("qpx_lang");'
-    +     'if(!saved||!/^(ru|en)$/.test(saved))return;'
-    +     'var cur=document.documentElement.getAttribute("lang")||"";'
-    +     'if(saved===cur)return;'
-    +     'u.searchParams.set("lang",saved);'
-    +     'window.location.replace(u.toString());'
-    +   '}catch(e){}})();</script>'
-    +   '<script>(function(){try{'
-    +     'var root=document.documentElement;'
-    +     'var mode=root.getAttribute("data-qpx-theme-mode")||"auto";'
-    +     'function resolveMode(v){return(v==="dark"||v==="light"||v==="auto")?v:"auto";}'
-    +     'function resolved(v){'
-    +       'if(v==="dark"||v==="light")return v;'
-    +       'var mq=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)");'
-    +       'return mq&&mq.matches?"dark":"light";'
-    +     '}'
-    +     'function apply(v){'
-    +       'v=resolveMode(v);'
-    +       'root.setAttribute("data-qpx-theme-mode",v);'
-    +       'var actual=resolved(v);'
-    +       'root.setAttribute("data-qpx-theme",actual);'
-    +       'var meta=document.querySelector(\'meta[name="theme-color"]\');'
-    +       'if(meta)meta.setAttribute("content",actual==="light"?"#f4f7fc":"#0a0d15");'
-    +     '}'
-    +     'apply(mode);'
-    +     'if(window.matchMedia){'
-    +       'var mq=window.matchMedia("(prefers-color-scheme: dark)");'
-    +       'var onChange=function(){if((root.getAttribute("data-qpx-theme-mode")||"auto")==="auto")apply("auto");};'
-    +       'if(mq.addEventListener)mq.addEventListener("change",onChange);else if(mq.addListener)mq.addListener(onChange);'
-    +     '}'
-    +   '}catch(e){}})();</script>'
+    +   renderPreferenceBootstrap()
     +   '<style>' + CSS + '</style>'
     + '</head>'
     + '<body>'
@@ -627,4 +653,4 @@ function renderPage(opts) {
     + '</html>';
 }
 
-module.exports = { renderPage };
+module.exports = { renderPage, renderPreferenceBootstrap, renderModal, esc };

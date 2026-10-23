@@ -1,1 +1,0 @@
-curl https://api.telegram.org/botBACKUP_REDACTED_SET_LOCALLY/getWebhookInfo

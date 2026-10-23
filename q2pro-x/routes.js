@@ -85,9 +85,9 @@ function attachQ2proxRoutes(app) {
   console.log('[q2pro-x] attachQ2proxRoutes called');
 
   // ── Static media (in-tree, maintained by site module) ───────────────
-  // Served from O:\Claude\q2pro-x\media\<section>\<file>. Safe to leave
-  // empty — the page shows placeholder tiles when a file 404s and picks
-  // up real screenshots as they're added.
+  // Served from O:\Claude\q2pro-x\media\<section>\<file>. Missing files are
+  // filtered out before rendering, so an unfinished screenshot set cannot
+  // leave empty cards or holes in the page gallery.
   var mediaDir = path.resolve(__dirname, 'media');
   app.use('/q2pro-x/media', express.static(mediaDir, {
     fallthrough: true,
@@ -118,7 +118,7 @@ function attachQ2proxRoutes(app) {
   }));
 
   // ── Generated HTML doc previews for modal viewing ───────────────────
-  // Produced by O:\Claude2\q2pro\build_q2prox_website_docs.py from the
+  // Produced by q2pro-x/tools/install-release-1-5-docs.py from the accepted
   // source .docx files, then loaded into an iframe modal on the page.
   var docsPreviewDir = path.resolve(__dirname, '..', 'public', 'q2pro-x', 'docs-preview');
   app.use('/q2pro-x/docs-preview', express.static(docsPreviewDir, {
@@ -153,6 +153,12 @@ function attachQ2proxRoutes(app) {
       res.setHeader('Cache-Control', 'public, max-age=86400');
     },
   }));
+
+  require('./history').attachHistoryRoutes(app, pickLangFromRequest, pickThemeFromRequest);
+
+  require('./history').attachHistoryRoutes(app, pickLangFromRequest, pickThemeFromRequest);
+
+  require('./mapgen').attachMapgenRoutes(app, pickLangFromRequest, pickThemeFromRequest);
 
   // Main page.
   app.get('/q2pro-x', function (req, res) {

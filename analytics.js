@@ -6,7 +6,7 @@ const path = require('path');
 
 const { MongoClient } = require('mongodb');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'BACKUP_REDACTED_SET_LOCALLY';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tournament';
 
 // SITE_CHAT_ID=-4961062249,350920766,-5094364912
 const SITE_CHAT_ID = (process.env.SITE_CHAT_ID || '')

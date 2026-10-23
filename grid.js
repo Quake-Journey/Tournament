@@ -3,7 +3,7 @@ require('dotenv').config();
 
 const { MongoClient } = require('mongodb');
 
-const MONGODB_URI = process.env.MONGODB_URI || 'BACKUP_REDACTED_SET_LOCALLY';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/tournament';
 
 const SITE_CHAT_ID = (process.env.SITE_CHAT_ID || '')
   .split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(v => !Number.isNaN(v));

@@ -142,10 +142,28 @@ vite.config.ts.timestamp-*
 .env
 .env.*
 !.env.example
-!.env.countries
-!.env.nicks
 node_modules/
 *.key
 *.pem
 *.pfx
 Backup/
+
+# Local deployment data and large release packages live outside public Git.
+q2pro-x/config/*
+!q2pro-x/config/*.example.txt
+screenshots/
+Caddy_prod/
+public/**/downloads/
+*.local.json
+*.production.json
+*.mvd2
+*.dm2
+*.dmp
+*.rar
+*.zip
+*.exe
+*.bak
+
+# Python caches
+__pycache__/
+*.pyc

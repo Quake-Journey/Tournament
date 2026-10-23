@@ -6590,6 +6590,9 @@ async function main() {
   // See O:\Claude2\q2pro\TO-DO\tz_2026-04-27_translate_proxy_node.md
   const { attachQ2proxTranslateRoute } = require('./q2pro-x/translate');
   attachQ2proxTranslateRoute(app);
+  // Signed, replay-resistant policy API used by Q2PRO-X 1.5 live item timers.
+  const { attachQ2proxTimerAuthorizationRoute } = require('./q2pro-x/timer-authorization');
+  attachQ2proxTimerAuthorizationRoute(app);
 
   // Медиа (скриншоты)
   app.use('/media', express.static(SCREENSHOTS_DIR, {

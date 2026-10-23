@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="492" height="108" viewBox="0 0 492 108" role="img" aria-label="MAPGEN Studio">
+<defs><linearGradient id="blue" x2="1" y2="1"><stop stop-color="#64c8ff"/><stop offset="1" stop-color="#397fea"/></linearGradient></defs>
+<rect x="2" y="5" width="96" height="96" rx="17" fill="#182030" stroke="#344460" stroke-width="2"/>
+<g fill="#244066" stroke="url(#blue)" stroke-width="2.5"><path d="M18 20H43V43H18Z M60 23H82V47H60Z M18 62H41V85H18Z M59 65H83V86H59Z"/></g>
+<g fill="none" stroke="url(#blue)" stroke-width="3"><path d="M43 32H60 M30 43V62 M71 47V65 M41 74H59"/></g>
+<path d="M79 13L69 28L74 36L55 53L59 62L42 71L46 81L30 95" fill="none" stroke="#ffb050" stroke-width="5" stroke-linejoin="miter"/>
+<path d="M79 13L69 28L74 36L55 53L59 62L42 71L46 81L30 95" fill="none" stroke="#182030" stroke-width="1.7"/>
+<text x="118" y="57" fill="#eaf1ff" font-family="Segoe UI,Arial,sans-serif" font-size="48" font-weight="750" letter-spacing="1.5">MAPGEN</text>
+<text x="120" y="84" fill="#9bb4d8" font-family="Segoe UI,Arial,sans-serif" font-size="18" letter-spacing="6">STUDIO</text></svg>

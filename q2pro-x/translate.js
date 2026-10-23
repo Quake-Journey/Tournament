@@ -36,6 +36,8 @@
 //     Q2PROX_TRANSLATE_RPM       = 30        per-IP req/min
 //     Q2PROX_TRANSLATE_TIMEOUT_MS= 3000      upstream timeout to Yandex
 //     Q2PROX_TRANSLATE_MAX_QLEN  = 500       max input chars
+//     Q2PROX_TRANSLATE_MAX_BATCH = 32        max v2 texts per request
+//     Q2PROX_TRANSLATE_MAX_CHARS = 8000      max v2 combined input chars
 //     Q2PROX_TRANSLATE_DEBUG     = 0|1       extra console line on errors
 //
 // Rate-limit storage: in-memory (express-rate-limit default). Per
@@ -70,7 +72,14 @@ const YANDEX_URL =
 const RPM        = Number(process.env.Q2PROX_TRANSLATE_RPM || 30);
 const TIMEOUT_MS = Number(process.env.Q2PROX_TRANSLATE_TIMEOUT_MS || 3000);
 const MAX_QLEN   = Number(process.env.Q2PROX_TRANSLATE_MAX_QLEN || 500);
+const MAX_BATCH  = Number(process.env.Q2PROX_TRANSLATE_MAX_BATCH || 32);
+const MAX_CHARS  = Number(process.env.Q2PROX_TRANSLATE_MAX_CHARS || 8000);
 const DEBUG      = String(process.env.Q2PROX_TRANSLATE_DEBUG || '0') === '1';
+
+const SOURCE_LANGUAGES = new Set([
+  'en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'cs', 'sk',
+  'hu', 'ro', 'hr', 'sl', 'tr', 'sv', 'no', 'da', 'fi',
+]);
 
 function hashIp(ip) {
   return crypto.createHash('sha256').update(String(ip || '')).digest('hex').slice(0, 12);
@@ -129,7 +138,10 @@ function attachQ2proxTranslateRoute(app) {
   // Local JSON body parser scoped to this route only — site.js
   // doesn't enable a global body parser so we don't surprise other
   // routes by reading bodies they don't expect.
-  const parseJson = express.json({ limit: '4kb', type: 'application/json' });
+  // A valid v2 batch can expand while JSON-escaped (and its UTF-8 response can
+  // exceed the input byte count), so keep the parser above the product's
+  // separately enforced 8,000-character payload cap.
+  const parseJson = express.json({ limit: '64kb', type: 'application/json' });
 
   app.post('/api/translate', limiter, parseJson, async function (req, res) {
     const t0 = Date.now();
@@ -151,21 +163,52 @@ function attachQ2proxTranslateRoute(app) {
 
     // 3. Validate body shape.
     const body = req.body || {};
-    const q      = body.q;
-    const source = body.source;
-    const target = body.target;
-    const format = body.format;
+    const isBatch = body.version === 2;
+    const source  = body.source;
+    const target  = body.target;
+    const format  = body.format;
+    let texts;
+    let qlen;
 
-    if (typeof q !== 'string' || q.length === 0 || q.length > MAX_QLEN) {
-      logMetric(req, res, t0, q ? q.length : 0, 0, 'bad_q', 400);
-      return res.status(400).json({ error: 'bad q' });
-    }
-    if (target && target !== 'en') {
-      logMetric(req, res, t0, q.length, 0, 'bad_target', 400);
-      return res.status(400).json({ error: 'bad target' });
+    if (isBatch) {
+      texts = body.texts;
+      if (!Array.isArray(texts) || texts.length === 0 ||
+          texts.length > MAX_BATCH ||
+          texts.some((text) => typeof text !== 'string' ||
+            text.length === 0 || text.length >= 2048)) {
+        logMetric(req, res, t0, 0, 0, 'bad_texts', 400);
+        return res.status(400).json({ error: 'bad texts' });
+      }
+      qlen = texts.reduce((sum, text) => sum + text.length, 0);
+      if (qlen > MAX_CHARS) {
+        logMetric(req, res, t0, qlen, 0, 'batch_too_large', 400);
+        return res.status(400).json({ error: 'batch too large' });
+      }
+      if (source !== 'auto' && !SOURCE_LANGUAGES.has(source)) {
+        logMetric(req, res, t0, qlen, 0, 'bad_source', 400);
+        return res.status(400).json({ error: 'bad source' });
+      }
+      // Incoming-console translation is intentionally Russian-only in v2.
+      // This keeps the public paid endpoint no broader than the product need.
+      if (target !== 'ru') {
+        logMetric(req, res, t0, qlen, 0, 'bad_target', 400);
+        return res.status(400).json({ error: 'bad target' });
+      }
+    } else {
+      const q = body.q;
+      if (typeof q !== 'string' || q.length === 0 || q.length > MAX_QLEN) {
+        logMetric(req, res, t0, q ? q.length : 0, 0, 'bad_q', 400);
+        return res.status(400).json({ error: 'bad q' });
+      }
+      texts = [q];
+      qlen = q.length;
+      if (target && target !== 'en') {
+        logMetric(req, res, t0, qlen, 0, 'bad_target', 400);
+        return res.status(400).json({ error: 'bad target' });
+      }
     }
     if (format && format !== 'text') {
-      logMetric(req, res, t0, q.length, 0, 'bad_format', 400);
+      logMetric(req, res, t0, qlen, 0, 'bad_format', 400);
       return res.status(400).json({ error: 'bad format' });
     }
 
@@ -173,11 +216,11 @@ function attachQ2proxTranslateRoute(app) {
     //    is omitted, which handles mixed RU+EN client text.
     const yandexBody = {
       folderId:           folderId,
-      texts:              [q],
-      targetLanguageCode: target || 'en',
+      texts:              texts,
+      targetLanguageCode: isBatch ? 'ru' : (target || 'en'),
     };
-    if (source === 'ru')
-      yandexBody.sourceLanguageCode = 'ru';
+    if (source && source !== 'auto')
+      yandexBody.sourceLanguageCode = source;
 
     // 5. Issue the upstream request with a hard timeout.
     let r, data;
@@ -194,7 +237,7 @@ function attachQ2proxTranslateRoute(app) {
     } catch (e) {
       const why = (e && e.name === 'TimeoutError') ? 'upstream_timeout' : 'upstream_error';
       const code = (why === 'upstream_timeout') ? 504 : 502;
-      logMetric(req, res, t0, q.length, 0, why, code);
+      logMetric(req, res, t0, qlen, 0, why, code);
       if (DEBUG)
         process.stderr.write('[q2prox-translate] fetch error: ' + (e && e.message) + '\n');
       return res.status(code).json({ error: why });
@@ -207,7 +250,7 @@ function attachQ2proxTranslateRoute(app) {
       let upstreamBody = '';
       try { upstreamBody = await r.text(); } catch (_) {}
       const code = (r.status === 429) ? 429 : 502;
-      logMetric(req, res, t0, q.length, 0, 'upstream_' + r.status, code);
+      logMetric(req, res, t0, qlen, 0, 'upstream_' + r.status, code);
       if (DEBUG && upstreamBody) {
         process.stderr.write(
           '[q2prox-translate] upstream HTTP ' + r.status + ' body: ' +
@@ -219,21 +262,37 @@ function attachQ2proxTranslateRoute(app) {
     try {
       data = await r.json();
     } catch (e) {
-      logMetric(req, res, t0, q.length, 0, 'upstream_parse', 502);
+      logMetric(req, res, t0, qlen, 0, 'upstream_parse', 502);
       return res.status(502).json({ error: 'upstream parse' });
     }
 
-    const translatedText =
-      data && data.translations && data.translations[0] && data.translations[0].text;
-    if (typeof translatedText !== 'string') {
-      logMetric(req, res, t0, q.length, 0, 'upstream_shape', 502);
+    const translations = data && data.translations;
+    if (!Array.isArray(translations) || translations.length !== texts.length ||
+        translations.some((item) => !item || typeof item.text !== 'string')) {
+      logMetric(req, res, t0, qlen, 0, 'upstream_shape', 502);
       return res.status(502).json({ error: 'upstream shape' });
     }
+
+    const outlen = translations.reduce((sum, item) => sum + item.text.length, 0);
+    if (isBatch) {
+      // The array order is the correlation contract. The game keeps player
+      // names locally and never sends them to this paid translation route.
+      const normalized = translations.map((item) => ({
+        text: item.text,
+        detectedLanguageCode:
+          typeof item.detectedLanguageCode === 'string'
+            ? item.detectedLanguageCode : '',
+      }));
+      logMetric(req, res, t0, qlen, outlen, 'ok_v2', 200);
+      return res.json({ translations: normalized });
+    }
+
+    const translatedText = translations[0].text;
 
     // 6. Normalize Yandex response into LibreTranslate shape so the
     //    Q2PRO-X.exe parser (which scans for "translatedText") works
     //    without any client-side change.
-    logMetric(req, res, t0, q.length, translatedText.length, 'ok', 200);
+    logMetric(req, res, t0, qlen, translatedText.length, 'ok', 200);
     res.json({ translatedText: translatedText });
   });
 }

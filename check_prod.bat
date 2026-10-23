@@ -1,1 +1,0 @@
-curl https://api.telegram.org/bot8404100218:AAHFieEuPK6lx55T-lOfBO_9_D_Gq8ONOd0/getWebhookInfo

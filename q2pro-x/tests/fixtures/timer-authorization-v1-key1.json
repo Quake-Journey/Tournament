@@ -1,0 +1,32 @@
+{
+  "warning": "PUBLIC VERIFICATION FIXTURE ONLY. It contains no private key and is expired.",
+  "protocol": "Q2PRO-X live item timer authorization v1",
+  "key": {
+    "protocol": "Q2PRO-X live item timer authorization v1",
+    "keyId": 1,
+    "algorithm": "ECDSA P-256 with SHA-256, IEEE P1363 r||s",
+    "curve": "P-256",
+    "xBase64Url": "WIRCkekpE-ep4xQ3C8HbWV407VHdI3iCDpS0enauvho",
+    "yBase64Url": "eM8BIq_2s4BpUk1IOWHYVnS-9tHdpZn-OpXQ3r_Jj80",
+    "xHex": "58844291e92913e7a9e314370bc1db595e34ed51dd2378820e94b47a76aebe1a",
+    "yHex": "78cf0122aff6b38069524d483961d85674bef6d1dda599fe3a95d0debfc98fcd",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWIRCkekpE+ep4xQ3C8HbWV407VHd\nI3iCDpS0enauvhp4zwEir/azgGlSTUg5YdhWdL720d2lmf46ldDev8mPzQ==\n-----END PUBLIC KEY-----\n"
+  },
+  "requestHex": "5132585441525131010104006d06cb00711900000000000000000000000000112233445566778899aabbccddeeff000e001c71322e6578616d706c652e6e6574513250524f2d5820312e352070726f746f636f6c2066697874757265",
+  "requestSha256Hex": "d2df81ab3cdb90175a306aba8d89ab7ac2ceb13beab4a5366df3261c3e5c739c",
+  "envelopeHex": "51325854414556310000009251325854415253310101000100046d06cb00711900000000000000000000000000112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100d2df81ab3cdb90175a306aba8d89ab7ac2ceb13beab4a5366df3261c3e5c739cad69322f2df42322dc917ecb8f582ca6ee8e9dc45ec4903c08501e7bfe822e7e000000006553f100000000006553f11e00000040590131d94ea288a535e6450cf09bc808144330bab03bf7665644b152f2a3d3ca5a3d7c9c96eef4b8116a3fb77197af11de0f3f881ebf7e3edd055e5d1b3febd3",
+  "signedBodyHex": "51325854415253310101000100046d06cb00711900000000000000000000000000112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100d2df81ab3cdb90175a306aba8d89ab7ac2ceb13beab4a5366df3261c3e5c739cad69322f2df42322dc917ecb8f582ca6ee8e9dc45ec4903c08501e7bfe822e7e000000006553f100000000006553f11e0000",
+  "signatureP1363Hex": "590131d94ea288a535e6450cf09bc808144330bab03bf7665644b152f2a3d3ca5a3d7c9c96eef4b8116a3fb77197af11de0f3f881ebf7e3edd055e5d1b3febd3",
+  "expected": {
+    "force": 0,
+    "targetFamily": 4,
+    "targetAddressHex": "cb007119",
+    "targetPort": 27910,
+    "clientNonceHex": "00112233445566778899aabbccddeeff",
+    "serverNonceHex": "ffeeddccbbaa99887766554433221100",
+    "issuedAt": 1700000000,
+    "acceptBefore": 1700000030,
+    "configSha256Hex": "ad69322f2df42322dc917ecb8f582ca6ee8e9dc45ec4903c08501e7bfe822e7e",
+    "entryCount": 0
+  }
+}

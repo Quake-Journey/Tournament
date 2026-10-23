@@ -19,9 +19,9 @@ One folder per feature section, served from `/q2pro-x/media/<folder>/<file>`.
 Use a 2-digit prefix so listings stay ordered:
 
 ```
-01-overview.png
-02-overlay.png
-03-debug.png
+01-overview.jpg
+02-overlay.jpg
+03-debug.jpg
 ```
 
 ## How new screenshots land on the page
@@ -36,7 +36,7 @@ entry to the matching section's `images: [ ... ]` array:
 
 ```js
 {
-  file: '04-new-shot.png',
+  file: '04-new-shot.jpg',
   alt:     { ru: 'Описание alt', en: 'Alt description' },
   caption: { ru: 'Подпись',      en: 'Caption' },
 },
