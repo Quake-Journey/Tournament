@@ -6,6 +6,11 @@ const path = require('path');
 const fs   = require('fs');
 const dgram = require('dgram');
 const { WebSocketServer } = require('ws');
+const { createSpectatorPolicy, closeSpectatorUDP } = require('./q2tv/spectator-policy');
+const { createHTTPDownloads } = require('./q2tv/http-download');
+const { playerPage } = require('./q2tv/player-page');
+const { assetHeaders } = require('./q2tv/asset-manifest');
+const q2tvDownloads = createHTTPDownloads();
 
 const MONGODB_URI = process.env.MONGODB_URI;
 // Q2TV: путь к собранным файлам WebQuake2 (emscripten-директория)
@@ -6611,6 +6616,12 @@ async function main() {
   }));
 
   // ── Q2TV: раздача WebQuake2 файлов ──────────────────────────────────────────
+  app.get(['/q2tv/http-file','/q2tv-mobile/http-file'],q2tvDownloads.handle);
+  for (const name of ['asset-cache.js','http-client.js','viewer-only.js']) {
+    app.get(['/q2tv/'+name,'/q2tv-mobile/'+name],async(req,res,next)=>{
+      try {const file=path.join(__dirname,'q2tv',name);if(await assetHeaders(req,res,file))res.sendFile(file);}catch(error){next(error);}
+    });
+  }
   if (Q2TV_WEBROOT && fs.existsSync(Q2TV_WEBROOT)) {
     const Q2TV_MIME = {
       '.html': 'text/html; charset=utf-8',
@@ -6655,20 +6666,21 @@ async function main() {
       function tryNext(i) {
         if (i >= candidates.length) return next();
         const { file, encoding } = candidates[i];
-        fs.stat(file, (err, stat) => {
+        fs.stat(file, async (err, stat) => {
           if (err || !stat.isFile()) return tryNext(i + 1);
           const ext = path.extname(file).toLowerCase();
           res.setHeader('Content-Type', q2tvMime(file));
+          if (ext === '.html') {
+            fs.readFile(file,'utf8',async(error,html)=>{
+              if(error)return next(error);
+              res.removeHeader('Content-Length');res.setHeader('Cache-Control','no-cache');
+              try { res.send(await playerPage(html,Q2TV_WEBROOT)); } catch (error) { next(error); }
+            });return;
+          }
+          try {if(!await assetHeaders(req,res,absPath))return;}catch(error){return next(error);}
           res.setHeader('Content-Length', stat.size);
           res.setHeader('Access-Control-Allow-Origin', '*');
           if (encoding) res.setHeader('Content-Encoding', encoding);
-          if (ext === '.data') {
-            res.setHeader('Cache-Control', 'no-cache');
-          } else if (ext === '.wasm' || ext === '.js') {
-            res.setHeader('Cache-Control', 'no-cache');
-          } else {
-            res.setHeader('Cache-Control', 'no-cache');
-          }
           res.status(200);
           fs.createReadStream(file).pipe(res);
         });
@@ -6701,14 +6713,20 @@ async function main() {
       function tryNext(i) {
         if (i >= candidates.length) return next();
         const { file, encoding } = candidates[i];
-        fs.stat(file, (err, stat) => {
+        fs.stat(file, async (err, stat) => {
           if (err || !stat.isFile()) return tryNext(i + 1);
           res.setHeader('Content-Type', q2tvMime(file));
+          if (path.extname(file).toLowerCase() === '.html') {
+            fs.readFile(file,'utf8',async(error,html)=>{
+              if(error)return next(error);
+              res.removeHeader('Content-Length');res.setHeader('Cache-Control','no-cache');
+              try { res.send(await playerPage(html,Q2TV_MOBILE_WEBROOT)); } catch (error) { next(error); }
+            });return;
+          }
+          try {if(!await assetHeaders(req,res,absPath))return;}catch(error){return next(error);}
           res.setHeader('Content-Length', stat.size);
           res.setHeader('Access-Control-Allow-Origin', '*');
           if (encoding) res.setHeader('Content-Encoding', encoding);
-          const mobileExt = path.extname(absPath).toLowerCase();
-          res.setHeader('Cache-Control', mobileExt === '.html' ? 'no-cache' : 'public, max-age=604800');
           res.status(200);
           fs.createReadStream(file).pipe(res);
         });
@@ -7292,12 +7310,13 @@ async function main() {
       console.log(`[q2tv] WS CONNECT ${clientAddr} → udp://${udpHost}:${udpPort}`);
 
       const udp = dgram.createSocket('udp4');
+      const spectatorPolicy = createSpectatorPolicy();
       let closed = false;
 
       function cleanup() {
         if (closed) return;
         closed = true;
-        try { udp.close(); } catch (_) {}
+        closeSpectatorUDP(udp,spectatorPolicy,udpPort,udpHost);
         try { ws.close(); }  catch (_) {}
         console.log(`[q2tv] WS CLOSE  ${clientAddr} → udp://${udpHost}:${udpPort}`);
       }
@@ -7307,12 +7326,15 @@ async function main() {
         if (buf.length < 2) return;
         const len = buf.readUInt16LE(0);
         if (buf.length < 2 + len) return;
-        udp.send(buf.slice(2, 2 + len), udpPort, udpHost, (err) => {
+        const spectatorPacket = spectatorPolicy.filter(buf.subarray(2, 2 + len));
+        if (!spectatorPacket) return;
+        udp.send(spectatorPacket, udpPort, udpHost, (err) => {
           if (err) console.error('[q2tv] UDP send:', err.message);
         });
       });
 
       udp.on('message', (msg) => {
+        q2tvDownloads.observe(target,msg);
         if (ws.readyState !== 1) return;
         const out = Buffer.allocUnsafe(2 + msg.length);
         out.writeUInt16LE(msg.length, 0);
