@@ -1159,6 +1159,11 @@ const docs = {
 /* ───────────────────────── RELEASE / DOWNLOADS ───────────────────────── */
 
 const release = {
+  latestBetas: {
+    href: 'https://t.me/Q2PROX',
+    label: {ru: 'Последние беты в Telegram', en: 'Latest betas on Telegram'},
+    text: {ru: 'В открытой группе публикуются более свежие тестовые сборки. Последняя полная сборка доступна на этой странице.', en: 'Newer test builds are posted in the public group. The latest full build is available on this page.'}
+  },
   version: '1.5',
   available: true,
   downloadHref: versionedPublicUrl('/q2pro-x/downloads/q2pro-x-1.5.rar'),

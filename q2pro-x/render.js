@@ -332,6 +332,11 @@ function renderReleaseSection(lang) {
   var body = (content.pick(r.sectionBody, lang) || [])
     .map(function (p) { return '<p>' + renderInline(p) + '</p>'; })
     .join('');
+  if (r.latestBetas) {
+    body += '<p><a href="' + esc(r.latestBetas.href) + '" target="_blank" rel="noopener noreferrer">'
+      + esc(content.pick(r.latestBetas.label, lang)) + '</a>. '
+      + esc(content.pick(r.latestBetas.text, lang)) + '</p>';
+  }
   var quickStartHtml = quickStart.length
     ? '<div class="qpx-release__quickstart-wrap">'
       + '<div class="qpx-release__quickstart-head">'
